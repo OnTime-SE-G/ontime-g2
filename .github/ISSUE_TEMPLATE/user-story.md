@@ -2,8 +2,8 @@
 name: User Story
 about: Create a user story for each increment
 title: "[USER STORY] "
-labels: ''
-assignees: ''
+labels: []
+assignees: []
 ---
 
 
