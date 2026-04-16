@@ -10,7 +10,21 @@
 
 ## 1. Project Overview
 
-Group G is building a **real-time public transport intelligence platform** for Sri Lanka. The system tracks live bus positions via GPS, predicts arrival times using ML models, enables smart dispatching, and provides role-specific interfaces for passengers, drivers, and schedulers.
+Group G is building a **real-time public transport intelligence platform** for Sri Lanka. The system tracks live bus positions via GPS, predicts arrival times using ML models, and provides role-specific interfaces for passengers and drivers.
+
+### First Release Scope
+
+> **Important:** The first release focuses on **Passenger** and **Driver** roles only.
+
+| Active in First Release | Deferred to Future Releases |
+|------------------------|----------------------------|
+| Live bus tracking on map (Passenger) | Scheduler dashboard & dispatch UI |
+| Bus state machine — Start/End trip (Driver) | ETA prediction (ML models) |
+| GPS ingestion pipeline | Anomaly detection (3-layer) |
+| FastAPI REST + WebSocket APIs | Route search & multi-route |
+| Docker infrastructure | Crowd intelligence (IR sensors) |
+
+**Assumptions:** Buses run on a fixed timetable. Scheduling and dispatch are done manually. System focus begins at the moment a driver taps "Start Trip."
 
 ### System Domain
 
@@ -18,9 +32,9 @@ Group G is building a **real-time public transport intelligence platform** for S
 |--------|--------|
 | **Domain** | Public Transportation |
 | **Geography** | Sri Lanka (MVP: Moratuwa → Kadawatha route) |
-| **End Users** | Passengers, Bus Drivers, Schedulers/Dispatchers |
-| **Data Sources** | GPS devices (G1), IR sensors (future), manual input |
-| **Key Output** | Live tracking, ETA predictions, anomaly alerts, scheduling |
+| **End Users** | Passengers, Bus Drivers |
+| **Data Sources** | GPS devices (G1), manual input |
+| **Key Output** | Live tracking, bus state management, ETA predictions (future) |
 
 ---
 
@@ -150,7 +164,7 @@ All subgroups must demonstrate competency in the following areas:
 | **Deployment** | Docker images built by G4 CI/CD |
 | **Health** | `GET /health` — dependency status |
 | **Metrics** | `GET /metrics` — Prometheus format |
-| **Auth** | Keycloak JWT validation for user-facing endpoints |
+| **Auth** | Keycloak JWT validation for driver endpoints |
 | **Config** | All via environment variables (`.env`) |
 
 ---
@@ -161,8 +175,8 @@ The main group must submit a project report containing the following:
 
 | # | Deliverable | Status | Owner |
 |---|------------|--------|-------|
-| 1 | Complete SRS (Functional, NFR, Domain, RE process) | 🟡 In Progress | G2 lead |
-| 2 | Complete Design Specification (Architecture at large + specific) | ⬜ Not Started | All |
+| 1 | Complete SRS (Functional, NFR, Domain, RE process) | ✅ Done (v1.1) | G2 lead |
+| 2 | Complete Design Specification (Architecture at large + specific) | 🟡 In Progress | All |
 | 3 | Development details, algorithms, data models | ⬜ Not Started | G2 |
 | 4 | Testing reports (Unit, System, UAT) | ⬜ Not Started | All |
 | 5 | Deployment plan, config, security & perf testing | ⬜ Not Started | G4 |
@@ -214,4 +228,4 @@ Projects are evaluated on:
 
 ---
 
-*Last updated: April 2026*
+*Last updated: 16-th April 2026*

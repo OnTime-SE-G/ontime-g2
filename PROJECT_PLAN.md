@@ -1,25 +1,41 @@
 # OnTime G2 — Project Plan & Incremental Delivery Roadmap
 
-> **Version:** 1.0  
+> **Version:** 1.1  
 > **Date:** April 2026  
 > **Methodology:** Agile Scrum (2-week sprints)  
 > **Status:** Planning
 
 ---
 
-## 1. Incremental Strategy Overview
+## 1. First Release Assumptions
 
-The system is delivered in **6 modular increments**. Each increment produces a **fully working software version** that adds value without breaking existing functionality. Increments 2, 3, and 4 are **parallel-capable** — different team members or subgroups can work on them simultaneously once Increment 1 is stable.
+Before reading the increments below, understand these ground rules for the **first release** (Increment 0 + 1):
+
+| Assumption | Explanation |
+|-----------|-------------|
+| **Only Passenger & Driver roles** | No Scheduler UI or service. Scheduling and dispatch are done manually by operations staff outside the system. |
+| **Buses run on a fixed timetable** | We assume a bus is available at its platform at the scheduled time. No bus–route conflict handling needed. |
+| **Focus: after Driver taps "Start"** | The core system begins when a driver taps "Start Trip." Everything before that (scheduling, assignment) is manual. |
+| **Bus state machine is the backbone** | Every feature depends on tracking bus state: `IDLE → WAITING_AT_DEPOT → DEPARTED_ORIGIN → EN_ROUTE → ARRIVED_DESTINATION → IDLE`. |
+| **No Flink in Increment 0** | Stream processing (Flink) is introduced in Increment 1. Increment 0 sets up infra only (Kafka, PostgreSQL, Redis). |
+| **GPS Simulator replaces G1 hardware** | Until G1 delivers real GPS devices, we use a Python simulator that emits fake 1 Hz GPS data to Kafka. |
+
+---
+
+## 2. Incremental Strategy Overview
+
+The system is delivered in **modular increments**. Each increment produces a **fully working software version** that adds value without breaking existing functionality.
 
 ```
                     ┌──────────────────────┐
-                    │   Increment 0        │
+                    │   Increment 0        │  ◀── YOU ARE HERE
                     │   Foundation Infra    │
                     └──────────┬───────────┘
                                │
                     ┌──────────▼───────────┐
                     │   Increment 1        │
                     │   GPS + Live Map     │
+                    │   + Bus State Machine│
                     └──────────┬───────────┘
                                │
               ┌────────────────┼────────────────┐
@@ -33,374 +49,266 @@ The system is delivered in **6 modular increments**. Each increment produces a *
               └────────────────┼─────────────────┘
                                │
                     ┌──────────▼───────────┐
-                    │   Increment 5        │
-                    │   Route Search &     │
-                    │   Multi-Route        │
-                    └──────────┬───────────┘
-                               │
-                    ┌──────────▼───────────┐
-                    │   Increment 6        │
+                    │   Increment 5+       │
+                    │   Route Search,      │
                     │   Crowd Intelligence │
-                    │   & AI Optimization  │
                     └──────────────────────┘
 ```
 
-> **Key design principle:** Each increment maps to one or more independent microservices. No increment requires a complete rewrite of a previous one.
-
 ---
 
-## 2. Increment Details
+## 3. Increment Details
 
 ---
 
 ### Increment 0: Foundation Infrastructure
 
-**Goal:** Establish the base platform so all subsequent services can be built and deployed.
+**Goal:** Set up the base platform so all subsequent services can be built and deployed. Every team member should be able to `docker compose up` and have a working Dev environment.
 
 | Aspect | Details |
 |--------|---------|
 | **Duration** | Sprint 1 (2 weeks) |
 | **Dependency** | None |
-| **Services Built** | Docker Compose stack, database schemas, CI pipeline skeleton |
+| **Deliverables** | Docker Compose stack, DB schemas, route seeding, GPS simulator, CI pipeline, FastAPI skeleton |
 
 #### Scope
 
 | Component | Deliverable |
 |-----------|------------|
-| **Docker Compose** | Full dev stack: Kafka, Zookeeper, PostgreSQL + PostGIS, Redis |
-| **Database** | Schema creation scripts for all tables (routes, stops, buses, gps_readings, etc.) |
-| **Route Seeding** | Script to seed Moratuwa → Kadawatha route geometry + 20+ stops |
-| **GPS Simulator** | Python script that emits fake GPS at 1 Hz for testing |
-| **CI Pipeline** | GitHub Actions: lint (ruff), type check (mypy), test (pytest), build Docker |
-| **Dev Config** | `.env.example`, Docker networking, VS Code devcontainer (optional) |
+| **Docker Compose** | Dev stack: Kafka + Zookeeper, PostgreSQL + PostGIS, Redis |
+| **Database Schemas** | SQL scripts for all tables (routes, stops, buses, gps_readings, trips, etc.) |
+| **Route Seeding** | Script to seed Moratuwa → Kadawatha route geometry + 20+ stops into PostGIS |
+| **GPS Simulator** | Python script that publishes fake GPS at 1 Hz to `gps.raw` Kafka topic |
+| **CI Pipeline** | GitHub Actions: lint (ruff), type check (mypy), test (pytest), Docker build |
+| **FastAPI Skeleton** | `/health` and `/metrics` endpoints, Pydantic models for GPS + bus status schemas |
+| **Dev Config** | `.env.example` with local + Neon cloud DB URLs, Docker networking |
 
-#### Per-Role Impact
+#### 5-Member Task Distribution
 
-| Role | What they get |
-|------|--------------|
-| Passenger | Nothing yet (no UI) |
-| Driver | Nothing yet (no UI) |
-| Scheduler | Nothing yet (no UI) |
+| Member | Role | What They Own | Key Deliverables |
+|--------|------|--------------|-----------------|
+| **Member 1** | Infrastructure & Docker Lead | Docker environment | `docker/docker-compose.yml` (Kafka, Zookeeper, PG+PostGIS, Redis), `docker/.env.example`, health check wait scripts, Docker networking config |
+| **Member 2** | Database & Schema Lead | All database schemas | SQL migration scripts in `scripts/migrations/`, schema for all tables (routes, stops, buses, gps_readings, trips, stop_arrivals, anomalies, geofences), Neon cloud DB setup for team access, local PG+PostGIS config |
+| **Member 3** | Data Seeding & Simulator Lead | Test data + GPS simulator | `scripts/seed_routes.py` (Moratuwa→Kadawatha route + 20+ stops with PostGIS LINESTRING/POINT geometry), `scripts/gps_simulator.py` (publishes fake 1 Hz GPS JSON to Kafka `gps.raw` topic) |
+| **Member 4** | CI/CD & Quality Lead | Pipeline + test framework | `.github/workflows/ci.yml` (ruff lint + mypy type check + pytest + Docker build), `tests/` directory structure with conftest.py, PR template, branch protection rules, `pyproject.toml` with tool configs |
+| **Member 5** | Interface & Integration Lead | API skeleton + glue | `services/api-gateway/` FastAPI app with `/health` + `/metrics`, Pydantic models (`schemas/gps.py`, `schemas/bus_status.py`), project-wide folder structure, integration test that verifies: docker up → seed → simulate → health OK |
+
+> **Member 5 is the glue person.** They define the project skeleton that everyone else plugs into. They also write the end-to-end integration test that chains all other members' work together.
+
+#### How Members Collaborate
+
+```
+Member 1 (Docker)          Member 2 (DB Schemas)
+     │                          │
+     │  docker compose up       │  SQL migration scripts
+     │  provides running        │  run against PG container
+     │  PG + Kafka + Redis      │  from Member 1
+     └──────────┬───────────────┘
+                │
+     Member 3 (Seeding + Simulator)
+                │
+     seed_routes.py writes to PG (Member 2's schema)
+     gps_simulator.py publishes to Kafka (Member 1's container)
+                │
+     Member 4 (CI/CD)
+                │
+     GitHub Actions runs all of the above + linting
+                │
+     Member 5 (Integration)
+                │
+     FastAPI reads from PG + Redis
+     Integration test chains everything together
+```
+
+#### Database Setup: Local + Cloud
+
+The project uses **two database options** via a single `.env.example`:
+
+| Option | When to Use | Setup |
+|--------|-------------|-------|
+| **Local PostgreSQL** (Docker) | Solo development, testing, CI | Automatically starts via `docker compose up`. Connection: `postgresql://ontime:ontime@localhost:5432/ontime` |
+| **Neon Cloud PostgreSQL** | Team collaboration, shared data | Team lead creates Neon project, shares connection URL privately. Connection: `postgresql://user:pass@ep-xxx.neon.tech/ontime?sslmode=require` |
+
+Members set the active `DATABASE_URL` in their local `.env` file (never committed to git).
 
 #### Acceptance Criteria
 
 - [ ] `docker compose up` brings up Kafka + PostgreSQL + Redis with zero errors
-- [ ] `python scripts/seed_routes.py` populates route + stops in PostGIS
-- [ ] `python scripts/gps_simulator.py` publishes GPS messages to Kafka topic
-- [ ] GitHub Actions runs lint + tests on every push
+- [ ] `python scripts/seed_routes.py` populates route + 20 stops in PostGIS
+- [ ] `python scripts/gps_simulator.py` publishes GPS messages to `gps.raw` Kafka topic
+- [ ] `curl localhost:8000/health` returns 200 with dependency statuses
+- [ ] GitHub Actions runs lint + type check + tests on every push and passes
 
 ---
 
-### Increment 1: GPS Pipeline & Live Tracking
+### Increment 1: GPS Pipeline & Live Tracking + Bus State Machine
 
-**Goal:** Prove that data flows end-to-end from GPS device to a live map.
+**Goal:** Prove that data flows end-to-end from GPS to a live map. Driver can start/end trips. Passenger sees buses moving.
 
 | Aspect | Details |
 |--------|---------|
 | **Duration** | Sprint 2–3 (4 weeks) |
 | **Dependency** | Increment 0 infrastructure |
-| **Services Built** | Ingestion Service, Stream Processing (basic), API Gateway (basic) |
+| **Services Built** | Ingestion Service, Stream Processing (basic Flink), API Gateway (enhanced) |
 
 #### Scope
 
 | Component | Deliverable |
 |-----------|------------|
-| **Ingestion Service** | MQTT → Kafka bridge (`mqtt_bridge.py`); Pydantic validation; DLQ routing |
+| **Ingestion Service** | MQTT → Kafka bridge; Pydantic validation; DLQ routing for invalid GPS |
 | **Stream Processing** | Flink job: Kalman filter + bounding box check (no feature extraction yet) |
-| **API Gateway** | `GET /health`, `GET /api/v1/routes`, `GET /api/v1/routes/{id}/buses`, `WS /ws/live-feed` |
-| **Bus State Machine** | Basic states: `IDLE → DEPARTED → EN_ROUTE → ARRIVED → IDLE` |
+| **Bus State Machine** | `IDLE → WAITING_AT_DEPOT → DEPARTED_ORIGIN → EN_ROUTE → ARRIVED_DESTINATION → IDLE` |
 | **Driver Status API** | `POST /api/v1/bus/{bus_id}/status` — driver taps to change state |
+| **Live Feed** | `WS /ws/live-feed` — 1-second fleet status push to G3 |
+| **Route API** | `GET /api/v1/routes`, `GET /api/v1/routes/{id}/buses` |
 
-#### Per-Role Impact
+#### What Each Role Gets
 
-| Role | What they get |
-|------|--------------|
-| **Passenger** | Opens map → sees route line drawn → sees bus dots moving in real-time |
-| **Driver** | Logs in with bus credentials → taps **Start Trip** / **End Trip** (big buttons) |
-| **Scheduler** | Web dashboard → sees map with all active buses as moving dots |
+| Role | Experience |
+|------|-----------|
+| **Passenger** | Opens map → sees route line → sees bus dots moving in real-time |
+| **Driver** | Logs in with bus credentials → taps **Start Trip** / **End Trip** → bus state changes flow to system |
 
 #### Acceptance Criteria
 
 - [ ] Simulated GPS appears on WebSocket within 2 seconds of emission
-- [ ] Bus dot moves on G3 map (integration test with G3)
+- [ ] Bus dot moves on G3 map (integration test with G3 team)
 - [ ] Driver can change bus status via API and it reflects in live feed
-- [ ] Invalid GPS messages route to dead-letter topic
+- [ ] Invalid GPS messages route to dead-letter topic (`gps.dlq`)
 - [ ] `/health` returns 200 with all dependency statuses
 
 ---
 
-### Increment 2: ETA Prediction Engine
+### Future Increments (2–5+)
 
-**Goal:** Add time intelligence — predict when buses arrive at stops.
+> The following increments are **planned but not active** in the first release. They remain in the SRS v1.1 as the full product vision. Implementation starts after Increment 1 is stable.
 
-| Aspect | Details |
-|--------|---------|
-| **Duration** | Sprint 4–5 (4 weeks) |
-| **Dependency** | Increment 1 (GPS data flowing) |
-| **Services Built** | ETA Prediction Service, enhanced Stream Processing |
-| **Parallel With** | Increments 3 and 4 |
+<details>
+<summary><strong>Increment 2: ETA Prediction Engine</strong> (Sprint 4–5)</summary>
 
-#### Scope
+**Goal:** Predict when buses arrive at stops using ML models.
 
 | Component | Deliverable |
 |-----------|------------|
-| **Feature Engineering** | 16-feature extraction in Flink pipeline (see SRS Section 7.2) |
-| **ETA Model** | XGBoost regressor: urban variant + highway variant |
-| **Physics Fallback** | `distance_remaining / effective_speed` when ML unavailable |
-| **Geofencing** | Kahathuduwa highway entrance/exit detection; model variant switch |
-| **ETA API** | `GET /api/v1/eta/{bus_id}`, `GET /api/v1/eta/{bus_id}/{stop_id}` |
-| **Model Training** | `scripts/train_models.py` for batch retraining |
-| **MLflow Integration** | Experiment tracking, model versioning |
+| Feature Engineering | 16-feature extraction in Flink pipeline |
+| ETA Model | XGBoost regressor: urban + highway variants |
+| Physics Fallback | `distance / speed` when ML unavailable |
+| Geofencing | Kahathuduwa highway entrance/exit detection |
+| ETA API | `GET /api/v1/eta/{bus_id}`, `GET /api/v1/eta/{bus_id}/{stop_id}` |
 
-#### Per-Role Impact
+**What users get:**
+- Passenger taps a stop → sees "Bus arriving in ~4 min" with confidence
+- Driver sees dynamic target time for next checkpoint
 
-| Role | What they get |
-|------|--------------|
-| **Passenger** | Taps a bus stop → sees ETA (e.g., "Bus 138 arriving in ~4 min") with confidence |
-| **Driver** | Sees dynamic target time for next checkpoint (ETA-based, not static timetable) |
-| **Scheduler** | Dashboard now shows ETA data alongside bus positions |
+</details>
 
-#### Acceptance Criteria
+<details>
+<summary><strong>Increment 3: Trip Scheduling & Dispatch</strong> (Sprint 4–5)</summary>
 
-- [ ] ETA prediction returns within 100ms (p95)
-- [ ] Model switches from urban → highway at Kahathuduwa geofence
-- [ ] Physics fallback activates when model confidence < 0.5
-- [ ] ETA updates every ~5 seconds per bus
-- [ ] MLflow logs training runs with metrics
-
----
-
-### Increment 3: Trip Scheduling & Dispatch
-
-**Goal:** Enable the Scheduler to assign buses to departure slots and drivers to report availability.
-
-| Aspect | Details |
-|--------|---------|
-| **Duration** | Sprint 4–5 (4 weeks) |
-| **Dependency** | Increment 1 (bus status tracking) |
-| **Services Built** | Scheduling Service |
-| **Parallel With** | Increments 2 and 4 |
-
-#### Scope
+**Goal:** Enable Scheduler to assign buses to departure slots. Driver reports availability.
 
 | Component | Deliverable |
 |-----------|------------|
-| **Departure Slot Grid** | Pre-defined time slots per route (e.g., every 15 min from 05:00–22:00) |
-| **Bus Availability** | Driver marks trip-level availability: "Available in 30 min" after a trip |
-| **Dispatch Assignment** | Scheduler assigns an available bus to the next departure slot |
-| **Scheduling API** | CRUD for slots, assignments; `GET /api/v1/schedule/{route_id}` |
-| **Scheduling Dashboard** | Web view: idle buses list + next 1 departure slot assignment (MVP: next 1 only) |
+| Departure Slot Grid | Pre-defined time slots per route |
+| Bus Availability | Driver sets "Available in X minutes" |
+| Dispatch Assignment | Scheduler assigns bus to next departure slot |
+| Scheduling API | CRUD for slots, assignments |
 
-#### Per-Role Impact
+> **Note:** This is where the system replaces the manual scheduling assumed in the first release.
 
-| Role | What they get |
-|------|--------------|
-| **Passenger** | Can see when the next bus is **scheduled** to depart (separate from live ETA) |
-| **Driver** | After ending a trip → sets "Available in X minutes" → appears in Scheduler's pool |
-| **Scheduler** | Views idle buses → assigns one to the next open departure slot on a route |
+</details>
 
-#### Business Rules (MVP)
+<details>
+<summary><strong>Increment 4: Anomaly Detection & Issue Reporting</strong> (Sprint 4–5)</summary>
 
-- Scheduler can only assign the **next upcoming** departure slot per route (not 3 ahead — simplified for first increment)
-- A bus cannot be assigned if its availability window hasn't started
-- Only one bus per departure slot
-
-#### Acceptance Criteria
-
-- [ ] Scheduler can view departure slot grid for a route
-- [ ] Scheduler can assign a bus from the "available" pool to a slot
-- [ ] Driver can set availability window after trip completion
-- [ ] Passenger can query scheduled departures for a route
-- [ ] Double-booking a slot returns 409 Conflict
-
----
-
-### Increment 4: Anomaly Detection & Issue Reporting
-
-**Goal:** Detect service disruptions automatically and let drivers report issues.
-
-| Aspect | Details |
-|--------|---------|
-| **Duration** | Sprint 4–5 (4 weeks) |
-| **Dependency** | Increment 1 (GPS data flowing) |
-| **Services Built** | Anomaly Detection Service, Driver Issue Reporting |
-| **Parallel With** | Increments 2 and 3 |
-
-#### Scope
+**Goal:** Detect service disruptions automatically. Drivers report issues.
 
 | Component | Deliverable |
 |-----------|------------|
-| **Anomaly Layer 1** | Statistical Z-score on speed, dwell, heading (5-min rolling window) |
-| **Anomaly Layer 2** | Isolation Forest on 16-feature vectors |
-| **Anomaly Layer 3** | Rule engine: off-route, long stop, GPS loss, speed violation, geofence exit |
-| **Result Aggregator** | Weighted voting → unified anomaly record with confidence |
-| **Driver Issue API** | `POST /api/v1/bus/{bus_id}/issue` with enum: `BREAKDOWN`, `ACCIDENT`, `HEAVY_TRAFFIC`, `ROAD_BLOCKED`, `WEATHER`, `OTHER` |
-| **Bus Termination** | Driver taps "Terminate Trip" → bus status = TERMINATED; event published |
-| **Anomaly API** | `GET /api/v1/anomalies/active`, `GET /api/v1/anomalies/{bus_id}` |
+| 3-Layer Anomaly Detection | Statistical + ML (Isolation Forest) + Rule engine |
+| Driver Issue Reporting | `POST /bus/{bus_id}/issue` with enum types |
+| Trip Termination | Driver taps "Terminate" → bus removed from fleet |
 
-#### Per-Role Impact
+</details>
 
-| Role | What they get |
-|------|--------------|
-| **Passenger** | Sees delay indicator on affected buses (in-app only) |
-| **Driver** | Can report issues via big-button UI: `Breakdown` / `Traffic` / `Other` |
-| **Scheduler** | Dashboard shows anomaly alerts; terminated buses highlighted in red |
+<details>
+<summary><strong>Increment 5+: Route Search, Multi-Route, Crowd Intelligence</strong> (Sprint 6+)</summary>
 
-#### Deferred to Later
-
-- Auto-detect bus stopped >10 min → AI popup for driver (Increment 6)
-- Scheduler receives dispatch alert on termination to assign replacement (Increment 5+)
-
-#### Acceptance Criteria
-
-- [ ] Anomaly alert fires within 5 seconds of triggering condition
-- [ ] Driver issue report creates anomaly record + updates bus status
-- [ ] Terminated bus disappears from active fleet and Scheduler gets notified
-- [ ] Resolved anomalies are automatically cleared
-- [ ] Anomaly records persisted with PostGIS location
-
----
-
-### Increment 5: Route Search & Multi-Route Support
-
-**Goal:** Expand beyond single route. Let passengers search and discover routes.
-
-| Aspect | Details |
-|--------|---------|
-| **Duration** | Sprint 6–7 (4 weeks) |
-| **Dependency** | Increment 1 (basic route display) |
-| **Services Built** | Route Management Service (enhanced) |
-
-#### Scope
+**Goal:** Expand beyond single route. Let passengers search routes. Integrate crowd data from G1 IR sensors.
 
 | Component | Deliverable |
 |-----------|------------|
-| **GTFS Import** | Script to import route geometry and stops from GTFS feed |
-| **Route Search API** | `GET /api/v1/routes/search?q={query}` — search by route number, origin, destination |
-| **Direction Model** | Each route has two direction variants (outbound/inbound) with distinct colors |
-| **Multi-Route Map** | Map shows all route lines (bus routes in grey, selected route in blue/green) |
-| **Nearest Route** | If location enabled: `GET /api/v1/routes/nearest?lat=X&lng=Y` → nearest routes + stops |
+| GTFS Import | Seed multiple routes from GTFS feed |
+| Route Search | Search by route number / destination |
+| Crowd Data | IR sensor integration, occupancy bands |
+| AI Scheduling | Auto-suggestions for dispatching extra buses |
 
-#### Per-Role Impact
-
-| Role | What they get |
-|------|--------------|
-| **Passenger** | Search routes by number/destination → route highlights on map → direction swap → see ETAs for selected route |
-| **Driver** | Route assignment shown; no search needed |
-| **Scheduler** | Dashboard now filterable by route |
-
-#### Acceptance Criteria
-
-- [ ] GTFS import seeds 5+ routes successfully
-- [ ] Search by route number returns correct route with stops
-- [ ] Search by destination returns routes passing through that area
-- [ ] Direction swap toggles blue ↔ green route rendering
-- [ ] Nearest route API returns routes within 500m of given coordinates
+</details>
 
 ---
 
-### Increment 6: Crowd Intelligence & AI Optimization (Future)
+## 4. Sprint-to-Increment Mapping
 
-**Goal:** Integrate IoT crowd data and introduce AI-driven scheduling.
-
-| Aspect | Details |
-|--------|---------|
-| **Duration** | Sprint 8+ (ongoing) |
-| **Dependency** | Increment 3 (scheduling) + G1 IR sensor hardware |
-| **Services Built** | Crowd Processing Module, AI Scheduling Advisor |
-
-#### Scope
-
-| Component | Deliverable |
-|-----------|------------|
-| **G1 IR Sensor Integration** | MQTT topic for crowd count: `bus/{bus_id}/occupancy` (TBD with G1) |
-| **Crowd Band** | Occupancy classification: Green (Seats Available), Yellow (Standing Only), Red (Full) |
-| **Crowd Prediction** | ML model: predict crowd level at each stop based on historical patterns + current bus load |
-| **Auto-Stuck Detection** | Bus not moving for 10+ min → AI popup: "Are you stuck?" → driver selects reason |
-| **AI Schedule Suggestions** | Based on crowd at stops → suggest dispatching extra buses |
-| **Scheduler 3-Slot Horizon** | Upgrade from next-1 to next-3 departure slot planning |
-
-#### Per-Role Impact
-
-| Role | What they get |
-|------|--------------|
-| **Passenger** | Crowd indicator on approaching bus (Green/Yellow/Red); predicted crowd at their stop |
-| **Driver** | Auto-prompt when stuck; voice-friendly interaction |
-| **Scheduler** | AI suggests "Send Bus X to Route Y — high crowd at Stop Z"; can accept/reject |
-
-#### Status
-
-> ⚠️ **Blocked on G1 IR sensor implementation.** Interface contract to be defined.
-
----
-
-## 3. Sprint-to-Increment Mapping
-
-| Sprint | Dates (Approximate) | Increment | Key Deliverable |
-|--------|---------------------|-----------|----------------|
-| Sprint 1 | Week 1–2 | **Inc 0** | Docker stack, DB schemas, GPS simulator, CI |
+| Sprint | Dates (Approx.) | Increment | Key Deliverable |
+|--------|-----------------|-----------|----------------|
+| Sprint 1 | Week 1–2 | **Inc 0** | Docker stack, DB schemas, GPS simulator, CI, FastAPI skeleton |
 | Sprint 2 | Week 3–4 | **Inc 1** | MQTT bridge, Flink basic cleaning, live feed |
-| Sprint 3 | Week 5–6 | **Inc 1** | Driver status API, WebSocket feed, integration test |
-| Sprint 4 | Week 7–8 | **Inc 2 + 3 + 4** (parallel) | Feature eng. / Scheduling API / Anomaly L1+L3 |
-| Sprint 5 | Week 9–10 | **Inc 2 + 3 + 4** (parallel) | ETA model / Dispatch UI / Anomaly L2 + driver issues |
-| Sprint 6 | Week 11–12 | **Inc 5** | GTFS import, route search, multi-route, direction swap |
-| Sprint 7 | Week 13–14 | **Inc 5** + Polish | Nearest route, integration testing, docs |
-| Sprint 8+ | Week 15+ | **Inc 6** (if time) | Crowd integration, AI suggestions |
+| Sprint 3 | Week 5–6 | **Inc 1** | Driver status API, WebSocket feed, G3 integration test |
+| Sprint 4 | Week 7–8 | **Inc 2 + 4** (parallel) | Feature eng. + ETA model / Anomaly L1+L3 |
+| Sprint 5 | Week 9–10 | **Inc 2 + 3 + 4** (parallel) | ETA model / Scheduling API / Anomaly L2 + driver issues |
+| Sprint 6+ | Week 11+ | **Inc 5+** | Route search, multi-route, crowd integration |
 
 ---
 
-## 4. Team Allocation Strategy
+## 5. Team Allocation — Increment 0 (Sprint 1)
 
-For a team of 5 G2 members, the recommended allocation during the parallel sprint phase (Sprints 4–5):
+| Member | Primary Role | Key Outputs |
+|--------|-------------|-------------|
+| **Member 1** | Infrastructure & Docker Lead | `docker-compose.yml`, container networking, health scripts |
+| **Member 2** | Database & Schema Lead | SQL migrations, Neon cloud setup, PostGIS config |
+| **Member 3** | Data Seeding & Simulator Lead | `seed_routes.py`, `gps_simulator.py` |
+| **Member 4** | CI/CD & Quality Lead | GitHub Actions, test framework, PR template |
+| **Member 5** | Interface & Integration Lead | FastAPI skeleton, Pydantic models, integration test |
 
-| Member | Primary Focus | Secondary Focus |
-|--------|--------------|-----------------|
-| **Member 1** | ETA Prediction Service (Inc 2) | MLflow integration |
-| **Member 2** | Feature Engineering in Flink (Inc 2) | Geofencing logic |
-| **Member 3** | Scheduling Service (Inc 3) | Database schema |
-| **Member 4** | Anomaly Detection Service (Inc 4) | Driver issue API |
-| **Member 5** | API Gateway + Integration Testing | WebSocket optimization |
+**For Increment 1+ allocation**, see [STRATEGY.md](STRATEGY.md) Section 2.
 
 ---
 
-## 5. Definition of Done (per Increment)
+## 6. Definition of Done (per Increment)
 
 An increment is "done" when:
 
 - [ ] All acceptance criteria are met
 - [ ] Unit test coverage ≥ 70% for new code
 - [ ] API endpoints documented in Swagger (auto-generated by FastAPI)
-- [ ] Integration test with G3 passes (bus appears on map / ETA shows / etc.)
 - [ ] Docker image builds and passes health check
 - [ ] Code reviewed and merged to `main`
 - [ ] Sprint review demo completed
 
 ---
 
-## 6. Risk Register
+## 7. Risk Register
 
 | Risk | Probability | Impact | Mitigation |
 |------|------------|--------|-----------|
-| G1 delivers GPS data late | Medium | High | GPS simulator covers all G2 testing |
-| Flink setup complexity | High | Medium | Start with simple Kafka consumers; migrate to Flink |
-| ML model accuracy on small data | High | Medium | Physics fallback always available |
-| Cross-group integration issues | Medium | High | Contract-first design; weekly integration syncs |
+| G1 delivers GPS data late | Medium | High | GPS simulator covers all G2 testing independently |
+| Flink setup complexity | High | Medium | Start with simple Kafka consumers first; migrate to Flink in Inc 1 |
+| ML model accuracy on small data | High | Medium | Physics fallback always available from first deployment |
+| Cross-group integration issues | Medium | High | Contract-first design; weekly sync meetings with G1/G3/G4 |
 | Scope creep from instructor feedback | Medium | Medium | Strict increment boundaries; changes go to next sprint |
 
 ---
 
-## 7. Milestones
+## 8. Milestones
 
 | Milestone | Target | Criteria |
 |-----------|--------|----------|
-| **M1: Infrastructure Ready** | End of Sprint 1 | Docker stack runs, CI passes, GPS simulator works |
+| **M1: Infrastructure Ready** | End of Sprint 1 | Docker stack runs, CI passes, GPS simulator works, `/health` returns 200 |
 | **M2: First Bus on Map** | End of Sprint 3 | Simulated bus visible on G3 map via WebSocket |
 | **M3: ETA Working** | End of Sprint 5 | Tap a stop, see ETA with confidence score |
-| **M4: Scheduler Dispatches** | End of Sprint 5 | Scheduler assigns bus to departure slot |
-| **M5: Anomaly Alerts** | End of Sprint 5 | Driver reports breakdown, Scheduler sees alert |
-| **M6: Multi-Route Search** | End of Sprint 7 | Passenger searches route 138, sees it highlighted |
-| **M7: Full Demo Ready** | End of Sprint 7 | All 3 user roles have working flows for demo |
+| **M4: Anomaly Alerts** | End of Sprint 5 | Driver reports breakdown, alert created |
+| **M5: Full Demo Ready** | End of Sprint 7 | All active user roles have working flows for demo |
 
 ---
 
-*Last updated: April 2026*
+*Last updated: 16-th April 2026*

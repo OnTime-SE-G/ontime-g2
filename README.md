@@ -20,23 +20,24 @@
 
 ## 📖 Overview
 
-**OnTime** is a real-time public transport intelligence platform for Sri Lanka. It tracks live bus positions, predicts arrival times using ML models, enables smart scheduling, and provides passengers, drivers, and dispatchers with the information they need — when they need it.
+**OnTime** is a real-time public transport intelligence platform for Sri Lanka. It tracks live bus positions, predicts arrival times using ML models, and provides passengers and drivers with the information they need — when they need it.
 
-The system is built as a **distributed microservices architecture** processing 1 Hz GPS streams through Apache Kafka and Flink, running ML-based ETA predictions, and exposing data through REST APIs and WebSocket feeds.
+The system is built as a **distributed microservices architecture** processing 1 Hz GPS streams through Apache Kafka, running ML-based ETA predictions, and exposing data through REST APIs and WebSocket feeds.
 
 ### The Problem
 
-Commuters at intermediate bus halts across Sri Lanka have **zero reliable information** about approaching buses. They over-wait, miss buses, or make uninformed decisions daily. Drivers operate without pacing feedback, and dispatchers rely on manual rotation queues with no real-time fleet visibility.
+Commuters at intermediate bus halts across Sri Lanka have **zero reliable information** about approaching buses. They over-wait, miss buses, or make uninformed decisions daily. Drivers operate without pacing feedback or trip lifecycle management.
 
 ### The Solution
 
-OnTime provides three role-specific experiences:
+OnTime's first release focuses on two core user roles:
 
 | Role | Platform | Core Value |
 |------|----------|------------|
 | **Passenger** | Mobile (Flutter) | Live map with bus positions, ETA on tap, route search |
-| **Bus Driver** | Mobile (Flutter) | Trip state management, target times, issue reporting |
-| **Scheduler** | Web (Next.js) | Fleet dashboard, departure slot dispatch, anomaly alerts |
+| **Bus Driver** | Mobile (Flutter) | Trip state management (Start/End trip), target times, issue reporting |
+
+> **Note:** Scheduler/Dispatcher functionality is planned for a future release. For the first release, buses operate on a fixed timetable and scheduling is handled manually.
 
 ---
 
@@ -46,8 +47,7 @@ OnTime provides three role-specific experiences:
 ┌─────────────┐     MQTT      ┌──────────────┐    Kafka     ┌──────────────────┐
 │  G1 — Edge  │──────────────▶│  G2 — Data   │────────────▶│  G2 — Stream     │
 │  (GPS/IoT)  │               │  Ingestion    │             │  Processing      │
-└─────────────┘               └──────────────┘             │  (Flink)         │
-                                                            └────────┬─────────┘
+└─────────────┘               └──────────────┘             └────────┬─────────┘
                                                                      │
                     ┌────────────────────────────────────────────────┤
                     │                    │                            │
@@ -88,21 +88,19 @@ OnTime provides three role-specific experiences:
 
 ## 🛠️ Technology Stack (G2)
 
-| Category | Technology |
-|----------|-----------|
-| **Language** | Python 3.12 |
-| **API Framework** | FastAPI |
-| **Stream Processing** | Apache Flink (PyFlink) |
-| **Message Broker** | Apache Kafka (Confluent 7.6) |
-| **Database** | PostgreSQL 16 + PostGIS 3.4 |
-| **Cache** | Redis |
-| **ML Framework** | XGBoost, scikit-learn (Isolation Forest) |
-| **ML Ops** | MLflow |
-| **Data Validation** | Pydantic v2, Great Expectations |
-| **Containerization** | Docker |
-| **Orchestration** | Kubernetes (managed by G4) |
-| **Monitoring** | Prometheus metrics endpoint |
-| **Testing** | pytest, locust (load testing) |
+| Category | Technology | When Used |
+|----------|-----------|-----------|
+| **Language** | Python 3.12 | All increments |
+| **API Framework** | FastAPI | Inc 0+ |
+| **Message Broker** | Apache Kafka (Confluent 7.6) | Inc 0+ |
+| **Database** | PostgreSQL 16 + PostGIS 3.4 | Inc 0+ |
+| **Cache** | Redis | Inc 0+ |
+| **Stream Processing** | Apache Flink (PyFlink) | Inc 1+ |
+| **ML Framework** | XGBoost, scikit-learn | Inc 2+ |
+| **ML Ops** | MLflow | Inc 2+ |
+| **Data Validation** | Pydantic v2 | All increments |
+| **Containerization** | Docker | All increments |
+| **Testing** | pytest, locust (load testing) | All increments |
 
 ---
 
@@ -116,22 +114,20 @@ ontime-g2/
 │
 ├── docs/
 │   ├── PROJECT_INFO.md          # Group structure & deliverables
-│   ├── srs/
-│   │   ├── SRS_G2_Data_Intelligence_1.0.docx   # Original SRS
-│   │   └── SRS_G2_Data_Intelligence_1.1.md      # Updated SRS v1.1
-│   └── assets/                  # Diagrams, images
+│   └── srs/
+│       ├── SRS_G2_Data_Intelligence_1.0.docx   # Original SRS
+│       └── SRS_G2_Data_Intelligence_1.1.md      # Updated SRS v1.1
 │
-├── services/                    # Microservices (future)
+├── services/                    # Microservices
 │   ├── ingestion/               # GPS ingestion service
-│   ├── stream-processing/       # Flink pipeline
-│   ├── eta-service/             # ETA prediction API
-│   ├── anomaly-service/         # Anomaly detection
-│   ├── route-service/           # Route management
-│   ├── scheduling-service/      # Trip scheduling
-│   └── api-gateway/             # FastAPI gateway
+│   ├── api-gateway/             # FastAPI gateway
+│   ├── stream-processing/       # Flink pipeline (Inc 1+)
+│   ├── eta-service/             # ETA prediction API (Inc 2+)
+│   ├── anomaly-service/         # Anomaly detection (Inc 4+)
+│   └── route-service/           # Route management
 │
-├── models/                      # ML model artifacts
-├── scripts/                     # Training, data seeding, simulators
+├── models/                      # ML model artifacts (Inc 2+)
+├── scripts/                     # Seeding, simulators, training
 ├── docker/                      # Docker & Compose files
 └── tests/                       # Unit, integration, system tests
 ```
@@ -153,22 +149,26 @@ ontime-g2/
 git clone https://github.com/your-org/ontime-g2.git
 cd ontime-g2
 
-# 2. Start infrastructure (Kafka, PostgreSQL, Redis)
+# 2. Copy environment config
+cp .env.example .env
+# Edit .env — uncomment the DATABASE_URL you want (local or Neon cloud)
+
+# 3. Start infrastructure (Kafka, PostgreSQL, Redis)
 docker compose -f docker/docker-compose.yml up -d
 
-# 3. Install Python dependencies
+# 4. Install Python dependencies
 python -m venv .venv
 source .venv/bin/activate   # Linux/Mac
 .venv\Scripts\activate      # Windows
 pip install -r requirements.txt
 
-# 4. Seed route & stop data
+# 5. Seed route & stop data
 python scripts/seed_routes.py
 
-# 5. Start the API server
+# 6. Start the API server
 uvicorn app.main:app --reload --port 8000
 
-# 6. (Optional) Start GPS simulator
+# 7. (Optional) Start GPS simulator
 python scripts/gps_simulator.py
 ```
 
@@ -181,20 +181,31 @@ curl http://localhost:8000/health
 
 ---
 
-## 📊 Key API Endpoints
+## 📊 API Endpoints (First Release)
 
-| Method | Endpoint | Description |
-|--------|----------|-------------|
-| `GET` | `/health` | Service health check |
-| `GET` | `/api/v1/eta/{bus_id}` | ETA for all downstream stops |
-| `GET` | `/api/v1/eta/{bus_id}/{stop_id}` | ETA for a specific stop |
-| `GET` | `/api/v1/anomalies/active` | All unresolved anomalies |
-| `GET` | `/api/v1/routes` | List all routes with stops |
-| `GET` | `/api/v1/routes/{route_id}/buses` | Active buses on a route |
-| `WS` | `/ws/live-feed` | Real-time fleet status stream (1s) |
-| `GET` | `/metrics` | Prometheus metrics |
+| Method | Endpoint | Description | Increment |
+|--------|----------|-------------|-----------|
+| `GET` | `/health` | Service health check | 0 |
+| `GET` | `/metrics` | Prometheus metrics | 0 |
+| `GET` | `/api/v1/routes` | List all routes with stops | 1 |
+| `GET` | `/api/v1/routes/{route_id}/buses` | Active buses on a route | 1 |
+| `WS` | `/ws/live-feed` | Real-time fleet status stream (1s) | 1 |
+| `POST` | `/api/v1/bus/{bus_id}/status` | Driver changes bus state | 1 |
+| `POST` | `/api/v1/ingest/gps` | GPS test ingestion endpoint | 1 |
 
-Full API documentation available at `http://localhost:8000/docs` (Swagger UI).
+<details>
+<summary><strong>Future Endpoints (Inc 2+)</strong></summary>
+
+| Method | Endpoint | Description | Increment |
+|--------|----------|-------------|-----------|
+| `GET` | `/api/v1/eta/{bus_id}` | ETA for all downstream stops | 2 |
+| `GET` | `/api/v1/eta/{bus_id}/{stop_id}` | ETA for a specific stop | 2 |
+| `GET` | `/api/v1/anomalies/active` | All unresolved anomalies | 4 |
+| `POST` | `/api/v1/bus/{bus_id}/issue` | Driver reports issue | 4 |
+| `GET` | `/api/v1/routes/search` | Route search | 5 |
+| `GET` | `/api/v1/routes/nearest` | Nearest routes by location | 5 |
+
+</details>
 
 ---
 
