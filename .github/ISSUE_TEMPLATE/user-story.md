@@ -7,9 +7,10 @@ assignees: ''
 ---
 
 
-**As a [type of user],**
-**I want [some goal or action],**
+**As a [type of user],**  
+**I want [some goal or action],**  
 **So that [some benefit or reason].**
+
 
 **Acceptance Criteria:**
 - [ ] [Acceptance criterion 1]
