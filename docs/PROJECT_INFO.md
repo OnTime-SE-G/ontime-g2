@@ -138,16 +138,24 @@ All subgroups must demonstrate competency in the following areas:
 
 ### G1 → G2 Interface (Input)
 
+| Port | Protocol | Content | Fields |
+|------|----------|---------|--------|
+| Port 1 | MQTT (1883) | GPS Location | busId, routeId, lat, lng, speed, satellites, deviation, timestamp |
+| Port 2 | HTTP / Buffer API | Occupancy Buffer | busId, crowdStatus (NOT_FULL / SEMI_FULL / FULL), timestamp |
+
 | Property | Value |
 |----------|-------|
-| **Protocol** | MQTT over TCP (port 1883) |
-| **MQTT Topics** | `gps/bus/{bus_id}` — position data |
-| | `gps/bus/{bus_id}/status` — bus status events |
-| **Frequency** | 1 Hz per active bus |
-| **Payload Format** | JSON (see SRS v1.1 Section 7.1) |
-| **Bridge** | G2's `mqtt_bridge.py` converts MQTT → Kafka topics |
+| **MQTT Topic** | `transport/bus/{busId}/location` |
+| **Frequency** | Every 3–5 seconds per active bus |
+| **Payload Format** | JSON |
+| **Bridge** | G2 ingestion service converts input events to Kafka topics |
 
 ### G2 → G3 Interface (Output)
+
+| Port | Protocol | Content | Fields |
+|------|----------|---------|--------|
+| Output 1 | WebSocket | Live Position Feed | busId, routeId, lat, lng, speed, timestamp |
+| Output 2 | REST / WebSocket | Crowd & ETA Feed | busId, crowdStatus, etaSeconds, confidence, timestamp |
 
 | Property | Value |
 |----------|-------|
@@ -155,7 +163,7 @@ All subgroups must demonstrate competency in the following areas:
 | **WebSocket** | `ws://g2-api:8000/ws/live-feed` |
 | **Format** | JSON, UTF-8 |
 | **Auth** | `X-API-Key` header for server-to-server |
-| **Push Rate** | 1-second intervals for live feed |
+| **Push Rate** | Event-driven (~every 3–5 seconds per active bus) |
 
 ### G2 ↔ G4 Interface (Platform)
 

@@ -77,11 +77,11 @@ G2 is decomposed into independently deployable services. Services marked **(futu
 
 | Service | Port | Kafka Consumes | Kafka Produces | Increment |
 |---------|------|----------------|----------------|-----------|
-| **API Gateway** | 8000 | `eta.predictions`, `alerts.anomaly` | — | 0 (skeleton) |
-| **Ingestion Service** | 8001 | — | `gps.raw`, `gps.dlq` | 1 |
-| **Stream Processing** | — (Flink) | `gps.raw` | `gps.cleaned`, `gps.features` | 1 |
-| **ETA Prediction** | 8002 | `gps.features` | `eta.predictions` | 2 (future) |
-| **Anomaly Detection** | 8003 | `gps.features` | `alerts.anomaly` | 4 (future) |
+| **API Gateway** | 8000 | `transport-anomaly-alerts` | — | 0 (skeleton) |
+| **Ingestion Service** | 8001 | — | `transport-telemetry-raw`, `transport-telemetry-dlq` | 1 |
+| **Stream Processing** | — (Flink) | `transport-telemetry-raw` | — | 1 |
+| **ETA Prediction** | 8002 | `transport-telemetry-raw` | `eta.predictions` | 2 (future) |
+| **Anomaly Detection** | 8003 | `transport-telemetry-raw` | `transport-anomaly-alerts` | 4 (future) |
 | **Route Management** | 8004 | — | — | 1 |
 | **Scheduling Service** | 8005 | `bus.status` | `schedule.dispatch` | 3 (future) |
 
@@ -97,6 +97,24 @@ Each service follows the **Single Responsibility Principle**:
 - **Scheduling** *(future)*: Manages bus availability, departure slots, dispatch assignments.
 - **API Gateway**: Aggregates data, serves WebSocket feed, manages caching.
 
+## 2.4 External Interface Port Architecture
+
+G2 communicates through separate logical ports for independent data flows.
+
+### Inputs from G1 → G2
+
+| Port | Content | Fields |
+|------|---------|--------|
+| Port 1 — GPS Location | Constant positional data | busId, routeId, lat, lng, speed, satellites, deviation, timestamp |
+| Port 2 — Occupancy Buffer | Crowd density data | busId, crowdStatus (NOT_FULL / SEMI_FULL / FULL), timestamp |
+
+### Outputs from G2
+
+| Output Port | Content | Fields |
+|------------|---------|--------|
+| Output 1 — Live Position Feed | Real-time bus positions | busId, routeId, lat, lng, speed, timestamp |
+| Output 2 — Crowd & ETA Feed | Occupancy + predictions | busId, crowdStatus, etaSeconds, confidence, timestamp |
+
 ---
 
 ## 3. Event-Driven Architecture
@@ -105,17 +123,13 @@ Each service follows the **Single Responsibility Principle**:
 
 ```
 # Active in first release
-gps.raw.{bus_id}          ← Raw GPS from MQTT bridge / simulator (1 Hz per bus)
-gps.dlq                   ← Dead letter queue for invalid GPS messages
+transport-telemetry-raw  ← Raw telemetry from MQTT bridge / simulator (every 3–5 seconds per bus)
+transport-telemetry-dlq  ← Dead letter queue for invalid telemetry messages
 bus.status                ← Driver state changes (IDLE, DEPARTED, EN_ROUTE, etc.)
-
-# Added in Increment 1+
-gps.cleaned.{bus_id}      ← Kalman-filtered, map-matched GPS
-gps.features.{bus_id}     ← 16-feature ML vectors per GPS point
 
 # Future increments
 eta.predictions           ← Per-bus ETA prediction updates
-alerts.anomaly            ← Detected anomaly events
+transport-anomaly-alerts  ← Detected anomaly events
 schedule.dispatch         ← Scheduler dispatch assignments
 ```
 
@@ -123,27 +137,25 @@ schedule.dispatch         ← Scheduler dispatch assignments
 
 ```
 G1 GPS Device / GPS Simulator
-    │ MQTT / direct Kafka (1 Hz)
+    │ MQTT / direct Kafka (3–5 second publish interval)
     ▼
 Ingestion Service
-    │ Kafka: gps.raw
+    │ Kafka: transport-telemetry-raw
     ▼
 Stream Processing (Flink — Inc 1)
-    ├── Kalman filter → map match → gps.cleaned
-    └── Feature extraction → gps.features (Inc 2)
          │
          ├──▶ ETA Prediction Service (Inc 2) → API Gateway → G3
-         └──▶ Anomaly Detection Service (Inc 4) → API Gateway → G3
+         └──▶ Anomaly Detection Service (Inc 4) → transport-anomaly-alerts → API Gateway → G3
 ```
 
 ### 3.3 Message Guarantees
 
 | Topic Pattern | Delivery | Partitioning | Retention |
 |--------------|----------|--------------|-----------|
-| `gps.*` | At-least-once | By `bus_id` | 7 days |
-| `bus.*` | At-least-once | By `bus_id` | 30 days |
-| `eta.*` | At-most-once | By `bus_id` | 1 day |
-| `alerts.*` | At-least-once | By `bus_id` | 30 days |
+| `transport-telemetry-*` | At-least-once | By `busId` | 7 days |
+| `bus.status` | At-least-once | By `busId` | 30 days |
+| `eta.predictions` | At-most-once | By `busId` | 1 day |
+| `transport-anomaly-alerts` | At-least-once | By `busId` | 30 days |
 
 ---
 
@@ -260,7 +272,7 @@ Pagination: ?limit=N&offset=M (default limit=20, max=100)
 
 ### 7.2 WebSocket Strategy
 
-The `/ws/live-feed` endpoint pushes a **complete fleet snapshot** every 1 second. This is a broadcast model — all connected clients receive the same payload.
+The `/ws/live-feed` endpoint pushes updates whenever telemetry events are processed (~every 3–5 seconds per active bus). This is a broadcast model — all connected clients receive the same payload.
 
 **Why broadcast, not per-bus subscriptions?**
 - Fleet size is small (≤50 buses for MVP)

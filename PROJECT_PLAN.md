@@ -18,7 +18,7 @@ Before reading the increments below, understand these ground rules for the **fir
 | **Focus: after Driver taps "Start"** | The core system begins when a driver taps "Start Trip." Everything before that (scheduling, assignment) is manual. |
 | **Bus state machine is the backbone** | Every feature depends on tracking bus state: `IDLE → WAITING_AT_DEPOT → DEPARTED_ORIGIN → EN_ROUTE → ARRIVED_DESTINATION → IDLE`. |
 | **No Flink in Increment 0** | Stream processing (Flink) is introduced in Increment 1. Increment 0 sets up infra only (Kafka, PostgreSQL, Redis). |
-| **GPS Simulator replaces G1 hardware** | Until G1 delivers real GPS devices, we use a Python simulator that emits fake 1 Hz GPS data to Kafka. |
+| **GPS Simulator replaces G1 hardware** | Until G1 delivers real GPS devices, we use a Python simulator that emits fake GPS data every 3–5 seconds to Kafka. |
 
 ---
 
@@ -78,7 +78,7 @@ The system is delivered in **modular increments**. Each increment produces a **f
 | **Docker Compose** | Dev stack: Kafka + Zookeeper, PostgreSQL + PostGIS, Redis |
 | **Database Schemas** | SQL scripts for all tables (routes, stops, buses, gps_readings, trips, etc.) |
 | **Route Seeding** | Script to seed Moratuwa → Kadawatha route geometry + 20+ stops into PostGIS |
-| **GPS Simulator** | Python script that publishes fake GPS at 1 Hz to `gps.raw` Kafka topic |
+| **GPS Simulator** | Python script that publishes fake GPS every 3–5 seconds to `transport-telemetry-raw` Kafka topic |
 | **CI Pipeline** | GitHub Actions: lint (ruff), type check (mypy), test (pytest), Docker build |
 | **FastAPI Skeleton** | `/health` and `/metrics` endpoints, Pydantic models for GPS + bus status schemas |
 | **Dev Config** | `.env.example` with local + Neon cloud DB URLs, Docker networking |
@@ -89,7 +89,7 @@ The system is delivered in **modular increments**. Each increment produces a **f
 |--------|------|--------------|-----------------|
 | **Member 1** | Infrastructure & Docker Lead | Docker environment | `docker/docker-compose.yml` (Kafka, Zookeeper, PG+PostGIS, Redis), `docker/.env.example`, health check wait scripts, Docker networking config |
 | **Member 2** | Database & Schema Lead | All database schemas | SQL migration scripts in `scripts/migrations/`, schema for all tables (routes, stops, buses, gps_readings, trips, stop_arrivals, anomalies, geofences), Neon cloud DB setup for team access, local PG+PostGIS config |
-| **Member 3** | Data Seeding & Simulator Lead | Test data + GPS simulator | `scripts/seed_routes.py` (Moratuwa→Kadawatha route + 20+ stops with PostGIS LINESTRING/POINT geometry), `scripts/gps_simulator.py` (publishes fake 1 Hz GPS JSON to Kafka `gps.raw` topic) |
+| **Member 3** | Data Seeding & Simulator Lead | Test data + GPS simulator | `scripts/seed_routes.py` (Moratuwa→Kadawatha route + 20+ stops with PostGIS LINESTRING/POINT geometry), `scripts/gps_simulator.py` (publishes fake GPS JSON every 3–5 seconds to Kafka `transport-telemetry-raw` topic) |
 | **Member 4** | CI/CD & Quality Lead | Pipeline + test framework | `.github/workflows/ci.yml` (ruff lint + mypy type check + pytest + Docker build), `tests/` directory structure with conftest.py, PR template, branch protection rules, `pyproject.toml` with tool configs |
 | **Member 5** | Interface & Integration Lead | API skeleton + glue | `services/api-gateway/` FastAPI app with `/health` + `/metrics`, Pydantic models (`schemas/gps.py`, `schemas/bus_status.py`), project-wide folder structure, integration test that verifies: docker up → seed → simulate → health OK |
 
@@ -135,7 +135,7 @@ Members set the active `DATABASE_URL` in their local `.env` file (never committe
 
 - [ ] `docker compose up` brings up Kafka + PostgreSQL + Redis with zero errors
 - [ ] `python scripts/seed_routes.py` populates route + 20 stops in PostGIS
-- [ ] `python scripts/gps_simulator.py` publishes GPS messages to `gps.raw` Kafka topic
+- [ ] `python scripts/gps_simulator.py` publishes GPS messages to `transport-telemetry-raw` Kafka topic
 - [ ] `curl localhost:8000/health` returns 200 with dependency statuses
 - [ ] GitHub Actions runs lint + type check + tests on every push and passes
 
@@ -159,7 +159,7 @@ Members set the active `DATABASE_URL` in their local `.env` file (never committe
 | **Stream Processing** | Flink job: Kalman filter + bounding box check (no feature extraction yet) |
 | **Bus State Machine** | `IDLE → WAITING_AT_DEPOT → DEPARTED_ORIGIN → EN_ROUTE → ARRIVED_DESTINATION → IDLE` |
 | **Driver Status API** | `POST /api/v1/bus/{bus_id}/status` — driver taps to change state |
-| **Live Feed** | `WS /ws/live-feed` — 1-second fleet status push to G3 |
+| **Live Feed** | `WS /ws/live-feed` — event-driven push (~every 3–5 seconds per active bus) to G3 |
 | **Route API** | `GET /api/v1/routes`, `GET /api/v1/routes/{id}/buses` |
 
 #### What Each Role Gets
@@ -174,7 +174,7 @@ Members set the active `DATABASE_URL` in their local `.env` file (never committe
 - [ ] Simulated GPS appears on WebSocket within 2 seconds of emission
 - [ ] Bus dot moves on G3 map (integration test with G3 team)
 - [ ] Driver can change bus status via API and it reflects in live feed
-- [ ] Invalid GPS messages route to dead-letter topic (`gps.dlq`)
+- [ ] Invalid GPS messages route to dead-letter topic (`transport-telemetry-dlq`)
 - [ ] `/health` returns 200 with all dependency statuses
 
 ---
