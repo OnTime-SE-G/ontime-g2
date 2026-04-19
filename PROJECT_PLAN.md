@@ -158,9 +158,9 @@ Members set the active `DATABASE_URL` in their local `.env` file (never committe
 | **Ingestion Service** | MQTT → Kafka bridge; Pydantic validation; DLQ routing for invalid GPS |
 | **Stream Processing** | Flink job: Kalman filter + bounding box check (no feature extraction yet) |
 | **Bus State Machine** | `WAITING_AT_DEPOT → DEPARTED_ORIGIN → EN_ROUTE → ARRIVED_DESTINATION` (↕ `INCIDENT_REPORTED` from `EN_ROUTE`, admin reset: `ARRIVED_DESTINATION → WAITING_AT_DEPOT`) |
-| **Driver Status API** | `POST /api/v1/trips/{id}/state` — driver taps to change trip state; `POST /api/v1/driver/start-trip` — driver starts trip |
-| **Driver Delay Reporting (FR-G2.5)** | `POST /api/v1/driver/report-delay` — driver submits delay reason (`TRAFFIC`, `BREAKDOWN`, `ACCIDENT`, `OTHER`) + estimated minutes; persisted for ETA offset processing in Increment 2 |
-| **Live Feed** | `WS wss://api.ontime.lk/v1/live` — delta updates (~every 3–5s per active bus), full state on first connect |
+| **Driver Status API** | `POST /api/v1/trips/{id}/state` - driver taps to change trip state; `POST /api/v1/driver/start-trip` - driver starts trip |
+| **Driver Delay Reporting (FR-G2.5)** | `POST /api/v1/driver/report-delay` - driver submits delay reason (`TRAFFIC`, `BREAKDOWN`, `ACCIDENT`, `OTHER`) + estimated minutes; persisted for ETA offset processing in Increment 2 |
+| **Live Feed** | `WS wss://api.ontime.lk/v1/live` - delta updates (~every 3-5s per active bus), full state on first connect |
 | **Route API** | `GET /api/v1/routes`, `GET /api/v1/routes/{id}/buses` |
 
 #### What Each Role Gets
