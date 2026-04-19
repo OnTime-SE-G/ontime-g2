@@ -22,7 +22,7 @@
 
 **OnTime** is a real-time public transport intelligence platform for Sri Lanka. It tracks live bus positions, predicts arrival times using ML models, and provides passengers and drivers with the information they need — when they need it.
 
-The system is built as a **distributed microservices architecture** processing 1 Hz GPS streams through Apache Kafka, running ML-based ETA predictions, and exposing data through REST APIs and WebSocket feeds.
+The system is built as a **distributed microservices architecture** processing GPS streams (every 3–5 seconds per bus) through Apache Kafka, running ML-based ETA predictions, and exposing data through REST APIs and WebSocket feeds.
 
 ### The Problem
 
