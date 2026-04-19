@@ -97,6 +97,42 @@ Each service follows the **Single Responsibility Principle**:
 - **Scheduling** *(future)*: Manages bus availability, departure slots, dispatch assignments.
 - **API Gateway**: Aggregates data, serves WebSocket feed, manages caching.
 
+### 2.5 Bus State Machine (SRS v2.0 FR-G3.2)
+
+```
+WAITING_AT_DEPOT → DEPARTED_ORIGIN → EN_ROUTE → ARRIVED_DESTINATION
+                                         ↕
+                                  INCIDENT_REPORTED
+ARRIVED_DESTINATION → WAITING_AT_DEPOT  (Admin reset)
+```
+
+> **Note:** The `IDLE` state from v1.1 is removed. `INCIDENT_REPORTED` is a new state triggered by driver incident reports.
+
+### 2.6 Incident Reporting (SRS v2.0 FR-G3.3)
+
+Drivers report structured incidents via `POST /api/v1/trips/{id}/incident`:
+
+| Incident Code | Description |
+|---------------|-------------|
+| `BREAKDOWN` | Vehicle mechanical failure |
+| `ACCIDENT` | Traffic accident |
+| `HEAVY_TRAFFIC` | Severe traffic congestion |
+| `ROAD_CLOSURE` | Road is blocked/closed |
+| `MEDICAL_EMERGENCY` | Passenger medical emergency |
+
+Reporting an incident transitions the bus to `INCIDENT_REPORTED` state and fires an admin alert. Mapped to **Increment 4**.
+
+### 2.7 Driver Delay Reporting (SRS v2.0 FR-G2.5)
+
+Drivers submit delay reports via `POST /api/v1/driver/report-delay`:
+
+| Field | Type | Values |
+|-------|------|--------|
+| `reason` | enum | `TRAFFIC`, `BREAKDOWN`, `ACCIDENT`, `OTHER` |
+| `estimatedMinutes` | int | Estimated delay duration |
+
+Backend applies an additive offset to all downstream ETAs for that bus. Mapped to **Increment 2**.
+
 ## 2.4 External Interface Port Architecture
 
 G2 communicates through separate logical ports for independent data flows.
@@ -125,7 +161,7 @@ G2 communicates through separate logical ports for independent data flows.
 # Active in first release
 transport-telemetry-raw  ← Raw telemetry from MQTT bridge / simulator (every 3–5 seconds per bus)
 transport-telemetry-dlq  ← Dead letter queue for invalid telemetry messages
-bus.status                ← Driver state changes (IDLE, DEPARTED, EN_ROUTE, etc.)
+bus.status                ← Driver state changes (WAITING_AT_DEPOT, DEPARTED_ORIGIN, EN_ROUTE, ARRIVED_DESTINATION, INCIDENT_REPORTED)
 
 # Future increments
 eta.predictions           ← Per-bus ETA prediction updates
@@ -221,9 +257,27 @@ Both configured in a single `.env.example` — member uncomments the `DATABASE_U
 | **ETA (Urban)** | XGBoost Regressor | Predict arrival on urban roads | 2 |
 | **ETA (Highway)** | XGBoost Regressor | Predict arrival on expressway | 2 |
 | **ETA (Fallback)** | Physics Heuristic | `distance / speed` when ML unavailable | 2 |
-| **Anomaly L1** | Z-Score | Detect speed/dwell outliers | 4 |
-| **Anomaly L2** | Isolation Forest | Multi-dimensional anomaly detection | 4 |
-| **Anomaly L3** | Rule Engine | Hard safety/operational rules | 4 |
+| **Anomaly L1** | Rule Engine | Deterministic rules (FR-G2.3 baseline) | 1 |
+| **Anomaly L2** | Z-Score | Statistical outlier detection on speed/dwell-time per segment | 2 |
+| **Anomaly L3** | Isolation Forest | Multi-dimensional anomaly detection | 3/4 |
+
+### 5.2 Anomaly Detection — Incremental Delivery
+
+The 3-layer anomaly pipeline is delivered incrementally:
+
+| Layer | Approach | Increment | Scope |
+|-------|----------|-----------|-------|
+| **Layer 1 — Rule Engine** | Deterministic rules (FR-G2.3 baseline) | Inc 1 | 3 rules: Stationary bus (speed < 2 km/h for > 5 min), Off-route deviation (Haversine > 50m from polyline), Communication loss (no telemetry > 3 min during active trip) |
+| **Layer 2 — Statistical** | Z-Score on speed/dwell-time per segment | Inc 2 | Statistical outlier detection on per-segment metrics |
+| **Layer 3 — ML** | Isolation Forest on multivariate features | Inc 3/4 | Full multi-dimensional anomaly detection |
+
+### 5.3 Crowd State Thresholds (SRS v2.0)
+
+| State | Occupancy Range |
+|-------|-----------------|
+| `NOT_FULL` | 0–40% |
+| `SEMI_FULL` | 41–75% |
+| `FULL` | 76–100% |
 
 ### 5.2 Cold Start Strategy
 

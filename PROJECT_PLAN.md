@@ -16,7 +16,7 @@ Before reading the increments below, understand these ground rules for the **fir
 | **Only Passenger & Driver roles** | No Scheduler UI or service. Scheduling and dispatch are done manually by operations staff outside the system. |
 | **Buses run on a fixed timetable** | We assume a bus is available at its platform at the scheduled time. No bus–route conflict handling needed. |
 | **Focus: after Driver taps "Start"** | The core system begins when a driver taps "Start Trip." Everything before that (scheduling, assignment) is manual. |
-| **Bus state machine is the backbone** | Every feature depends on tracking bus state: `IDLE → WAITING_AT_DEPOT → DEPARTED_ORIGIN → EN_ROUTE → ARRIVED_DESTINATION → IDLE`. |
+| **Bus state machine is the backbone** | Every feature depends on tracking bus state: `WAITING_AT_DEPOT → DEPARTED_ORIGIN → EN_ROUTE → ARRIVED_DESTINATION` with `INCIDENT_REPORTED` branching from `EN_ROUTE`. Admin resets `ARRIVED_DESTINATION → WAITING_AT_DEPOT`. |
 | **No Flink in Increment 0** | Stream processing (Flink) is introduced in Increment 1. Increment 0 sets up infra only (Kafka, PostgreSQL, Redis). |
 | **GPS Simulator replaces G1 hardware** | Until G1 delivers real GPS devices, we use a Python simulator that emits fake GPS data every 3–5 seconds to Kafka. |
 
@@ -157,7 +157,7 @@ Members set the active `DATABASE_URL` in their local `.env` file (never committe
 |-----------|------------|
 | **Ingestion Service** | MQTT → Kafka bridge; Pydantic validation; DLQ routing for invalid GPS |
 | **Stream Processing** | Flink job: Kalman filter + bounding box check (no feature extraction yet) |
-| **Bus State Machine** | `IDLE → WAITING_AT_DEPOT → DEPARTED_ORIGIN → EN_ROUTE → ARRIVED_DESTINATION → IDLE` |
+| **Bus State Machine** | `WAITING_AT_DEPOT → DEPARTED_ORIGIN → EN_ROUTE → ARRIVED_DESTINATION` (↕ `INCIDENT_REPORTED` from `EN_ROUTE`, admin reset: `ARRIVED_DESTINATION → WAITING_AT_DEPOT`) |
 | **Driver Status API** | `POST /api/v1/trips/{id}/state` — driver taps to change trip state; `POST /api/v1/driver/start-trip` — driver starts trip |
 | **Live Feed** | `WS wss://api.ontime.lk/v1/live` — delta updates (~every 3–5s per active bus), full state on first connect |
 | **Route API** | `GET /api/v1/routes`, `GET /api/v1/routes/{id}/buses` |
@@ -181,7 +181,7 @@ Members set the active `DATABASE_URL` in their local `.env` file (never committe
 
 ### Future Increments (2–5+)
 
-> The following increments are **planned but not active** in the first release. They remain in the SRS v1.1 as the full product vision. Implementation starts after Increment 1 is stable.
+> The following increments are **planned but not active** in the first release. They remain in the SRS v2.0 as the full product vision. Implementation starts after Increment 1 is stable.
 
 <details>
 <summary><strong>Increment 2: ETA Prediction Engine</strong> (Sprint 4–5)</summary>
@@ -190,15 +190,19 @@ Members set the active `DATABASE_URL` in their local `.env` file (never committe
 
 | Component | Deliverable |
 |-----------|------------|
-| Feature Engineering | 16-feature extraction in Flink pipeline |
+| Feature Engineering | SRS v2.0 feature set: current speed, GPS coords, time-of-day (cyclic sin/cos encoding), day-of-week (0–6 integer), route segment ID, historical avg segment travel time (90-day rolling window), historical variance, crowd status (NOT_FULL=0 / SEMI_FULL=1 / FULL=2) |
 | ETA Model | XGBoost regressor: urban + highway variants |
 | Physics Fallback | `distance / speed` when ML unavailable |
 | Geofencing | Kahathuduwa highway entrance/exit detection |
-| ETA API | `GET /api/v1/eta/{bus_id}`, `GET /api/v1/eta/{bus_id}/{stop_id}` |
+| ETA API | `GET /api/v1/eta/{bus_id}/{stop_id}` |
+| Driver Delay Reporting | `POST /api/v1/driver/report-delay` — driver submits delay reason (`TRAFFIC \| BREAKDOWN \| ACCIDENT \| OTHER`) + estimated minutes; additive offset applied to downstream ETAs |
 
 **What users get:**
 - Passenger taps a stop → sees "Bus arriving in ~4 min" with confidence
 - Driver sees dynamic target time for next checkpoint
+
+**Acceptance Criteria:**
+- [ ] ETA prediction MAE < 90 seconds under normal operating conditions (NFR-P5)
 
 </details>
 
@@ -225,9 +229,9 @@ Members set the active `DATABASE_URL` in their local `.env` file (never committe
 
 | Component | Deliverable |
 |-----------|------------|
-| 3-Layer Anomaly Detection | Statistical + ML (Isolation Forest) + Rule engine |
-| Driver Issue Reporting | `POST /bus/{bus_id}/issue` with enum types |
-| Trip Termination | Driver taps "Terminate" → bus removed from fleet |
+| Incremental 3-Layer Anomaly Detection | **Layer 1 (Inc 1):** Rule Engine — 3 deterministic rules (stationary bus, off-route deviation, communication loss). **Layer 2 (Inc 2):** Z-Score on speed/dwell-time. **Layer 3 (Inc 3/4):** Isolation Forest on multivariate features |
+| Driver Incident Reporting | `POST /api/v1/trips/{id}/incident` with codes: `BREAKDOWN`, `ACCIDENT`, `HEAVY_TRAFFIC`, `ROAD_CLOSURE`, `MEDICAL_EMERGENCY`. Transitions bus to `INCIDENT_REPORTED` state, fires admin alert |
+| Admin Alert Management | `GET /api/v1/admin/alerts`, `POST /api/v1/admin/alerts/{id}/acknowledge` |
 
 </details>
 
