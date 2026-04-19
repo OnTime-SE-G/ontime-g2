@@ -1,20 +1,24 @@
-<p align="center">
-  <img src="docs/assets/OnTime_logo_v_1.jpg" alt="OnTime Logo" width="120" />
-</p>
+<div align="center">
+  <br/>
+  <a href="https://github.com/OnTime-SE-G/ontime-g2">
+    <img src="docs/assets/OnTime_logo_v_1.jpg" alt="OnTime Logo" width="180" style="border-radius: 20px;" />
+  </a>
+  <br/><br/>
 
-<h1 align="center">OnTime — Public Transport Real-Time Tracking & ETA Prediction</h1>
+  <h1>OnTime — Public Transport Real-Time Tracking & ETA Prediction</h1>
 
-<p align="center">
-  <strong>Group G — SE3080 / SE3070 Software Engineering Project</strong><br/>
-  University of Moratuwa · April 2026
-</p>
+  <p>
+    <strong>Group G — SE3080 / SE3070 Software Engineering Project</strong><br/>
+    University of Moratuwa · April 2026
+  </p>
 
-<p align="center">
-  <img src="https://img.shields.io/badge/status-active-brightgreen" alt="Status" />
-  <img src="https://img.shields.io/badge/version-0.1.0--dev-blue" alt="Version" />
-  <img src="https://img.shields.io/badge/architecture-microservices-purple" alt="Architecture" />
-  <img src="https://img.shields.io/badge/license-academic-orange" alt="License" />
-</p>
+  <p>
+    <img src="https://img.shields.io/badge/status-active-brightgreen" alt="Status" />
+    <img src="https://img.shields.io/badge/version-0.1.0--dev-blue" alt="Version" />
+    <img src="https://img.shields.io/badge/architecture-microservices-purple" alt="Architecture" />
+    <img src="https://img.shields.io/badge/license-academic-orange" alt="License" />
+  </p>
+</div>
 
 ---
 
