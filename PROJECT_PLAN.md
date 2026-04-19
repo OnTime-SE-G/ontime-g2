@@ -1,6 +1,6 @@
 # OnTime G2 — Project Plan & Incremental Delivery Roadmap
 
-> **Version:** 1.1  
+> **Version:** 2.0  
 > **Date:** April 2026  
 > **Methodology:** Agile Scrum (2-week sprints)  
 > **Status:** Planning
