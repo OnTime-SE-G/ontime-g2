@@ -158,8 +158,8 @@ Members set the active `DATABASE_URL` in their local `.env` file (never committe
 | **Ingestion Service** | MQTT → Kafka bridge; Pydantic validation; DLQ routing for invalid GPS |
 | **Stream Processing** | Flink job: Kalman filter + bounding box check (no feature extraction yet) |
 | **Bus State Machine** | `IDLE → WAITING_AT_DEPOT → DEPARTED_ORIGIN → EN_ROUTE → ARRIVED_DESTINATION → IDLE` |
-| **Driver Status API** | `POST /api/v1/bus/{bus_id}/status` — driver taps to change state |
-| **Live Feed** | `WS /ws/live-feed` — event-driven push (~every 3–5 seconds per active bus) to G3 |
+| **Driver Status API** | `POST /api/v1/trips/{id}/state` — driver taps to change trip state; `POST /api/v1/driver/start-trip` — driver starts trip |
+| **Live Feed** | `WS wss://api.ontime.lk/v1/live` — delta updates (~every 3–5s per active bus), full state on first connect |
 | **Route API** | `GET /api/v1/routes`, `GET /api/v1/routes/{id}/buses` |
 
 #### What Each Role Gets

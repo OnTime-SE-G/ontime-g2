@@ -79,7 +79,7 @@ Group G (20 students total)
 | **Focus** | System logic, UX, and system core |
 | **Responsibilities** | Foundational/core logic & integration points, web & mobile apps, dashboards & visualization, real-time user interactions, role-based UIs, UI/UX design & responsiveness |
 | **Key Functions** | Live tracking map, delay notifications, role-specific interfaces |
-| **Recommended Tools** | Next.js, Flutter, Redux/Zustand, Socket.IO, Mapbox, Three.js, Storybook |
+| **Recommended Tools** | React.js (web), React Native (mobile), Redux/Zustand, Socket.IO, Mapbox, Storybook |
 
 ### G4 — Platform, Security & Integration
 
@@ -160,7 +160,7 @@ All subgroups must demonstrate competency in the following areas:
 | Property | Value |
 |----------|-------|
 | **REST Base URL** | `http://g2-api:8000` (internal Docker network) |
-| **WebSocket** | `ws://g2-api:8000/ws/live-feed` |
+| **WebSocket** | `wss://api.ontime.lk/v1/live` |
 | **Format** | JSON, UTF-8 |
 | **Auth** | `X-API-Key` header for server-to-server |
 | **Push Rate** | Event-driven (~every 3–5 seconds per active bus) |

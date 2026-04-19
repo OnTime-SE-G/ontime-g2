@@ -34,8 +34,8 @@ OnTime's first release focuses on two core user roles:
 
 | Role | Platform | Core Value |
 |------|----------|------------|
-| **Passenger** | Mobile (Flutter) | Live map with bus positions, ETA on tap, route search |
-| **Bus Driver** | Mobile (Flutter) | Trip state management (Start/End trip), target times, issue reporting |
+| **Passenger** | Mobile (React Native) | Live map with bus positions, ETA on tap, route search |
+| **Bus Driver** | Mobile (React Native) | Trip state management (Start/End trip), target times, issue reporting |
 
 > **Note:** Scheduler/Dispatcher functionality is planned for a future release. For the first release, buses operate on a fixed timetable and scheduling is handled manually.
 
@@ -65,7 +65,8 @@ OnTime's first release focuses on two core user roles:
                     │                 │                   │
               ┌─────▼─────┐   ┌──────▼──────┐   ┌───────▼──────┐
               │ G3 Mobile  │   │ G3 Web      │   │ G4 Platform  │
-              │ (Flutter)  │   │ (Next.js)   │   │ (K8s/Docker) │
+              │(React      │   │ (React.js)  │   │ (K8s/Docker) │
+              │ Native)    │   │             │   │              │
               └────────────┘   └─────────────┘   └──────────────┘
 ```
 
@@ -187,10 +188,12 @@ curl http://localhost:8000/health
 |--------|----------|-------------|-----------|
 | `GET` | `/health` | Service health check | 0 |
 | `GET` | `/metrics` | Prometheus metrics | 0 |
+| `GET` | `/api/v1/buses/live` | Live bus positions for all active buses | 1 |
 | `GET` | `/api/v1/routes` | List all routes with stops | 1 |
 | `GET` | `/api/v1/routes/{route_id}/buses` | Active buses on a route | 1 |
-| `WS` | `/ws/live-feed` | Real-time fleet status stream (1s) | 1 |
-| `POST` | `/api/v1/bus/{bus_id}/status` | Driver changes bus state | 1 |
+| `WS` | `wss://api.ontime.lk/v1/live` | Real-time fleet status (delta updates, ~3–5s) | 1 |
+| `POST` | `/api/v1/trips/{id}/state` | Driver changes trip/bus state | 1 |
+| `POST` | `/api/v1/driver/start-trip` | Driver starts a trip | 1 |
 | `POST` | `/api/v1/ingest/gps` | GPS test ingestion endpoint | 1 |
 
 <details>
@@ -198,10 +201,14 @@ curl http://localhost:8000/health
 
 | Method | Endpoint | Description | Increment |
 |--------|----------|-------------|-----------|
-| `GET` | `/api/v1/eta/{bus_id}` | ETA for all downstream stops | 2 |
 | `GET` | `/api/v1/eta/{bus_id}/{stop_id}` | ETA for a specific stop | 2 |
-| `GET` | `/api/v1/anomalies/active` | All unresolved anomalies | 4 |
-| `POST` | `/api/v1/bus/{bus_id}/issue` | Driver reports issue | 4 |
+| `POST` | `/api/v1/driver/report-delay` | Driver reports delay (reason + ETA offset) | 2 |
+| `POST` | `/api/v1/trips/{id}/incident` | Driver reports structured incident | 4 |
+| `GET` | `/api/v1/admin/fleet` | Admin fleet overview | 4 |
+| `GET` | `/api/v1/admin/alerts` | Active anomaly alerts | 4 |
+| `POST` | `/api/v1/admin/alerts/{id}/acknowledge` | Admin acknowledges alert | 4 |
+| `POST` | `/api/v1/admin/dispatch` | Admin dispatch bus | 3 |
+| `POST` | `/api/v1/admin/slots/{id}/assign` | Admin assigns bus to departure slot | 3 |
 | `GET` | `/api/v1/routes/search` | Route search | 5 |
 | `GET` | `/api/v1/routes/nearest` | Nearest routes by location | 5 |
 

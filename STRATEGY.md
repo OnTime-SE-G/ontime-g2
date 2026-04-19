@@ -272,7 +272,7 @@ Pagination: ?limit=N&offset=M (default limit=20, max=100)
 
 ### 7.2 WebSocket Strategy
 
-The `/ws/live-feed` endpoint pushes updates whenever telemetry events are processed (~every 3–5 seconds per active bus). This is a broadcast model — all connected clients receive the same payload.
+The `wss://api.ontime.lk/v1/live` endpoint pushes delta updates whenever telemetry events are processed (~every 3–5 seconds per active bus). On first connect, the server pushes the full current fleet state, then deltas only.
 
 **Why broadcast, not per-bus subscriptions?**
 - Fleet size is small (≤50 buses for MVP)
