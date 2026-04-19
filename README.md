@@ -198,6 +198,7 @@ curl http://localhost:8000/health
 | `WS` | `wss://api.ontime.lk/v1/live` | Real-time fleet status (delta updates, ~3–5s) | 1 |
 | `POST` | `/api/v1/trips/{id}/state` | Driver changes trip/bus state | 1 |
 | `POST` | `/api/v1/driver/start-trip` | Driver starts a trip | 1 |
+| `POST` | `/api/v1/driver/report-delay` | Driver reports delay (reason + minutes) | 1 |
 | `POST` | `/api/v1/ingest/gps` | GPS test ingestion endpoint | 1 |
 
 <details>
@@ -206,8 +207,8 @@ curl http://localhost:8000/health
 | Method | Endpoint | Description | Increment |
 |--------|----------|-------------|-----------|
 | `GET` | `/api/v1/eta/{bus_id}/{stop_id}` | ETA for a specific stop | 2 |
-| `POST` | `/api/v1/driver/report-delay` | Driver reports delay (reason + ETA offset) | 2 |
-| `POST` | `/api/v1/trips/{id}/incident` | Driver reports structured incident | 4 |
+| `POST` | `/api/v1/driver/report-delay` | ETA engine applies additive downstream offset from delay reports persisted in Increment 1 | 2 |
+| `POST` | `/api/v1/trips/{id}/incident` | FR-G3.3 structured incident report (BREAKDOWN, ACCIDENT, HEAVY_TRAFFIC, ROAD_CLOSURE, MEDICAL_EMERGENCY) → sets `INCIDENT_REPORTED` + triggers admin alert | 4 |
 | `GET` | `/api/v1/admin/fleet` | Admin fleet overview | 4 |
 | `GET` | `/api/v1/admin/alerts` | Active anomaly alerts | 4 |
 | `POST` | `/api/v1/admin/alerts/{id}/acknowledge` | Admin acknowledges alert | 4 |

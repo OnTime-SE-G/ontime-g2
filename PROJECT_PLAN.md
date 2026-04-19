@@ -159,6 +159,7 @@ Members set the active `DATABASE_URL` in their local `.env` file (never committe
 | **Stream Processing** | Flink job: Kalman filter + bounding box check (no feature extraction yet) |
 | **Bus State Machine** | `WAITING_AT_DEPOT → DEPARTED_ORIGIN → EN_ROUTE → ARRIVED_DESTINATION` (↕ `INCIDENT_REPORTED` from `EN_ROUTE`, admin reset: `ARRIVED_DESTINATION → WAITING_AT_DEPOT`) |
 | **Driver Status API** | `POST /api/v1/trips/{id}/state` — driver taps to change trip state; `POST /api/v1/driver/start-trip` — driver starts trip |
+| **Driver Delay Reporting (FR-G2.5)** | `POST /api/v1/driver/report-delay` — driver submits delay reason (`TRAFFIC`, `BREAKDOWN`, `ACCIDENT`, `OTHER`) + estimated minutes; persisted for ETA offset processing in Increment 2 |
 | **Live Feed** | `WS wss://api.ontime.lk/v1/live` — delta updates (~every 3–5s per active bus), full state on first connect |
 | **Route API** | `GET /api/v1/routes`, `GET /api/v1/routes/{id}/buses` |
 
@@ -174,6 +175,7 @@ Members set the active `DATABASE_URL` in their local `.env` file (never committe
 - [ ] Simulated GPS appears on WebSocket within 2 seconds of emission
 - [ ] Bus dot moves on G3 map (integration test with G3 team)
 - [ ] Driver can change bus status via API and it reflects in live feed
+- [ ] Driver delay reports are accepted and persisted via `POST /api/v1/driver/report-delay`
 - [ ] Invalid GPS messages route to dead-letter topic (`transport-telemetry-dlq`)
 - [ ] `/health` returns 200 with all dependency statuses
 
@@ -195,7 +197,7 @@ Members set the active `DATABASE_URL` in their local `.env` file (never committe
 | Physics Fallback | `distance / speed` when ML unavailable |
 | Geofencing | Kahathuduwa highway entrance/exit detection |
 | ETA API | `GET /api/v1/eta/{bus_id}/{stop_id}` |
-| Driver Delay Reporting | `POST /api/v1/driver/report-delay` — driver submits delay reason (`TRAFFIC \| BREAKDOWN \| ACCIDENT \| OTHER`) + estimated minutes; additive offset applied to downstream ETAs |
+| Driver Delay Offset Application (FR-G2.5) | ETA engine applies additive offset to downstream ETAs using persisted delay reports submitted in Increment 1 |
 
 **What users get:**
 - Passenger taps a stop → sees "Bus arriving in ~4 min" with confidence
@@ -230,7 +232,7 @@ Members set the active `DATABASE_URL` in their local `.env` file (never committe
 | Component | Deliverable |
 |-----------|------------|
 | Incremental 3-Layer Anomaly Detection | **Layer 1 (Inc 1):** Rule Engine — 3 deterministic rules (stationary bus, off-route deviation, communication loss). **Layer 2 (Inc 2):** Z-Score on speed/dwell-time. **Layer 3 (Inc 3/4):** Isolation Forest on multivariate features |
-| Driver Incident Reporting | `POST /api/v1/trips/{id}/incident` with codes: `BREAKDOWN`, `ACCIDENT`, `HEAVY_TRAFFIC`, `ROAD_CLOSURE`, `MEDICAL_EMERGENCY`. Transitions bus to `INCIDENT_REPORTED` state, fires admin alert |
+| Driver Incident Reporting (FR-G3.3) | `POST /api/v1/trips/{id}/incident` with codes: `BREAKDOWN`, `ACCIDENT`, `HEAVY_TRAFFIC`, `ROAD_CLOSURE`, `MEDICAL_EMERGENCY`. Transitions bus to `INCIDENT_REPORTED` state, fires admin alert |
 | Admin Alert Management | `GET /api/v1/admin/alerts`, `POST /api/v1/admin/alerts/{id}/acknowledge` |
 
 </details>
