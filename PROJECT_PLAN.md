@@ -266,21 +266,7 @@ Members set the active `DATABASE_URL` in their local `.env` file (never committe
 
 ---
 
-## 5. Team Allocation — Increment 0 (Sprint 1)
-
-| Member | Primary Role | Key Outputs |
-|--------|-------------|-------------|
-| **Member 1** | Infrastructure & Docker Lead | `docker-compose.yml`, container networking, health scripts |
-| **Member 2** | Database & Schema Lead | SQL migrations, Neon cloud setup, PostGIS config |
-| **Member 3** | Data Seeding & Simulator Lead | `seed_routes.py`, `gps_simulator.py` |
-| **Member 4** | CI/CD & Quality Lead | GitHub Actions, test framework, PR template |
-| **Member 5** | Interface & Integration Lead | FastAPI skeleton, Pydantic models, integration test |
-
-**For Increment 1+ allocation**, see [STRATEGY.md](STRATEGY.md) Section 2.
-
----
-
-## 6. Definition of Done (per Increment)
+## 5. Definition of Done (per Increment)
 
 An increment is "done" when:
 
@@ -293,7 +279,7 @@ An increment is "done" when:
 
 ---
 
-## 7. Risk Register
+## 6. Risk Register
 
 | Risk | Probability | Impact | Mitigation |
 |------|------------|--------|-----------|
@@ -305,7 +291,7 @@ An increment is "done" when:
 
 ---
 
-## 8. Milestones
+## 7. Milestones
 
 | Milestone | Target | Criteria |
 |-----------|--------|----------|
@@ -317,4 +303,4 @@ An increment is "done" when:
 
 ---
 
-*Last updated: 16-th April 2026*
+*Last updated: 19th April 2026*

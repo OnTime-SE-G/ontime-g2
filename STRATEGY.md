@@ -1,6 +1,6 @@
 # OnTime G2 — Architecture & Technology Strategy
 
-> **Version:** 1.1  
+> **Version:** 2.0  
 > **Date:** April 2026  
 > **Author:** G2 — Data & Intelligence Team  
 > **Status:** Approved
@@ -21,8 +21,8 @@
 | WebSocket live feed | Route search, GTFS import |
 
 **Key assumptions for first release:**
-- Buses operate on a **fixed timetable** — no bus conflicts
-- **Scheduling & dispatch are manual** — no scheduling service
+- Buses operate on a **fixed timetable** - no bus conflicts
+- **Scheduling & dispatch are manual** - no scheduling service
 - System starts at the moment **driver taps "Start Trip"**
 - **Only Passenger and Driver** roles are active (no Scheduler UI)
 
@@ -30,7 +30,7 @@
 
 ## 1. Strategic Vision
 
-G2's mission is to be the **intelligence backbone** of the OnTime Public Transport System. Every data-driven decision — from a passenger checking when their bus arrives to a driver managing their trip — flows through G2's processing pipelines.
+G2's mission is to be the **intelligence backbone** of the OnTime Public Transport System. Every data-driven decision, from a passenger checking when their bus arrives to a driver managing their trip, flows through G2's processing pipelines.
 
 ### Design Principles
 
@@ -90,7 +90,7 @@ G2 is decomposed into independently deployable services. Services marked **(futu
 Each service follows the **Single Responsibility Principle**:
 
 - **Ingestion**: Validates GPS, bridges MQTT → Kafka. Knows nothing about ETA or anomalies.
-- **Stream Processing**: Cleans GPS, extracts features. Pure data transformation — no business logic.
+- **Stream Processing**: Cleans GPS, extracts features. Pure data transformation, no business logic.
 - **ETA Prediction** *(future)*: Loads ML model, runs inference, returns predictions.
 - **Anomaly Detection** *(future)*: Runs 3-layer detection. Owns anomaly state and lifecycle.
 - **Route Management**: CRUD for routes, stops, geofences. Serves route geometry.
@@ -242,7 +242,7 @@ Schema: scheduling                 ← Inc 3 (future)
 | **Local Dev** | Docker PostgreSQL + PostGIS | Solo coding, fast iteration, CI pipeline |
 | **Cloud (Neon)** | Neon PostgreSQL | Shared team DB, real data collaboration |
 
-Both configured in a single `.env.example` — member uncomments the `DATABASE_URL` they need.
+Both configured in a single `.env.example` - member uncomments the `DATABASE_URL` they need.
 
 ---
 
@@ -420,4 +420,4 @@ Push to any branch → Lint (ruff) → Type Check (mypy) → Unit Tests (pytest)
 
 ---
 
-*Last updated: 16-th April 2026*
+*Last updated: 19th April 2026*
