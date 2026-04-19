@@ -87,34 +87,34 @@ The system is delivered in **modular increments**. Each increment produces a **f
 
 | Member | Role | What They Own | Key Deliverables |
 |--------|------|--------------|-----------------|
-| **Member 1** | Infrastructure & Docker Lead | Docker environment | `docker/docker-compose.yml` (Kafka, Zookeeper, PG+PostGIS, Redis), `docker/.env.example`, health check wait scripts, Docker networking config |
-| **Member 2** | Database & Schema Lead | All database schemas | SQL migration scripts in `scripts/migrations/`, schema for all tables (routes, stops, buses, gps_readings, trips, stop_arrivals, anomalies, geofences), Neon cloud DB setup for team access, local PG+PostGIS config |
-| **Member 3** | Data Seeding & Simulator Lead | Test data + GPS simulator | `scripts/seed_routes.py` (Moratuwa→Kadawatha route + 20+ stops with PostGIS LINESTRING/POINT geometry), `scripts/gps_simulator.py` (publishes fake GPS JSON every 3–5 seconds to Kafka `transport-telemetry-raw` topic) |
-| **Member 4** | CI/CD & Quality Lead | Pipeline + test framework | `.github/workflows/ci.yml` (ruff lint + mypy type check + pytest + Docker build), `tests/` directory structure with conftest.py, PR template, branch protection rules, `pyproject.toml` with tool configs |
-| **Member 5** | Interface & Integration Lead | API skeleton + glue | `services/api-gateway/` FastAPI app with `/health` + `/metrics`, Pydantic models (`schemas/gps.py`, `schemas/bus_status.py`), project-wide folder structure, integration test that verifies: docker up → seed → simulate → health OK |
+| **Janidu** | Infrastructure & Docker Lead | Docker environment | `docker/docker-compose.yml` (Kafka, Zookeeper, PG+PostGIS, Redis), `docker/.env.example`, health check wait scripts, Docker networking config |
+| **Kusal** | Database & Schema Lead | All database schemas | SQL migration scripts in `scripts/migrations/`, schema for all tables (routes, stops, buses, gps_readings, trips, stop_arrivals, anomalies, geofences), Neon cloud DB setup for team access, local PG+PostGIS config |
+| **Chamodh** | Data Seeding & Simulator Lead | Test data + GPS simulator | `scripts/seed_routes.py` (Moratuwa→Kadawatha route + 20+ stops with PostGIS LINESTRING/POINT geometry), `scripts/gps_simulator.py` (publishes fake GPS JSON every 3–5 seconds to Kafka `transport-telemetry-raw` topic) |
+| **Nidharshan** | CI/CD & Quality Lead | Pipeline + test framework | `.github/workflows/ci.yml` (ruff lint + mypy type check + pytest + Docker build), `tests/` directory structure with conftest.py, PR template, branch protection rules, `pyproject.toml` with tool configs |
+| **Nathasha** | Interface & Integration Lead | API skeleton + glue | `services/api-gateway/` FastAPI app with `/health` + `/metrics`, Pydantic models (`schemas/gps.py`, `schemas/bus_status.py`), project-wide folder structure, integration test that verifies: docker up → seed → simulate → health OK |
 
-> **Member 5 is the glue person.** They define the project skeleton that everyone else plugs into. They also write the end-to-end integration test that chains all other members' work together.
+> **Nathasha is the glue person.** She defines the project skeleton that everyone else plugs into. She also writes the end-to-end integration test that chains all other members' work together.
 
 #### How Members Collaborate
 
 ```
-Member 1 (Docker)          Member 2 (DB Schemas)
+Janidu (Docker)             Kusal (DB Schemas)
      │                          │
      │  docker compose up       │  SQL migration scripts
      │  provides running        │  run against PG container
-     │  PG + Kafka + Redis      │  from Member 1
+     │  PG + Kafka + Redis      │  from Janidu
      └──────────┬───────────────┘
                 │
-     Member 3 (Seeding + Simulator)
+     Chamodh (Seeding + Simulator)
                 │
-     seed_routes.py writes to PG (Member 2's schema)
-     gps_simulator.py publishes to Kafka (Member 1's container)
+     seed_routes.py writes to PG (Kusal's schema)
+     gps_simulator.py publishes to Kafka (Janidu's container)
                 │
-     Member 4 (CI/CD)
+     Nidharshan (CI/CD)
                 │
      GitHub Actions runs all of the above + linting
                 │
-     Member 5 (Integration)
+     Nathasha (Integration)
                 │
      FastAPI reads from PG + Redis
      Integration test chains everything together
