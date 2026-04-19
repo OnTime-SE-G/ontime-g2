@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/assets/logo-placeholder.png" alt="OnTime Logo" width="120" />
+  <img src="docs/assets/OnTime_logo_v_1.jpg" alt="OnTime Logo" width="120" />
 </p>
 
 <h1 align="center">OnTime — Public Transport Real-Time Tracking & ETA Prediction</h1>
