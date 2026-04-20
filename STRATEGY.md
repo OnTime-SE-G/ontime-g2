@@ -75,7 +75,7 @@ G2 is decomposed into independently deployable services. Services marked **(futu
 
 ### 2.2 Service Catalog
 
-| Service | Port | Kafka Consumes | Kafka Produces | Increment |
+| Service | Port | AutoMQ Consumes | AutoMQ Produces | Increment |
 |---------|------|----------------|----------------|-----------|
 | **API Gateway** | 8000 | `transport-anomaly-alerts` | — | 0 (skeleton) |
 | **Ingestion Service** | 8001 | — | `transport-telemetry-raw`, `transport-telemetry-dlq` | 1 |
@@ -155,7 +155,9 @@ G2 communicates through separate logical ports for independent data flows.
 
 ## 3. Event-Driven Architecture
 
-### 3.1 Kafka Topic Design
+### 3.1 AutoMQ Topic Design
+
+> **Note:** AutoMQ brokers are **stateless**. This means topic partitions are stored directly in cloud object storage (like AWS S3) rather than on physical broker disks, guaranteeing rapid 10-second scaling without the "partition tax" of traditional standard Kafka.
 
 ```
 # Active in first release
@@ -199,12 +201,12 @@ Stream Processing (Flink — Inc 1)
 
 ### 4.1 Database Strategy
 
-**PostgreSQL 16 + PostGIS 3.4** is the primary data store. Services share a single PostgreSQL instance for the MVP (schema isolation for logical separation).
+The primary data store is split into two specialized databases to maximize performance and elasticity:
+
+**1. PostgreSQL 16 + PostGIS 3.4 (Static/Relational)**
+Used for core business logic, users, and geographic routes. Services share a single PostgreSQL instance for the MVP (schema isolation).
 
 ```
-Schema: ingestion
-  └── gps_readings (partitioned by date)
-
 Schema: routes
   ├── routes (LINESTRING geometry)
   ├── stops (POINT geometry)
@@ -224,7 +226,16 @@ Schema: scheduling                 ← Inc 3 (future)
   └── bus_availability
 ```
 
-> **All schemas are created in Increment 0** via migration scripts, even for future services. This ensures the database structure is ready and documented upfront.
+**2. InfluxDB (Time-Series / Telemetry)**
+Used strictly for high-throughput stream storage and historical aggregation.
+
+```
+Bucket: telemetry
+  ├── gps_readings (bus_id, lat, lng, speed, heading, timestamp)
+  └── eta_predictions (bus_id, stop_id, eta)
+```
+
+> **All schemas and buckets are created in Increment 0** via migration and init scripts, even for future services. This ensures the database structure is ready and documented upfront.
 
 ### 4.2 Caching Strategy (Redis)
 
@@ -400,9 +411,10 @@ Push to any branch → Lint (ruff) → Type Check (mypy) → Unit Tests (pytest)
 | ML Framework for ETA | XGBoost | Tabular data, fast inference, interpretable | LSTM (overkill), LightGBM (similar) |
 | Stream Processing | Apache Flink (PyFlink) | True stream processing, watermarks, exactly-once | Spark Streaming (micro-batch), Kafka Streams |
 | API Framework | FastAPI | Async, type-safe, auto-docs, Python native | Flask (no async), Django (too heavy) |
-| Database | PostgreSQL + PostGIS | Spatial queries, mature, free | MongoDB (no spatial), InfluxDB (no relational) |
+| Database | PostgreSQL + PostGIS | Spatial queries, mature, free | MongoDB (no spatial) |
+| Telemetry Database | InfluxDB | Time-series optimized, handles massive write throughput from streams | PostgreSQL Partitioning (overhead, scale issues) |
 | Cache | Redis | Sub-ms latency, pub/sub capability | Memcached (no pub/sub) |
-| Message Broker | Apache Kafka | Event sourcing, replay, partitioning | RabbitMQ (no replay), Redis Streams (less durable) |
+| Message Broker | AutoMQ (Kafka-compatible) | Stateless, S3-backed storage, extremely elastic cloud scaling | Apache Kafka (Disk-bound), RabbitMQ |
 | Anomaly Detection | 3-Layer hybrid | Statistical + ML + Rules covers all edge cases | Single ML model, pure rules |
 | Auth Provider | Keycloak (G4) | Centralized, RBAC, OIDC compliant | Custom auth, Firebase (vendor lock) |
 
