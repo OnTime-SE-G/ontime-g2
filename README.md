@@ -48,7 +48,7 @@ OnTime's first release focuses on two core user roles:
 ## 🏗️ System Architecture
 
 ```
-┌─────────────┐     MQTT      ┌──────────────┐    Kafka     ┌──────────────────┐
+┌─────────────┐     MQTT      ┌──────────────┐   AutoMQ   ┌──────────────────┐
 │  G1 — Edge  │──────────────▶│  G2 — Data   │────────────▶│  G2 — Stream     │
 │  (GPS/IoT)  │               │  Ingestion    │             │  Processing      │
 └─────────────┘               └──────────────┘             └────────┬─────────┘
@@ -57,7 +57,7 @@ OnTime's first release focuses on two core user roles:
                     │                    │                            │
               ┌─────▼──────┐    ┌───────▼────────┐    ┌─────────────▼───────┐
               │ ETA Model  │    │ Anomaly Detect │    │  PostgreSQL/PostGIS │
-              │ (XGBoost)  │    │ (3-Layer)      │    │  + Redis Cache      │
+              │ (XGBoost)  │    │ (3-Layer)      │    │  & InfluxDB + Redis │
               └─────┬──────┘    └───────┬────────┘    └─────────┬───────────┘
                     │                    │                        │
               ┌─────▼────────────────────▼────────────────────────▼───┐
@@ -97,8 +97,8 @@ OnTime's first release focuses on two core user roles:
 |----------|-----------|-----------|
 | **Language** | Python 3.12 | All increments |
 | **API Framework** | FastAPI | Inc 0+ |
-| **Message Broker** | Apache Kafka (Confluent 7.6) | Inc 0+ |
-| **Database** | PostgreSQL 16 + PostGIS 3.4 | Inc 0+ |
+| **Message Broker** | AutoMQ (Kafka-compatible, S3-backed) | Inc 0+ |
+| **Databases** | PostgreSQL 16 (Relational/Spatial) + InfluxDB (Time-Series) | Inc 0+ |
 | **Cache** | Redis | Inc 0+ |
 | **Stream Processing** | Apache Flink (PyFlink) | Inc 1+ |
 | **ML Framework** | XGBoost, scikit-learn | Inc 2+ |
@@ -156,9 +156,10 @@ cd ontime-g2
 
 # 2. Copy environment config
 cp .env.example .env
-# Edit .env — uncomment the DATABASE_URL you want (local or Neon cloud)
+# Edit .env — uncomment the connections you want (local Docker URLs or Cloud connections like Neon PG / InfluxDB Cloud)
 
-# 3. Start infrastructure (Kafka, PostgreSQL, Redis)
+# 3. Start infrastructure locally
+# Note: Production uses AutoMQ (cloud-native Kafka), but local dev spins up standard Kafka/Zookeeper, PostgreSQL, InfluxDB, and Redis.
 docker compose -f docker/docker-compose.yml up -d
 
 # 4. Install Python dependencies

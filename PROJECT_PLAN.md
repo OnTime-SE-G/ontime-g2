@@ -75,21 +75,21 @@ The system is delivered in **modular increments**. Each increment produces a **f
 
 | Component | Deliverable |
 |-----------|------------|
-| **Docker Compose** | Dev stack: Kafka + Zookeeper, PostgreSQL + PostGIS, Redis |
-| **Database Schemas** | SQL scripts for all tables (routes, stops, buses, gps_readings, trips, etc.) |
+| **Docker Compose** | Dev stack: AutoMQ (or Kafka fallback), PostgreSQL + PostGIS, InfluxDB, Redis |
+| **Database Schemas** | SQL scripts for all PG tables, and initialization for InfluxDB buckets |
 | **Route Seeding** | Script to seed Moratuwa → Kadawatha route geometry + 20+ stops into PostGIS |
-| **GPS Simulator** | Python script that publishes fake GPS every 3–5 seconds to `transport-telemetry-raw` Kafka topic |
+| **GPS Simulator** | Python script that publishes fake GPS every 3–5 seconds to `transport-telemetry-raw` AutoMQ topic |
 | **CI Pipeline** | GitHub Actions: lint (ruff), type check (mypy), test (pytest), Docker build |
 | **FastAPI Skeleton** | `/health` and `/metrics` endpoints, Pydantic models for GPS + bus status schemas |
-| **Dev Config** | `.env.example` with local + Neon cloud DB URLs, Docker networking |
+| **Dev Config** | `.env.example` with local + Cloud DB URLs (Neon PG + InfluxDB Cloud), Docker networking |
 
 #### 5-Member Task Distribution
 
 | Member | Role | What They Own | Key Deliverables |
 |--------|------|--------------|-----------------|
-| **Janidu** | Infrastructure & Docker Lead | Docker environment | `docker/docker-compose.yml` (Kafka, Zookeeper, PG+PostGIS, Redis), `docker/.env.example`, health check wait scripts, Docker networking config |
-| **Kusal** | Database & Schema Lead | All database schemas | SQL migration scripts in `scripts/migrations/`, schema for all tables (routes, stops, buses, gps_readings, trips, stop_arrivals, anomalies, geofences), Neon cloud DB setup for team access, local PG+PostGIS config |
-| **Chamodh** | Data Seeding & Simulator Lead | Test data + GPS simulator | `scripts/seed_routes.py` (Moratuwa→Kadawatha route + 20+ stops with PostGIS LINESTRING/POINT geometry), `scripts/gps_simulator.py` (publishes fake GPS JSON every 3–5 seconds to Kafka `transport-telemetry-raw` topic) |
+| **Janidu** | Infrastructure & Docker Lead | Docker environment | `docker/docker-compose.yml` (Kafka/AutoMQ, PG+PostGIS, InfluxDB, Redis), `docker/.env.example`, health check wait scripts, Docker networking config |
+| **Kusal** | Database & Schema Lead | All database schemas | SQL migration scripts in `scripts/migrations/`, schema for all PG tables (routes, stops, buses, trips, stop_arrivals, anomalies, geofences) + InfluxDB telemetry schemas, Neon/InfluxDB cloud DB setup for team access, local config |
+| **Chamodh** | Data Seeding & Simulator Lead | Test data + GPS simulator | `scripts/seed_routes.py` (Moratuwa→Kadawatha route + 20+ stops with PostGIS LINESTRING/POINT geometry), `scripts/gps_simulator.py` (publishes fake GPS JSON every 3–5 seconds to AutoMQ `transport-telemetry-raw` topic) |
 | **Nidharshan** | CI/CD & Quality Lead | Pipeline + test framework | `.github/workflows/ci.yml` (ruff lint + mypy type check + pytest + Docker build), `tests/` directory structure with conftest.py, PR template, branch protection rules, `pyproject.toml` with tool configs |
 | **Nathasha** | Interface & Integration Lead | API skeleton + glue | `services/api-gateway/` FastAPI app with `/health` + `/metrics`, Pydantic models (`schemas/gps.py`, `schemas/bus_status.py`), project-wide folder structure, integration test that verifies: docker up → seed → simulate → health OK |
 
@@ -101,14 +101,14 @@ The system is delivered in **modular increments**. Each increment produces a **f
 Janidu (Docker)             Kusal (DB Schemas)
      │                          │
      │  docker compose up       │  SQL migration scripts
-     │  provides running        │  run against PG container
-     │  PG + Kafka + Redis      │  from Janidu
+     │  provides running        │  run against PG + Influx
+     │  PG + Influx + AutoMQ    │  containers from Janidu
      └──────────┬───────────────┘
                 │
      Chamodh (Seeding + Simulator)
                 │
      seed_routes.py writes to PG (Kusal's schema)
-     gps_simulator.py publishes to Kafka (Janidu's container)
+     gps_simulator.py publishes to AutoMQ (Janidu's container)
                 │
      Nidharshan (CI/CD)
                 │
@@ -126,16 +126,16 @@ The project uses **two database options** via a single `.env.example`:
 
 | Option | When to Use | Setup |
 |--------|-------------|-------|
-| **Local PostgreSQL** (Docker) | Solo development, testing, CI | Automatically starts via `docker compose up`. Connection: `postgresql://ontime:ontime@localhost:5432/ontime` |
-| **Neon Cloud PostgreSQL** | Team collaboration, shared data | Team lead creates Neon project, shares connection URL privately. Connection: `postgresql://user:pass@ep-xxx.neon.tech/ontime?sslmode=require` |
+| **Local DBs (Docker)** | Solo development, testing, CI | Automatically starts via `docker compose up`. Connections: PG (`localhost:5432`), InfluxDB (`localhost:8086`) |
+| **Team Cloud DBs** | Team collaboration, shared data | Team lead creates Neon PG + InfluxDB Cloud projects, shares connection URLs privately.  |
 
 Members set the active `DATABASE_URL` in their local `.env` file (never committed to git).
 
 #### Acceptance Criteria
 
-- [ ] `docker compose up` brings up Kafka + PostgreSQL + Redis with zero errors
+- [ ] `docker compose up` brings up AutoMQ/Kafka + PostgreSQL + InfluxDB + Redis with zero errors
 - [ ] `python scripts/seed_routes.py` populates route + 20 stops in PostGIS
-- [ ] `python scripts/gps_simulator.py` publishes GPS messages to `transport-telemetry-raw` Kafka topic
+- [ ] `python scripts/gps_simulator.py` publishes GPS messages to `transport-telemetry-raw` AutoMQ topic
 - [ ] `curl localhost:8000/health` returns 200 with dependency statuses
 - [ ] GitHub Actions runs lint + type check + tests on every push and passes
 
@@ -155,7 +155,7 @@ Members set the active `DATABASE_URL` in their local `.env` file (never committe
 
 | Component | Deliverable |
 |-----------|------------|
-| **Ingestion Service** | MQTT → Kafka bridge; Pydantic validation; DLQ routing for invalid GPS |
+| **Ingestion Service** | MQTT → AutoMQ bridge; Pydantic validation; DLQ routing for invalid GPS. *Note: G1 calculates speed and heading locally on the node.* |
 | **Stream Processing** | Flink job: Kalman filter + bounding box check (no feature extraction yet) |
 | **Bus State Machine** | `WAITING_AT_DEPOT → DEPARTED_ORIGIN → EN_ROUTE → ARRIVED_DESTINATION` (↕ `INCIDENT_REPORTED` from `EN_ROUTE`, admin reset: `ARRIVED_DESTINATION → WAITING_AT_DEPOT`) |
 | **Driver Status API** | `POST /api/v1/trips/{id}/state` - driver taps to change trip state; `POST /api/v1/driver/start-trip` - driver starts trip |
