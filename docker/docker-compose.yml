@@ -68,6 +68,26 @@ services:
       timeout: 5s
       retries: 5
 
+  api-gateway:
+    build:
+      context: ../services/api-gateway
+      dockerfile: Dockerfile
+    container_name: ontime_api_gateway
+    ports:
+      - "8000:8000"
+    volumes:
+      - ../services/api-gateway:/app
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ontime_db}
+      - REDIS_URL=redis://redis:6379
+    networks:
+      - ontime_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   broker:
     image: confluentinc/confluent-local:7.5.0
     container_name: ontime_kafka
