@@ -51,8 +51,8 @@ class RouteSeed(BaseModel):
     @field_validator("stops")
     @classmethod
     def validate_stop_count(cls, value: List[Stop]):
-        if len(value) < 20:
-            raise ValueError("At least 20 stops are required")
+        if len(value) < 2:
+            raise ValueError("At least 2 stops are required")
 
         # Auto-assign stop order if missing
         for index, stop in enumerate(value, start=1):

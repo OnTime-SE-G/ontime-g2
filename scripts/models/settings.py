@@ -4,7 +4,7 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     # Database
-    database_url: str = "postgresql://postgres:postgres@localhost:5432/transport"
+    database_url: str = "postgresql://postgres:postgres@localhost:5433/transport"
 
     # Files
     kml_file: str = "data/moratuwa_kadawatha.kml"
