@@ -1,16 +1,22 @@
 # Environments
 .env
-.venv
+.venv/
 env/
 venv/
 ENV/
 env.bak/
 venv.bak/
 
-# Byte-compiled / optimized / DLL files
+# Python cache / compiled files
 __pycache__/
 *.py[cod]
 *$py.class
+
+# Test / Coverage
+.pytest_cache/
+.coverage
+.coverage.*
+htmlcov/
 
 # IDEs
 .idea/
@@ -19,9 +25,3 @@ __pycache__/
 # Database / OS
 *.sqlite3
 .DS_Store
-
-# Test / Coverage
-htmlcov/
-.coverage
-.coverage.*
-.pytest_cache/
