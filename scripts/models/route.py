@@ -3,6 +3,8 @@
 from typing import List, Tuple
 from pydantic import BaseModel, Field, field_validator
 
+from scripts.models.geo_config import SRI_LANKA_BOUNDS
+
 
 class Stop(BaseModel):
     name: str = Field(..., min_length=1, max_length=120)
@@ -24,6 +26,19 @@ class Stop(BaseModel):
             raise ValueError("Longitude must be between -180 and 180")
         return value
 
+    @field_validator("stop_order")
+    @classmethod
+    def validate_stop_order(cls, value: int | None) -> int | None:
+        return value
+
+    @field_validator("lon", mode="after")
+    @classmethod
+    def validate_stop_in_allowed_region(cls, lon: float, info) -> float:
+        lat = info.data.get("lat")
+        if lat is not None and not SRI_LANKA_BOUNDS.contains(lat=lat, lon=lon):
+            raise ValueError("Stop coordinates must be within the configured bounds")
+        return lon
+
 
 class RouteGeometry(BaseModel):
     coordinates: List[Tuple[float, float]]
@@ -39,6 +54,8 @@ class RouteGeometry(BaseModel):
                 raise ValueError(f"Invalid longitude: {lon}")
             if not -90 <= lat <= 90:
                 raise ValueError(f"Invalid latitude: {lat}")
+            if not SRI_LANKA_BOUNDS.contains(lat=lat, lon=lon):
+                raise ValueError("Route coordinates must be within the configured bounds")
 
         return value
 

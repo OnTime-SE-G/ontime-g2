@@ -48,6 +48,15 @@ def test_stop_invalid_longitude():
         )
 
 
+def test_stop_coordinates_must_be_within_configured_bounds():
+    with pytest.raises(ValidationError):
+        Stop(
+            name="Outside Sri Lanka",
+            lat=10.5,
+            lon=79.9,
+        )
+
+
 def test_route_geometry_valid():
     geometry = RouteGeometry(
         coordinates=[
@@ -64,6 +73,16 @@ def test_route_geometry_requires_two_points():
         RouteGeometry(
             coordinates=[
                 (79.88, 6.77),
+            ]
+        )
+
+
+def test_route_geometry_coordinates_must_be_within_configured_bounds():
+    with pytest.raises(ValidationError):
+        RouteGeometry(
+            coordinates=[
+                (79.88, 6.77),
+                (85.0, 7.00),
             ]
         )
 
