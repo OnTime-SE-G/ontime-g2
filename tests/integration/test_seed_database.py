@@ -1,6 +1,5 @@
 # tests/integration/test_seed_database.py
 
-from app.main import app
 import sys
 from pathlib import Path
 
@@ -18,6 +17,8 @@ from scripts.models.settings import settings
 API_GATEWAY_PATH = Path("services") / "api-gateway"
 if str(API_GATEWAY_PATH.resolve()) not in sys.path:
     sys.path.insert(0, str(API_GATEWAY_PATH.resolve()))
+
+from app.main import app
 
 
 def get_engine():
