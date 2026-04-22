@@ -1,6 +1,13 @@
 # tests/integration/test_seed_database.py
 
-from sqlalchemy import create_engine
+from app.main import app
+import sys
+from pathlib import Path
+
+import pytest
+from fastapi.testclient import TestClient
+from sqlalchemy import create_engine, text
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from scripts.seed_routes import load_kml, seed_database
@@ -8,12 +15,46 @@ from scripts.models.base import Base
 from scripts.models.db_route import RouteORM, StopORM
 from scripts.models.settings import settings
 
+API_GATEWAY_PATH = Path("services") / "api-gateway"
+if str(API_GATEWAY_PATH.resolve()) not in sys.path:
+    sys.path.insert(0, str(API_GATEWAY_PATH.resolve()))
+
 
 def get_engine():
     return create_engine(settings.database_url, echo=False)
 
 
+def db_is_reachable() -> bool:
+    try:
+        engine = get_engine()
+        with engine.connect() as connection:
+            connection.execute(text("SELECT 1"))
+        return True
+    except SQLAlchemyError:
+        return False
+
+
+@pytest.mark.integration
+def test_increment0_gateway_health_contract():
+    client = TestClient(app)
+
+    response = client.get("/health")
+    assert response.status_code == 200
+
+    payload = response.json()
+    assert payload["status"] == "healthy"
+    assert payload["service"] == "api-gateway"
+    assert "dependencies" in payload
+    for dep in ["postgres", "redis", "kafka", "influxdb"]:
+        assert dep in payload["dependencies"]
+
+
 def test_seed_database_inserts_route_and_stops():
+    if not db_is_reachable():
+        pytest.skip(
+            "Postgres is not reachable in current environment. Run via docker compose for integration checks."
+        )
+
     engine = get_engine()
     Base.metadata.create_all(engine)
 
@@ -33,6 +74,11 @@ def test_seed_database_inserts_route_and_stops():
 
 
 def test_stops_have_geometry():
+    if not db_is_reachable():
+        pytest.skip(
+            "Postgres is not reachable in current environment. Run via docker compose for integration checks."
+        )
+
     engine = get_engine()
 
     with Session(engine) as session:
