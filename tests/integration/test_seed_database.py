@@ -4,7 +4,6 @@ import sys
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
@@ -18,7 +17,14 @@ API_GATEWAY_PATH = Path("services") / "api-gateway"
 if str(API_GATEWAY_PATH.resolve()) not in sys.path:
     sys.path.insert(0, str(API_GATEWAY_PATH.resolve()))
 
-from app.main import app
+
+def _get_gateway_test_client_and_app():
+    pytest.importorskip(
+        "fastapi", reason="fastapi is not installed in this test environment")
+    from fastapi.testclient import TestClient
+    from app.main import app
+
+    return TestClient, app
 
 
 def get_engine():
@@ -37,6 +43,7 @@ def db_is_reachable() -> bool:
 
 @pytest.mark.integration
 def test_increment0_gateway_health_contract():
+    TestClient, app = _get_gateway_test_client_and_app()
     client = TestClient(app)
 
     response = client.get("/health")
