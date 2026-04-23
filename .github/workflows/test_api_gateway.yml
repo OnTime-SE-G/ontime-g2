@@ -26,6 +26,6 @@ jobs:
 
       - name: Run tests with coverage
         run: |
-          python -m pytest tests/unit/test_api_gateway.py -v \
+          python -m pytest services/api-gateway/tests -v \
           --cov=services/api-gateway \
           --cov-report=term-missing
