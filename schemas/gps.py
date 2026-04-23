@@ -1,12 +1,24 @@
-# scripts/models/gps.py
+# schemas/gps.py
+# Canonical GPS data contract for the OnTime platform.
+# Used by: GPS simulator, ingestion service, stream processing, API gateway.
 
 from datetime import datetime, timezone
-from pydantic import BaseModel, Field, field_validator
+
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class GPSMessage(BaseModel):
-    bus_id: str = Field(..., min_length=1, max_length=50)
-    trip_id: str = Field(..., min_length=1, max_length=50)
+    """
+    Standard GPS telemetry message.
+
+    Python fields use snake_case. For JSON serialization (Kafka, API responses),
+    use model.model_dump(by_alias=True) to get camelCase output.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    bus_id: str = Field(..., min_length=1, max_length=50, alias="busId")
+    trip_id: str = Field(..., min_length=1, max_length=50, alias="tripId")
 
     lat: float
     lon: float

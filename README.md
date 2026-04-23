@@ -116,25 +116,39 @@ ontime-g2/
 ├── README.md                    # This file
 ├── PROJECT_PLAN.md              # Incremental delivery plan
 ├── STRATEGY.md                  # Architecture & technology strategy
+├── requirements.txt             # Root Python dependencies
+├── pytest.ini                   # Test configuration & custom markers
 │
-├── docs/
-│   ├── PROJECT_INFO.md          # Group structure & deliverables
-│   └── srs/
-│       ├── SRS_G2_Data_Intelligence_1.0.docx   # Original SRS
-│       └── SRS_G2_Data_Intelligence_1.1.md      # Updated SRS v1.1
+├── schemas/                     # Shared Pydantic data contracts
+│   ├── __init__.py              # Centralized re-exports
+│   ├── gps.py                   # GPSMessage — canonical GPS telemetry schema
+│   ├── bus_status.py            # BusLifecycleState, BusStatusMessage
+│   └── geo_config.py            # CoordinateBounds, SRI_LANKA_BOUNDS
 │
-├── services/                    # Microservices
-│   ├── ingestion/               # GPS ingestion service
-│   ├── api-gateway/             # FastAPI gateway
+├── services/                    # Microservices (each is a deployable unit)
+│   ├── api-gateway/             # FastAPI gateway (main.py, Dockerfile)
+│   ├── ingestion/               # GPS ingestion service (Inc 1+)
 │   ├── stream-processing/       # Flink pipeline (Inc 1+)
 │   ├── eta-service/             # ETA prediction API (Inc 2+)
 │   ├── anomaly-service/         # Anomaly detection (Inc 4+)
 │   └── route-service/           # Route management
 │
+├── scripts/                     # CLI tools: seeding, simulation
+│   ├── seed_routes.py           # KML parser + PostGIS seeder
+│   ├── gps_simulator.py         # Kafka GPS telemetry publisher
+│   └── models/                  # Script-specific: ORM models + config
+│       ├── base.py              # SQLAlchemy DeclarativeBase
+│       ├── db_route.py          # RouteORM, StopORM
+│       ├── route.py             # RouteSeed, RouteGeometry, Stop
+│       └── settings.py          # Environment configuration
+│
 ├── models/                      # ML model artifacts (Inc 2+)
-├── scripts/                     # Seeding, simulators, training
-├── docker/                      # Docker & Compose files
-└── tests/                       # Unit, integration, system tests
+├── data/                        # Static data files (KML, GTFS)
+├── docker/                      # Docker Compose + env config
+├── docs/                        # Documentation & SRS
+└── tests/                       # ALL tests (unit, integration, load)
+    ├── unit/                    # Fast, isolated unit tests
+    └── integration/             # Tests requiring Docker infra
 ```
 
 ---
@@ -172,7 +186,7 @@ pip install -r requirements.txt
 python scripts/seed_routes.py
 
 # 6. Start the API server
-uvicorn app.main:app --reload --port 8000
+cd services/api-gateway && uvicorn main:app --reload --port 8000
 
 # 7. (Optional) Start GPS simulator
 python scripts/gps_simulator.py
