@@ -1,3 +1,7 @@
+# schemas/geo_config.py
+# Geographic boundary configuration for coordinate validation.
+# Used by: route models, GPS validation, ingestion service.
+
 from pydantic import BaseModel
 
 
