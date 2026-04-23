@@ -13,18 +13,19 @@ from scripts.models.base import Base
 from scripts.models.db_route import RouteORM, StopORM
 from scripts.models.settings import settings
 
-API_GATEWAY_PATH = Path("services") / "api-gateway"
-if str(API_GATEWAY_PATH.resolve()) not in sys.path:
-    sys.path.insert(0, str(API_GATEWAY_PATH.resolve()))
+# Add the api-gateway service root to sys.path for importing main.py
+API_GATEWAY_ROOT = Path(__file__).resolve().parents[2] / "services" / "api-gateway"
+if str(API_GATEWAY_ROOT) not in sys.path:
+    sys.path.insert(0, str(API_GATEWAY_ROOT))
 
 
-def _get_gateway_test_client_and_app():
+def _get_gateway_test_client():
     pytest.importorskip(
         "fastapi", reason="fastapi is not installed in this test environment")
     from fastapi.testclient import TestClient
-    from app.main import app
+    from main import app
 
-    return TestClient, app
+    return TestClient(app)
 
 
 def get_engine():
@@ -43,8 +44,7 @@ def db_is_reachable() -> bool:
 
 @pytest.mark.integration
 def test_increment0_gateway_health_contract():
-    TestClient, app = _get_gateway_test_client_and_app()
-    client = TestClient(app)
+    client = _get_gateway_test_client()
 
     response = client.get("/health")
     assert response.status_code == 200

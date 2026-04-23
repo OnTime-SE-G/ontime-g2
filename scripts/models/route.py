@@ -3,7 +3,7 @@
 from typing import List, Tuple
 from pydantic import BaseModel, Field, field_validator
 
-from scripts.models.geo_config import SRI_LANKA_BOUNDS
+from schemas.geo_config import SRI_LANKA_BOUNDS
 
 
 class Stop(BaseModel):

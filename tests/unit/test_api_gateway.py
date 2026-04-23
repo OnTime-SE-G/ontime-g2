@@ -1,13 +1,16 @@
+# tests/unit/test_api_gateway.py
+# Unit tests for the API Gateway endpoints.
+
 import sys
 from pathlib import Path
 
-from fastapi.testclient import TestClient
-
-API_GATEWAY_ROOT = Path(__file__).resolve().parents[1]
+# Add the api-gateway service root to sys.path so we can import main.py
+API_GATEWAY_ROOT = Path(__file__).resolve().parents[2] / "services" / "api-gateway"
 if str(API_GATEWAY_ROOT) not in sys.path:
     sys.path.insert(0, str(API_GATEWAY_ROOT))
 
-from app.main import app
+from fastapi.testclient import TestClient
+from main import app
 
 
 def test_health_endpoint_returns_expected_shape():

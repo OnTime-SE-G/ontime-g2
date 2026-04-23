@@ -1,1 +1,0 @@
-"""API gateway application package."""
