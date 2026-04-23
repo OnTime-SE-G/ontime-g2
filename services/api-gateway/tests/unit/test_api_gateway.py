@@ -4,8 +4,8 @@
 import sys
 from pathlib import Path
 
-# Add the api-gateway service root to sys.path so we can import main.py
-API_GATEWAY_ROOT = Path(__file__).resolve().parents[2] / "services" / "api-gateway"
+API_GATEWAY_ROOT = Path(__file__).resolve().parents[2]
+
 if str(API_GATEWAY_ROOT) not in sys.path:
     sys.path.insert(0, str(API_GATEWAY_ROOT))
 
