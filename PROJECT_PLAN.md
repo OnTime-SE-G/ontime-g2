@@ -106,15 +106,92 @@ To ensure smooth integration, responsibilities for Increment 1 are strictly divi
 - **Driver State Machine API (G3):** G3 will handle the business logic of transitioning trips to `EN_ROUTE` via the driver app. G2 simply consumes these state changes via Kafka.
 - **Infrastructure Gateway (G4):** The external Kong API Gateway routing mobile requests.
 
-#### 5-Member Task Distribution (G2 Only)
+#### 5-Member Task Distribution (G2 Only) — Service-Based Ownership
 
-| Member | Focus Layer       | Increment 1 Responsibilities |
-|--------|-------------------|------------------------------|
-| **Member 1** | Infrastructure | Expand orchestration: Add Apache Flink (`jobmanager` and `taskmanager`) to `docker-compose.yml`. Manage environment variables and network bridges for the new cluster. |
-| **Member 2** | Database Layer | Build the SQLAlchemy ORM layer. Connect the Python microservices natively to PostgreSQL and implement the Redis caching schemas. |
-| **Member 3** | Ingestion Layer | Develop the **Ingestion Service**. This service bridges G1's MQTT hardware signals securely into our AutoMQ `transport-telemetry-raw` topic. |
-| **Member 4** | Processing Layer| Lead the Apache Flink development. Write the PyFlink stream processing job that consumes raw GPS from AutoMQ, cleans it, and publishes it back to Redis. |
-| **Member 5** | API Layer (Gateway)| Engineer the strict 3-Layer backend (`routers`, `services`, `models`). Implement the **Mathematical ETA Stub** inside the models layer. Connect the `live` WebSocket natively to Redis Pub/Sub. |
+> **Philosophy:** Each member owns a **complete, deployable service** end-to-end (code, Dockerfile, tests, documentation). No shared "layers" — you own your service fully. Cross-service coordination happens through **shared schemas** and **defined communication contracts** documented below.
+
+##### Service Ownership Map
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│                     Increment 1 — Service Ownership                     │
+│                                                                          │
+│  Member 1                Member 2              Member 3                  │
+│  ┌────────────────┐      ┌────────────────┐    ┌────────────────┐       │
+│  │  API Gateway   │◀─────│  Stream        │◀───│  Ingestion     │       │
+│  │  (FastAPI)     │ Redis│  Processing    │Kafka│  Service       │       │
+│  │  Port 8000     │Pub/Sub│ (Flink)       │    │  Port 8001     │       │
+│  └────────────────┘      └────────────────┘    └────────────────┘       │
+│         ▲                        ▲                     ▲                 │
+│         │                        │                     │                 │
+│         │ DB/Redis        DB/InfluxDB              MQTT from G1         │
+│         │                        │                                       │
+│  Member 4                Member 5                                        │
+│  ┌────────────────┐      ┌──────────────────────┐                       │
+│  │  Route         │      │  Infrastructure      │                       │
+│  │  Management    │      │  + GPS Simulator      │                       │
+│  │  Port 8004     │      │  + Database Schemas   │                       │
+│  └────────────────┘      └──────────────────────┘                       │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+| Member | Owns Service | Directory | Increment 1 Deliverables |
+|--------|-------------|-----------|--------------------------|
+| **Member 1** | **API Gateway** | `services/api-gateway/` | Engineer the strict 3-Layer backend (`routers/`, `services/`, `models/`). Implement the **Mathematical ETA Stub** (`distance / speed` heuristic) inside the `models/` layer. Build the WebSocket `/v1/live` endpoint that subscribes to **Redis Pub/Sub** for real-time fleet updates. Expose REST endpoints: `/api/v1/buses/live`, `/api/v1/driver/start-trip`, `/api/v1/driver/report-delay`, `/api/v1/trips/{id}/state`. Own the Dockerfile and service-level tests. |
+| **Member 2** | **Stream Processing** | `services/stream-processing/` | Lead the **Apache Flink (PyFlink)** development. Write the stream processing job that: (1) consumes raw GPS from AutoMQ topic `transport-telemetry-raw`, (2) cleans and validates GPS data (bounding box, speed sanity, deduplication), (3) applies **L1 Rule Engine** anomaly checks (stationary bus, off-route deviation, comms loss), (4) publishes cleaned positions to **Redis Pub/Sub** for the API Gateway to consume, and (5) writes time-series data to **InfluxDB**. Own the Flink job configuration, Dockerfile, and job-level tests. |
+| **Member 3** | **Ingestion Service** | `services/ingestion/` | Develop the MQTT-to-Kafka bridge service. Subscribe to G1's MQTT topic `transport/bus/{busId}/location`, validate incoming GPS payloads against the shared `GPSMessage` Pydantic schema, and produce valid messages to AutoMQ topic `transport-telemetry-raw`. Route invalid/malformed messages to `transport-telemetry-dlq` (Dead Letter Queue). Implement rate limiting, sequence checking, and duplicate detection. Own the Dockerfile, service health endpoint, and ingestion-level tests. |
+| **Member 4** | **Route Management** | `services/route-service/` | Build the Route Management service with full CRUD operations for routes, stops, and geofences using **PostgreSQL + PostGIS**. Implement the **SQLAlchemy ORM models** for the `routes` schema (routes, stops, geofences tables). Expose REST endpoints: `GET /api/v1/routes`, `GET /api/v1/routes/{route_id}`, `GET /api/v1/routes/{route_id}/stops`. Serve route geometry (GeoJSON) for G3's map rendering. Own the Dockerfile and service-level tests. |
+| **Member 5** | **Infrastructure + Simulator** | `docker/` + `scripts/` + `schemas/` | Expand `docker-compose.yml` to orchestrate the full Increment 1 stack: add Apache Flink (`jobmanager` + `taskmanager`), MQTT broker (Mosquitto), and configure network bridges between all services. Maintain the **shared Pydantic schemas** (`schemas/`). Enhance the **GPS Simulator** (`scripts/gps_simulator.py`) to emit realistic route-following telemetry. Own **database migration scripts** (`scripts/migrations/`), the `.env.example` configuration, and **integration tests** (`tests/integration/`) that verify the full end-to-end pipeline. |
+
+##### Shared Resources (Everyone Uses, Member 5 Maintains)
+
+These files are the **single source of truth** used across all services. Member 5 is the maintainer, but changes require team agreement.
+
+| Shared Resource | Path | What It Contains | Who Reads It |
+|----------------|------|-----------------|-------------|
+| **GPS Schema** | `schemas/gps.py` | `GPSMessage` Pydantic model — the canonical GPS telemetry format | Member 2 (Flink input), Member 3 (validation), Member 1 (API responses) |
+| **Bus Status Schema** | `schemas/bus_status.py` | `BusLifecycleState` enum, `BusStatusMessage` model | Member 1 (state transitions), Member 2 (Flink processing) |
+| **Geo Config** | `schemas/geo_config.py` | `SRI_LANKA_BOUNDS` coordinate bounding box | Member 2 (Flink validation), Member 3 (ingestion validation) |
+| **Schema Exports** | `schemas/__init__.py` | Centralized re-exports of all shared schemas | All members import from here |
+| **Docker Compose** | `docker/docker-compose.yml` | Full infrastructure stack definition | All members (local dev environment) |
+| **Environment Config** | `docker/.env.example` | Connection strings, ports, API keys template | All members (local setup) |
+| **Root Requirements** | `requirements.txt` | Shared Python dependencies | All members |
+
+##### Inter-Service Communication Contracts
+
+Every arrow between services has a **defined contract**. If you change the format, you must notify the downstream member.
+
+```
+  G1 (MQTT)                Member 3                   Member 2                  Member 1
+  ─────────               ──────────                  ──────────                ──────────
+  GPS Device    ──MQTT──▶  Ingestion    ──AutoMQ──▶   Stream       ──Redis──▶  API Gateway
+                           Service                    Processing               (WebSocket)
+                                                         │
+                                                         │──InfluxDB──▶ (time-series storage)
+                                                         │
+                           Member 4
+                           ──────────
+                           Route Mgmt   ──PostgreSQL──▶  (route geometry for deviation checks)
+```
+
+| Contract | Protocol | Topic / Channel | Payload Schema | Producer (Member) | Consumer (Member) |
+|----------|----------|----------------|---------------|-------------------|-------------------|
+| **MQTT → Ingestion** | MQTT 3.1.1 | `transport/bus/{busId}/location` | `GPSMessage` (from `schemas/gps.py`) | G1 (external) | Member 3 |
+| **Ingestion → Flink** | AutoMQ (Kafka API) | `transport-telemetry-raw` | `GPSMessage` (JSON serialized) | Member 3 | Member 2 |
+| **Ingestion → DLQ** | AutoMQ (Kafka API) | `transport-telemetry-dlq` | Raw invalid payload + error reason | Member 3 | (debug/monitoring) |
+| **Flink → Gateway** | Redis Pub/Sub | Channel: `fleet:live` | `{busId, routeId, lat, lng, speed, heading, timestamp}` | Member 2 | Member 1 |
+| **Flink → InfluxDB** | InfluxDB Line Protocol | Bucket: `telemetry` | `gps_readings` measurement | Member 2 | (historical queries) |
+| **Gateway → Bus Status** | AutoMQ (Kafka API) | `bus.status` | `BusStatusMessage` (from `schemas/bus_status.py`) | Member 1 | Member 2 |
+| **Route Geometry** | PostgreSQL (PostGIS) | Schema: `routes`, Tables: `routes`, `stops` | SQLAlchemy ORM models | Member 4 (writes) | Member 2 (reads for deviation checks), Member 1 (reads for API responses) |
+| **Redis Cache** | Redis GET/SET | `bus:{bus_id}:position`, `bus:{bus_id}:status` | JSON position / status objects | Member 2 (writes) | Member 1 (reads) |
+
+##### Cross-Member Coordination Rules
+
+1. **Schema changes require a PR review from all affected members.** If Member 3 wants to add a field to `GPSMessage`, Members 1 and 2 must approve since they consume it.
+2. **Each member writes their own unit tests** inside their service directory or in `tests/unit/{service-name}/`.
+3. **Member 5 writes integration tests** in `tests/integration/` that spin up the full Docker stack and verify end-to-end data flow.
+4. **Weekly sync:** All 5 members demo their service's current state every week. Contracts are validated during this sync.
+5. **Database access:** Member 4 owns the `routes` schema. Member 1 reads from it (read-only). If Member 1 needs a new query, they request it from Member 4 or use the Route Service API.
 
 #### Acceptance Criteria
 
