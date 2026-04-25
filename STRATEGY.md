@@ -95,7 +95,7 @@ Each service follows the **Single Responsibility Principle**:
 - **Anomaly Detection** *(future)*: Runs 3-layer detection. Owns anomaly state and lifecycle.
 - **Route Management**: CRUD for routes, stops, geofences. Serves route geometry.
 - **Scheduling** *(future)*: Manages bus availability, departure slots, dispatch assignments.
-- **API Gateway**: Aggregates data, serves WebSocket feed, manages caching.
+- **API Gateway**: Aggregates data, serves WebSocket feed. Internally enforces a strict 3-Layer Pattern (`routers/` for HTTP, `services/` for business logic, and `models/` for data/math) ensuring the true streaming pipeline seamlessly connects to mathematical stubs without frontend awareness.
 
 ### 2.5 Bus State Machine (SRS v2.0 FR-G3.2)
 
@@ -337,7 +337,7 @@ Pagination: ?limit=N&offset=M (default limit=20, max=100)
 
 ### 7.2 WebSocket Strategy
 
-The `wss://api.ontime.lk/v1/live` endpoint pushes delta updates whenever telemetry events are processed (~every 3–5 seconds per active bus). On first connect, the server pushes the full current fleet state, then deltas only.
+The `wss://api.ontime.lk/v1/live` endpoint pushes delta updates whenever telemetry events are processed (~every 3–5 seconds per active bus). On first connect, the server pushes the full current fleet state, then deltas only. **Crucially, the WebSocket router is strictly forbidden from manually looping fake coordinates. It must solely subscribe to Redis Pub/Sub channels populated by the upstream Flink pipeline to guarantee a true end-to-end data flow.**
 
 **Why broadcast, not per-bus subscriptions?**
 - Fleet size is small (≤50 buses for MVP)
@@ -383,15 +383,13 @@ websocket_connected_clients
 
 ```yaml
 services:
-  - zookeeper      # Kafka dependency
-  - kafka           # Message broker
-  - postgres        # PostgreSQL + PostGIS
-  - redis           # Cache
-  # Services added in Increment 1:
-  # - ingestion
-  # - flink-jobmanager
-  # - flink-taskmanager
+  - broker          # Confluent Local Kafka (KRaft mode, no Zookeeper needed)
+  - postgres        # PostgreSQL + PostGIS + pgAdmin
+  - redis           # Cache & Pub/Sub
+  - influxdb        # Time-series telemetry
+  # Services built out natively in Increment 1:
   # - api-gateway
+  # - flink-jobmanager
 ```
 
 ### 9.3 CI/CD Pipeline (GitHub Actions)
@@ -414,7 +412,7 @@ Push to any branch → Lint (ruff) → Type Check (mypy) → Unit Tests (pytest)
 | Database | PostgreSQL + PostGIS | Spatial queries, mature, free | MongoDB (no spatial) |
 | Telemetry Database | InfluxDB | Time-series optimized, handles massive write throughput from streams | PostgreSQL Partitioning (overhead, scale issues) |
 | Cache | Redis | Sub-ms latency, pub/sub capability | Memcached (no pub/sub) |
-| Message Broker | AutoMQ (Kafka-compatible) | Stateless, S3-backed storage, extremely elastic cloud scaling | Apache Kafka (Disk-bound), RabbitMQ |
+| Message Broker | AutoMQ (Cloud) / Confluent Local (Dev) | AutoMQ provides S3-backed elastic scaling for cloud. Confluent Local provides effortless 1-node KRaft for local dev. Both share exact same Kafka API. | Apache Kafka (Disk-bound), RabbitMQ |
 | Anomaly Detection | 3-Layer hybrid | Statistical + ML + Rules covers all edge cases | Single ML model, pure rules |
 | Auth Provider | Keycloak (G4) | Centralized, RBAC, OIDC compliant | Custom auth, Firebase (vendor lock) |
 
