@@ -73,6 +73,26 @@ services:
       timeout: 5s
       retries: 5
 
+  mqtt:
+    image: eclipse-mosquitto:2
+    container_name: ontime_mqtt
+    ports:
+      - "${MQTT_BROKER_PORT:-1883}:1883"
+    volumes:
+      - ./mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    networks:
+      - ontime_network
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "mosquitto_sub -h localhost -p 1883 -t '$$SYS/#' -C 1 -W 3
+            >/dev/null 2>&1 || exit 1",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   api-gateway:
     build:
       context: ../services/api-gateway
@@ -91,6 +111,23 @@ services:
       postgres:
         condition: service_healthy
       redis:
+        condition: service_healthy
+
+  route-service:
+    build:
+      context: ../services/route-service
+      dockerfile: Dockerfile
+    container_name: ontime_route_service
+    ports:
+      - "8002:8002"
+    volumes:
+      - ./services/route-service:/app
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ontime_db}
+    networks:
+      - ontime_network
+    depends_on:
+      postgres:
         condition: service_healthy
 
   broker:

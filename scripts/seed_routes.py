@@ -10,11 +10,28 @@ from sqlalchemy.orm import Session
 
 from scripts.models.base import Base
 from scripts.models.db_route import RouteORM, StopORM
+from scripts.models.db_bus import BusORM
 from scripts.models.route import RouteGeometry, RouteSeed, Stop
 from scripts.models.settings import settings
 
 
-def load_kml(file_path: str) -> RouteSeed:
+def route_name_from_file(file_path: str | Path) -> str:
+    return Path(file_path).stem
+
+
+def discover_kml_files(data_dir: str | Path) -> list[Path]:
+    path = Path(data_dir)
+
+    if not path.exists():
+        raise FileNotFoundError(f"Data directory not found: {data_dir}")
+
+    if not path.is_dir():
+        raise NotADirectoryError(f"Data path is not a directory: {data_dir}")
+
+    return sorted(path.glob("*.kml"))
+
+
+def load_kml(file_path: str | Path, route_name: str | None = None) -> RouteSeed:
     path = Path(file_path)
 
     if not path.exists():
@@ -56,7 +73,7 @@ def load_kml(file_path: str) -> RouteSeed:
     geometry = RouteGeometry(coordinates=coordinates)
 
     return RouteSeed(
-        name=settings.route_name,
+        name=route_name or route_name_from_file(path),
         geometry=geometry,
         stops=stops,
     )
@@ -108,10 +125,16 @@ def seed_database(route: RouteSeed):
 
 
 def main():
-    print("Loading KML...")
+    print(f"Loading KML files from {settings.data_dir}...")
 
-    route = load_kml(settings.kml_file)
-    seed_database(route)
+    route_files = discover_kml_files(settings.data_dir)
+
+    if not route_files:
+        raise FileNotFoundError(f"No KML files found in {settings.data_dir}")
+
+    for route_file in route_files:
+        route = load_kml(route_file)
+        seed_database(route)
 
 
 if __name__ == "__main__":
