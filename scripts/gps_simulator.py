@@ -80,6 +80,27 @@ def haversine_km(
     return earth_radius_km * c
 
 
+def calculate_bearing(
+    lon1: float,
+    lat1: float,
+    lon2: float,
+    lat2: float
+) -> float:
+    """Calculate bearing (heading) in degrees between two GPS points."""
+    lat1_r = math.radians(lat1)
+    lat2_r = math.radians(lat2)
+    dlon_r = math.radians(lon2 - lon1)
+
+    x = math.sin(dlon_r) * math.cos(lat2_r)
+    y = (
+        math.cos(lat1_r) * math.sin(lat2_r)
+        - math.sin(lat1_r) * math.cos(lat2_r) * math.cos(dlon_r)
+    )
+
+    bearing = math.degrees(math.atan2(x, y))
+    return round(bearing % 360, 1)
+
+
 def create_status_message(
     bus_id: int,
     route_id: int,
@@ -102,16 +123,15 @@ def create_location_message(
     lon: float,
     lat: float
 ) -> dict:
+    heading = calculate_bearing(prev_lon, prev_lat, lon, lat)
+    
     return {
-        "type": "LOCATION",
-        "busId": bus_id,
-        "routeId": route_id,
+        "busId": str(bus_id),
+        "tripId": f"TRIP_{bus_id}",
         "lat": round(lat, 6),
-        "lng": round(lon, 6),
+        "lon": round(lon, 6),
         "speed": random.randint(30, 50),
-        "crowdStatus": random.choice(
-            ["NOT_FULL", "SEMI_FULL", "FULL"]
-        ),
+        "heading": heading,
         "timestamp": now_utc(),
     }
 
@@ -222,9 +242,9 @@ def publish_loop():
             "index": 0,
         }
 
-        topic = (
+        topic_status = (
             f"transport/bus/"
-            f"{bus.id}/location"
+            f"{bus.id}/status"
         )
 
         start_payload = create_status_message(
@@ -235,7 +255,7 @@ def publish_loop():
 
         publish_json(
             client,
-            topic,
+            topic_status,
             start_payload
         )
 
@@ -257,9 +277,9 @@ def publish_loop():
             points = route_points[route.id]
 
             if index >= len(points) - 1:
-                topic = (
+                topic_status = (
                     f"transport/bus/"
-                    f"{bus.id}/location"
+                    f"{bus.id}/status"
                 )
 
                 stop_payload = create_status_message(
@@ -270,7 +290,7 @@ def publish_loop():
 
                 publish_json(
                     client,
-                    topic,
+                    topic_status,
                     stop_payload
                 )
 
@@ -293,9 +313,9 @@ def publish_loop():
                     "index": 0,
                 }
 
-                next_topic = (
+                next_topic_status = (
                     f"transport/bus/"
-                    f"{next_bus.id}/location"
+                    f"{next_bus.id}/status"
                 )
 
                 start_payload = create_status_message(
@@ -306,7 +326,7 @@ def publish_loop():
 
                 publish_json(
                     client,
-                    next_topic,
+                    next_topic_status,
                     start_payload
                 )
 
@@ -349,7 +369,8 @@ def publish_loop():
                 f"LOCATION bus={bus.id} "
                 f"route={route.id} "
                 f"lat={payload['lat']} "
-                f"lng={payload['lng']}"
+                f"lon={payload['lon']} "
+                f"heading={payload['heading']}°"
             )
 
             state["index"] = index + 1

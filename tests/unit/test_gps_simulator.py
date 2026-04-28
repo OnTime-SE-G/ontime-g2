@@ -12,6 +12,7 @@ from scripts.gps_simulator import (
     create_status_message,
     haversine_km,
     publish_json,
+    calculate_bearing,
 )
 
 
@@ -63,11 +64,6 @@ def test_create_location_message_has_required_fields(monkeypatch):
     )
     monkeypatch.setattr(
         gps_simulator.random,
-        "choice",
-        lambda values: values[0]
-    )
-    monkeypatch.setattr(
-        gps_simulator.random,
         "randint",
         lambda _min, _max: 40
     )
@@ -82,22 +78,19 @@ def test_create_location_message_has_required_fields(monkeypatch):
     )
 
     expected_keys = {
-        "type",
         "busId",
-        "routeId",
+        "tripId",
         "lat",
-        "lng",
+        "lon",
         "speed",
-        "crowdStatus",
+        "heading",
         "timestamp",
     }
 
     assert set(payload.keys()) == expected_keys
-    assert payload["type"] == "LOCATION"
-    assert payload["busId"] == 10
-    assert payload["routeId"] == 20
+    assert payload["busId"] == "10"
+    assert payload["tripId"] == "TRIP_10"
     assert payload["speed"] == 40
-    assert payload["crowdStatus"] == "NOT_FULL"
     assert payload["timestamp"] == "2026-04-27T12:00:00Z"
 
 
@@ -112,7 +105,7 @@ def test_create_location_message_coordinates_precision():
     )
 
     assert payload["lat"] == round(payload["lat"], 6)
-    assert payload["lng"] == round(payload["lng"], 6)
+    assert payload["lon"] == round(payload["lon"], 6)
 
 
 def test_create_location_message_speed_between_30_and_50():
@@ -147,21 +140,18 @@ def test_create_location_message_uses_random_speed(monkeypatch):
     assert payload["speed"] == 45
 
 
-def test_create_location_message_valid_crowd_status():
-    payload = create_location_message(
-        bus_id=10,
-        route_id=20,
-        prev_lon=79.8612,
-        prev_lat=6.9271,
-        lon=79.8712,
-        lat=6.9371
+def test_calculate_bearing():
+    bearing = calculate_bearing(
+        79.8612, 6.9271,
+        79.8612, 6.9371  # Moving straight North
     )
+    assert bearing == 0.0
 
-    assert payload["crowdStatus"] in {
-        "NOT_FULL",
-        "SEMI_FULL",
-        "FULL",
-    }
+    bearing_east = calculate_bearing(
+        79.8612, 6.9271,
+        79.8712, 6.9271  # Moving straight East
+    )
+    assert bearing_east == 90.0
 
 
 def test_create_location_message_timestamp_format():
@@ -302,7 +292,7 @@ def test_publish_loop_publishes_status_and_location_messages(monkeypatch):
     start_payload = gps_simulator.json.loads(start_json)
     location_payload = gps_simulator.json.loads(location_json)
 
-    assert start_topic == "transport/bus/10/location"
+    assert start_topic == "transport/bus/10/status"
     assert start_qos == 1
     assert start_payload["type"] == "STATUS"
     assert start_payload["status"] == "STARTED"
@@ -311,9 +301,8 @@ def test_publish_loop_publishes_status_and_location_messages(monkeypatch):
 
     assert location_topic == "transport/bus/10/location"
     assert location_qos == 1
-    assert location_payload["type"] == "LOCATION"
-    assert location_payload["busId"] == 10
-    assert location_payload["routeId"] == 20
+    assert location_payload["busId"] == "10"
+    assert "tripId" in location_payload
     assert loop_stopped is True
     assert disconnected is True
 
