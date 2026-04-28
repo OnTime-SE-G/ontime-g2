@@ -1,7 +1,8 @@
 # tests/unit/test_gps_simulator.py
 
+import json
 import scripts.gps_simulator as gps_simulator
-from scripts.gps_simulator import create_message, haversine_km
+from scripts.gps_simulator import create_message, haversine_km, calculate_bearing
 
 
 def test_haversine_zero_distance():
@@ -22,6 +23,20 @@ def test_haversine_positive_distance():
     assert distance > 0
 
 
+def test_calculate_bearing():
+    bearing = calculate_bearing(
+        79.8612, 6.9271,
+        79.8612, 6.9371  # Moving straight North
+    )
+    assert bearing == 0.0
+
+    bearing_east = calculate_bearing(
+        79.8612, 6.9271,
+        79.8712, 6.9271  # Moving straight East
+    )
+    assert bearing_east == 90.0
+
+
 def test_create_message_has_required_fields():
     payload = create_message(
         79.8612, 6.9271,
@@ -31,11 +46,11 @@ def test_create_message_has_required_fields():
 
     expected_keys = {
         "busId",
-        "routeId",
+        "tripId",
         "lat",
-        "lng",
+        "lon",
         "speed",
-        "crowdStatus",
+        "heading",
         "timestamp",
     }
 
@@ -50,7 +65,7 @@ def test_create_message_coordinates_precision():
     )
 
     assert payload["lat"] == round(payload["lat"], 6)
-    assert payload["lng"] == round(payload["lng"], 6)
+    assert payload["lon"] == round(payload["lon"], 6)
 
 
 def test_create_message_speed_non_negative():
@@ -61,20 +76,6 @@ def test_create_message_speed_non_negative():
     )
 
     assert payload["speed"] >= 0
-
-
-def test_create_message_valid_crowd_status():
-    payload = create_message(
-        79.8612, 6.9271,
-        79.8712, 6.9371,
-        4
-    )
-
-    assert payload["crowdStatus"] in {
-        "NOT_FULL",
-        "SEMI_FULL",
-        "FULL",
-    }
 
 
 def test_create_message_timestamp_format():
@@ -90,26 +91,30 @@ def test_create_message_timestamp_format():
 
 def test_publish_loop_sends_telemetry_to_configured_topic(monkeypatch):
     sent_messages = []
-    flush_called = False
-    close_called = False
+    loop_stopped = False
+    disconnected = False
 
-    class FakeProducer:
-        def send(self, topic, payload):
+    class FakeMQTTClient:
+        def publish(self, topic, payload):
             sent_messages.append((topic, payload))
+            class FakeResult:
+                def wait_for_publish(self):
+                    pass
+            return FakeResult()
 
-        def flush(self):
-            nonlocal flush_called
-            flush_called = True
+        def loop_stop(self):
+            nonlocal loop_stopped
+            loop_stopped = True
 
-        def close(self):
-            nonlocal close_called
-            close_called = True
+        def disconnect(self):
+            nonlocal disconnected
+            disconnected = True
 
     def fake_sleep(_seconds):
         gps_simulator.running = False
 
     monkeypatch.setattr(gps_simulator, "running", True)
-    monkeypatch.setattr(gps_simulator, "get_producer", lambda: FakeProducer())
+    monkeypatch.setattr(gps_simulator, "get_mqtt_client", lambda: FakeMQTTClient())
     monkeypatch.setattr(
         gps_simulator,
         "load_route_points",
@@ -120,14 +125,16 @@ def test_publish_loop_sends_telemetry_to_configured_topic(monkeypatch):
     )
     monkeypatch.setattr(gps_simulator.random, "randint", lambda _min, _max: 4)
     monkeypatch.setattr(gps_simulator.time, "sleep", fake_sleep)
-    monkeypatch.setattr(gps_simulator.settings, "telemetry_topic", "transport-telemetry-raw")
 
     gps_simulator.publish_loop()
 
     assert len(sent_messages) == 1
-    topic, payload = sent_messages[0]
-    assert topic == gps_simulator.settings.telemetry_topic
-    assert payload["routeId"] == gps_simulator.settings.route_name
+    topic, payload_str = sent_messages[0]
+    expected_topic = f"transport/bus/{gps_simulator.settings.bus_id}/location"
+    assert topic == expected_topic
+    
+    payload = json.loads(payload_str)
+    assert payload["tripId"] == gps_simulator.settings.trip_id
     assert payload["busId"] == gps_simulator.settings.bus_id
-    assert flush_called is True
-    assert close_called is True
+    assert loop_stopped is True
+    assert disconnected is True

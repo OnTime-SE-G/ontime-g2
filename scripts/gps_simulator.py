@@ -1,4 +1,6 @@
 # scripts/gps_simulator.py
+# GPS Simulator - publishes simulated bus GPS telemetry via MQTT.
+# The Ingestion Service subscribes to MQTT and bridges validated messages to Kafka.
 
 import json
 import math
@@ -7,7 +9,7 @@ import signal
 import time
 from typing import List, Tuple
 
-from kafka import KafkaProducer
+import paho.mqtt.client as mqtt
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session
 from geoalchemy2.shape import to_shape
@@ -33,11 +35,30 @@ def get_engine():
     return create_engine(settings.database_url, echo=False)
 
 
-def get_producer() -> KafkaProducer:
-    return KafkaProducer(
-        bootstrap_servers=settings.kafka_bootstrap_servers,
-        value_serializer=lambda value: json.dumps(value).encode("utf-8"),
+def get_mqtt_client() -> mqtt.Client:
+    client = mqtt.Client(
+        client_id=f"gps-simulator-{settings.bus_id}",
+        protocol=mqtt.MQTTv311,
     )
+
+    def on_connect(client, userdata, flags, rc):
+        if rc == 0:
+            print(f"Connected to MQTT broker at {settings.mqtt_broker_host}:{settings.mqtt_broker_port}")
+        else:
+            print(f"MQTT connection failed with code {rc}")
+
+    def on_disconnect(client, userdata, rc):
+        if rc != 0:
+            print(f"Unexpected MQTT disconnect (code {rc}). Will auto-reconnect.")
+
+    client.on_connect = on_connect
+    client.on_disconnect = on_disconnect
+    client.connect(
+        settings.mqtt_broker_host,
+        settings.mqtt_broker_port,
+    )
+    client.loop_start()
+    return client
 
 
 def load_route_points() -> List[Tuple[float, float]]:
@@ -86,6 +107,27 @@ def haversine_km(
     return earth_radius_km * c
 
 
+def calculate_bearing(
+    lon1: float,
+    lat1: float,
+    lon2: float,
+    lat2: float
+) -> float:
+    """Calculate bearing (heading) in degrees between two GPS points."""
+    lat1_r = math.radians(lat1)
+    lat2_r = math.radians(lat2)
+    dlon_r = math.radians(lon2 - lon1)
+
+    x = math.sin(dlon_r) * math.cos(lat2_r)
+    y = (
+        math.cos(lat1_r) * math.sin(lat2_r)
+        - math.sin(lat1_r) * math.cos(lat2_r) * math.cos(dlon_r)
+    )
+
+    bearing = math.degrees(math.atan2(x, y))
+    return round(bearing % 360, 1)
+
+
 def create_message(
     prev_lon: float,
     prev_lat: float,
@@ -106,21 +148,20 @@ def create_message(
             distance_km / seconds_elapsed
         ) * 3600
 
-    crowd_status = random.choice(
-        [
-            "NOT_FULL",
-            "SEMI_FULL",
-            "FULL",
-        ]
+    heading = calculate_bearing(
+        prev_lon,
+        prev_lat,
+        lon,
+        lat
     )
 
     return {
         "busId": settings.bus_id,
-        "routeId": settings.route_name,
+        "tripId": settings.trip_id,
         "lat": round(lat, 6),
-        "lng": round(lon, 6),
+        "lon": round(lon, 6),
         "speed": round(speed_kmh, 1),
-        "crowdStatus": crowd_status,
+        "heading": heading,
         "timestamp": time.strftime(
             "%Y-%m-%dT%H:%M:%SZ",
             time.gmtime()
@@ -129,11 +170,12 @@ def create_message(
 
 
 def publish_loop():
-    producer = get_producer()
+    client = get_mqtt_client()
     route_points = load_route_points()
+    mqtt_topic = f"transport/bus/{settings.bus_id}/location"
 
-    print("GPS simulator started 🚍")
-    print(f"Topic: {settings.telemetry_topic}")
+    print("GPS simulator started (MQTT mode) 🚍")
+    print(f"MQTT topic: {mqtt_topic}")
     print(f"Loaded {len(route_points)} route points")
 
     index = 1
@@ -155,18 +197,18 @@ def publish_loop():
             wait_seconds
         )
 
-        producer.send(
-            settings.telemetry_topic,
-            payload
+        result = client.publish(
+            mqtt_topic,
+            json.dumps(payload),
         )
-        producer.flush()
+        result.wait_for_publish()
 
         print(
             f"Published: {payload['busId']} "
             f"lat={payload['lat']} "
-            f"lng={payload['lng']} "
+            f"lon={payload['lon']} "
             f"speed={payload['speed']} km/h "
-            f"crowd={payload['crowdStatus']}"
+            f"heading={payload['heading']}°"
         )
 
         time.sleep(wait_seconds)
@@ -176,7 +218,8 @@ def publish_loop():
         if index >= len(route_points):
             index = 1
 
-    producer.close()
+    client.loop_stop()
+    client.disconnect()
     print("GPS simulator stopped.")
 
 

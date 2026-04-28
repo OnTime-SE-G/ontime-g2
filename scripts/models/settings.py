@@ -19,9 +19,9 @@ class Settings(BaseSettings):
     # Route Seeding
     route_name: str = Field(default="Moratuwa to Kadawatha", validation_alias="ROUTE_NAME")
 
-    # Kafka / AutoMQ / Redpanda
-    kafka_bootstrap_servers: str = Field(default="broker:29092", validation_alias="KAFKA_BROKER_URL")
-    telemetry_topic: str = Field(default="transport-telemetry-raw", validation_alias="TELEMETRY_TOPIC")
+    # MQTT Broker
+    mqtt_broker_host: str = Field(default="mqtt-broker", validation_alias="MQTT_BROKER_HOST")
+    mqtt_broker_port: int = Field(default=1883, validation_alias="MQTT_BROKER_PORT")
 
     # GPS Simulator
     bus_id: str = Field(default="BUS_001", validation_alias="BUS_ID")
