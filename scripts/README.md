@@ -5,7 +5,7 @@ Automation scripts for local development and data preparation.
 ## Planned scripts
 
 - `seed_routes.py` - insert route and stop data into PostGIS
-- `gps_simulator.py` - publish synthetic GPS events to Kafka
+- `gps_simulator.py` - publish synthetic GPS events to MQTT
 
 Keep scripts idempotent where possible so they can be run repeatedly.
 

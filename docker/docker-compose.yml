@@ -93,6 +93,23 @@ services:
       redis:
         condition: service_healthy
 
+  route-service:
+    build:
+      context: ../services/route-service
+      dockerfile: Dockerfile
+    container_name: ontime_route_service
+    ports:
+      - "8002:8002"
+    volumes:
+      - ./services/route-service:/app
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ontime_db}
+    networks:
+      - ontime_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   broker:
     image: confluentinc/confluent-local:7.5.0
     container_name: ontime_kafka
@@ -112,7 +129,7 @@ services:
     image: eclipse-mosquitto:2
     container_name: ontime_mqtt
     ports:
-      - "${MQTT_PORT:-1883}:1883"
+      - "${MQTT_BROKER_PORT:-1883}:1883"
       - "9001:9001"
     volumes:
       - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf

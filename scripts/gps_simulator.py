@@ -5,15 +5,16 @@ import math
 import random
 import signal
 import time
-from typing import List, Tuple
+from typing import Dict, List, Tuple
 
-from kafka import KafkaProducer
-from sqlalchemy import create_engine
-from sqlalchemy.orm import Session
+import paho.mqtt.client as mqtt
 from geoalchemy2.shape import to_shape
+from sqlalchemy import create_engine, select
+from sqlalchemy.orm import Session
 
-from scripts.models.settings import settings
+from scripts.models.db_bus import BusORM
 from scripts.models.db_route import RouteORM
+from scripts.models.settings import settings
 
 
 running = True
@@ -33,34 +34,24 @@ def get_engine():
     return create_engine(settings.database_url, echo=False)
 
 
-def get_producer() -> KafkaProducer:
-    return KafkaProducer(
-        bootstrap_servers=settings.kafka_bootstrap_servers,
-        value_serializer=lambda value: json.dumps(value).encode("utf-8"),
+def get_mqtt_client() -> mqtt.Client:
+    client = mqtt.Client()
+
+    client.connect(
+        settings.mqtt_broker_host,
+        settings.mqtt_broker_port,
+        60
     )
 
+    client.loop_start()
+    return client
 
-def load_route_points() -> List[Tuple[float, float]]:
-    engine = get_engine()
 
-    with Session(engine) as session:
-        route = (
-            session.query(RouteORM)
-            .filter(RouteORM.name == settings.route_name)
-            .first()
-        )
-
-        if route is None:
-            raise ValueError(
-                f"Route '{settings.route_name}' not found"
-            )
-
-        line = to_shape(route.geometry)
-
-        return [
-            (float(coord[0]), float(coord[1]))
-            for coord in line.coords
-        ]
+def now_utc() -> str:
+    return time.strftime(
+        "%Y-%m-%dT%H:%M:%SZ",
+        time.gmtime()
+    )
 
 
 def haversine_km(
@@ -81,102 +72,297 @@ def haversine_km(
         * math.sin(dlon / 2) ** 2
     )
 
-    c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
+    c = 2 * math.atan2(
+        math.sqrt(a),
+        math.sqrt(1 - a)
+    )
 
     return earth_radius_km * c
 
 
-def create_message(
-    prev_lon: float,
-    prev_lat: float,
-    lon: float,
-    lat: float,
-    seconds_elapsed: int
+def create_status_message(
+    bus_id: int,
+    route_id: int,
+    status: str
 ) -> dict:
-    distance_km = haversine_km(
-        prev_lon,
-        prev_lat,
-        lon,
-        lat
-    )
-
-    speed_kmh = 0.0
-    if seconds_elapsed > 0:
-        speed_kmh = (
-            distance_km / seconds_elapsed
-        ) * 3600
-
-    crowd_status = random.choice(
-        [
-            "NOT_FULL",
-            "SEMI_FULL",
-            "FULL",
-        ]
-    )
-
     return {
-        "busId": settings.bus_id,
-        "routeId": settings.route_name,
-        "lat": round(lat, 6),
-        "lng": round(lon, 6),
-        "speed": round(speed_kmh, 1),
-        "crowdStatus": crowd_status,
-        "timestamp": time.strftime(
-            "%Y-%m-%dT%H:%M:%SZ",
-            time.gmtime()
-        ),
+        "type": "STATUS",
+        "status": status,
+        "busId": bus_id,
+        "routeId": route_id,
+        "timestamp": now_utc(),
     }
 
 
+def create_location_message(
+    bus_id: int,
+    route_id: int,
+    prev_lon: float,
+    prev_lat: float,
+    lon: float,
+    lat: float
+) -> dict:
+    return {
+        "type": "LOCATION",
+        "busId": bus_id,
+        "routeId": route_id,
+        "lat": round(lat, 6),
+        "lng": round(lon, 6),
+        "speed": random.randint(30, 50),
+        "crowdStatus": random.choice(
+            ["NOT_FULL", "SEMI_FULL", "FULL"]
+        ),
+        "timestamp": now_utc(),
+    }
+
+
+def publish_json(
+    client: mqtt.Client,
+    topic: str,
+    payload: dict
+):
+    client.publish(
+        topic,
+        json.dumps(payload),
+        qos=1
+    )
+
+
+def load_routes_and_buses():
+    engine = get_engine()
+
+    with Session(engine) as session:
+        routes = session.scalars(
+            select(RouteORM)
+        ).all()
+
+        if not routes:
+            raise ValueError(
+                "No routes found. Run seed_routes.py first."
+            )
+
+        buses = session.scalars(
+            select(BusORM)
+        ).all()
+
+        if not buses:
+            raise ValueError(
+                "No buses found. Run seed_buses.py first."
+            )
+
+        buses_by_route: Dict[int, List[BusORM]] = {}
+
+        for bus in buses:
+            buses_by_route.setdefault(
+                bus.route_id,
+                []
+            ).append(bus)
+
+        route_points: Dict[
+            int,
+            List[Tuple[float, float]]
+        ] = {}
+
+        for route in routes:
+            line = to_shape(route.geometry)
+
+            route_points[route.id] = [
+                (float(coord[0]), float(coord[1]))
+                for coord in line.coords
+            ]
+
+        return routes, buses_by_route, route_points
+
+
+def choose_next_bus(
+    route_id: int,
+    buses_by_route: Dict[int, List[BusORM]],
+    active_bus_id: int | None = None
+):
+    candidates = buses_by_route.get(route_id, [])
+
+    if not candidates:
+        return None
+
+    available = [
+        bus for bus in candidates
+        if bus.id != active_bus_id
+    ]
+
+    if not available:
+        available = candidates
+
+    return random.choice(available)
+
+
 def publish_loop():
-    producer = get_producer()
-    route_points = load_route_points()
+    client = get_mqtt_client()
 
-    print("GPS simulator started 🚍")
-    print(f"Topic: {settings.telemetry_topic}")
-    print(f"Loaded {len(route_points)} route points")
+    (
+        routes,
+        buses_by_route,
+        route_points
+    ) = load_routes_and_buses()
 
-    index = 1
+    print("GPS simulator started 🚌")
 
-    while running:
-        prev_lon, prev_lat = route_points[index - 1]
-        lon, lat = route_points[index]
+    route_state = {}
 
-        wait_seconds = random.randint(
-            settings.min_interval_seconds,
-            settings.max_interval_seconds
+    for route in routes:
+        bus = choose_next_bus(
+            route.id,
+            buses_by_route
         )
 
-        payload = create_message(
+        if bus is None:
+            continue
+
+        route_state[route.id] = {
+            "bus": bus,
+            "index": 0,
+        }
+
+        topic = (
+            f"transport/bus/"
+            f"{bus.id}/location"
+        )
+
+        start_payload = create_status_message(
+            bus.id,
+            route.id,
+            "STARTED"
+        )
+
+        publish_json(
+            client,
+            topic,
+            start_payload
+        )
+
+        print(
+            f"STARTED bus={bus.id} "
+            f"route={route.id}"
+        )
+
+    while running:
+        for route in routes:
+            state = route_state.get(route.id)
+
+            if state is None:
+                continue
+
+            bus = state["bus"]
+            index = state["index"]
+
+            points = route_points[route.id]
+
+            if index >= len(points) - 1:
+                topic = (
+                    f"transport/bus/"
+                    f"{bus.id}/location"
+                )
+
+                stop_payload = create_status_message(
+                    bus.id,
+                    route.id,
+                    "STOPPED"
+                )
+
+                publish_json(
+                    client,
+                    topic,
+                    stop_payload
+                )
+
+                print(
+                    f"STOPPED bus={bus.id} "
+                    f"route={route.id}"
+                )
+
+                next_bus = choose_next_bus(
+                    route.id,
+                    buses_by_route,
+                    bus.id
+                )
+
+                if next_bus is None:
+                    continue
+
+                route_state[route.id] = {
+                    "bus": next_bus,
+                    "index": 0,
+                }
+
+                next_topic = (
+                    f"transport/bus/"
+                    f"{next_bus.id}/location"
+                )
+
+                start_payload = create_status_message(
+                    next_bus.id,
+                    route.id,
+                    "STARTED"
+                )
+
+                publish_json(
+                    client,
+                    next_topic,
+                    start_payload
+                )
+
+                print(
+                    f"STARTED bus={next_bus.id} "
+                    f"route={route.id}"
+                )
+
+                continue
+
+            prev_lon, prev_lat = points[index]
+            lon, lat = points[index + 1]
+
+            wait_seconds = random.randint(
+                settings.min_interval_seconds,
+                settings.max_interval_seconds
+            )
+
+            payload = create_location_message(
+                bus.id,
+                route.id,
             prev_lon,
             prev_lat,
             lon,
-            lat,
-            wait_seconds
+            lat
         )
 
-        producer.send(
-            settings.telemetry_topic,
-            payload
+            topic = (
+                f"transport/bus/"
+                f"{bus.id}/location"
+            )
+
+            publish_json(
+                client,
+                topic,
+                payload
+            )
+
+            print(
+                f"LOCATION bus={bus.id} "
+                f"route={route.id} "
+                f"lat={payload['lat']} "
+                f"lng={payload['lng']}"
+            )
+
+            state["index"] = index + 1
+
+        time.sleep(
+            random.randint(
+                settings.min_interval_seconds,
+                settings.max_interval_seconds
+            )
         )
-        producer.flush()
 
-        print(
-            f"Published: {payload['busId']} "
-            f"lat={payload['lat']} "
-            f"lng={payload['lng']} "
-            f"speed={payload['speed']} km/h "
-            f"crowd={payload['crowdStatus']}"
-        )
-
-        time.sleep(wait_seconds)
-
-        index += 1
-
-        if index >= len(route_points):
-            index = 1
-
-    producer.close()
+    client.loop_stop()
+    client.disconnect()
     print("GPS simulator stopped.")
 
 
