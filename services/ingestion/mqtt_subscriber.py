@@ -3,7 +3,7 @@ import paho.mqtt.client as mqtt
 
 from services.ingestion.config import settings
 from services.ingestion.producer import TelemetryProducer
-from services.ingestion.validator import validate_gps_payload
+from services.ingestion.validator import StatefulValidator
 
 logger = logging.getLogger(__name__)
 
@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 class MQTTSubscriber:
     def __init__(self, producer: TelemetryProducer):
         self.producer = producer
+        self.validator = StatefulValidator()
         # Use Protocol v5 or v3.1.1 based on what paho-mqtt defaults to.
         # We specify a clean session for stateless consumption, relying on Kafka for persistence.
         self.client = mqtt.Client(clean_session=True)
@@ -56,7 +57,7 @@ class MQTTSubscriber:
     def on_message(self, client, userdata, msg):
         self.messages_received += 1
         
-        result = validate_gps_payload(msg.payload)
+        result = self.validator.validate(msg.payload)
 
         if result.success and result.message:
             self.messages_validated += 1
