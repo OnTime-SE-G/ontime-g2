@@ -1,3 +1,5 @@
+#services/route-service/app/routers/admin_routes.py
+
 from fastapi import APIRouter, UploadFile, File, Depends, Form
 from sqlalchemy.orm import Session
 
