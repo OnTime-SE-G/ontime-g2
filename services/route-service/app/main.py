@@ -8,6 +8,7 @@ from fastapi import FastAPI
 from app.routers import health, routes, admin_routes
 from app.models.base import Base
 from app.database import engine
+from app.schemas import ServiceMetadataResponse
 
 
 @asynccontextmanager
@@ -42,8 +43,14 @@ app.include_router(routes.router)
 app.include_router(admin_routes.router)
 
 
-@app.get("/")
+@app.get("/", response_model=ServiceMetadataResponse)
 def root():
+    """
+    Return basic route-service metadata.
+
+    Use this endpoint to confirm the service is running and to discover
+    the interactive API documentation path.
+    """
     return {
         "service": "route-service",
         "status": "running",
