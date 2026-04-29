@@ -102,6 +102,8 @@ services:
       - "8002:8002"
     volumes:
       - ../services/route-service:/app
+
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8002 --reload
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ontime_db}
       POSTGRES_HOST: postgres
@@ -112,6 +114,7 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+    restart: unless-stopped
 
   broker:
     image: confluentinc/confluent-local:7.5.0
