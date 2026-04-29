@@ -93,6 +93,25 @@ services:
       redis:
         condition: service_healthy
 
+  route-service:
+    build:
+      context: ../services/route-service
+      dockerfile: Dockerfile
+    container_name: ontime_route_service
+    ports:
+      - "8002:8002"
+    volumes:
+      - ../services/route-service:/app
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ontime_db}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+    networks:
+      - ontime_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   broker:
     image: confluentinc/confluent-local:7.5.0
     container_name: ontime_kafka
