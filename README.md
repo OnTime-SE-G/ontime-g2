@@ -135,7 +135,7 @@ ontime-g2/
 │
 ├── scripts/                     # CLI tools: seeding, simulation
 │   ├── seed_routes.py           # KML parser + PostGIS seeder
-│   ├── gps_simulator.py         # Kafka GPS telemetry publisher
+│   ├── gps_simulator.py         # MQTT GPS telemetry publisher
 │   └── models/                  # Script-specific: ORM models + config
 │       ├── base.py              # SQLAlchemy DeclarativeBase
 │       ├── db_route.py          # RouteORM, StopORM

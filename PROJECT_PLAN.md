@@ -61,89 +61,28 @@ The system is delivered in **modular increments**. Each increment produces a **f
 
 ---
 
-### Increment 0: Foundation Infrastructure
+### Increment 0: Foundation Infrastructure (✅ COMPLETED)
 
-**Goal:** Set up the base platform so all subsequent services can be built and deployed. Every team member should be able to `docker compose up` and have a working Dev environment.
+**Goal:** Set up the base platform so all subsequent services can be built and deployed. Every team member should be able to `docker compose up` and have a working Dev environment. **Strictly bounded to infrastructure and empty API Skeletons (Zero business logic or HTTP stubs).**
 
 | Aspect | Details |
 |--------|---------|
 | **Duration** | Sprint 1 (2 weeks) |
-| **Dependency** | None |
 | **Deliverables** | Docker Compose stack, DB schemas, route seeding, GPS simulator, CI pipeline, FastAPI skeleton |
-
-#### Scope
-
-| Component | Deliverable |
-|-----------|------------|
-| **Docker Compose** | Dev stack: AutoMQ (or Kafka fallback), PostgreSQL + PostGIS, InfluxDB, Redis |
-| **Database Schemas** | SQL scripts for all PG tables, and initialization for InfluxDB buckets |
-| **Route Seeding** | Script to seed Moratuwa → Kadawatha route geometry + 20+ stops into PostGIS |
-| **GPS Simulator** | Python script that publishes fake GPS every 3–5 seconds to `transport-telemetry-raw` AutoMQ topic |
-| **CI Pipeline** | GitHub Actions: lint (ruff), type check (mypy), test (pytest), Docker build |
-| **FastAPI Skeleton** | `/health` and `/metrics` endpoints, Pydantic models for GPS + bus status schemas |
-| **Dev Config** | `.env.example` with local + Cloud DB URLs (Neon PG + InfluxDB Cloud), Docker networking |
-
-#### 5-Member Task Distribution
-
-| Member | Role | What They Own | Key Deliverables |
-|--------|------|--------------|-----------------|
-| **Janidu** | Infrastructure & Docker Lead | Docker environment | `docker/docker-compose.yml` (Kafka/AutoMQ, PG+PostGIS, InfluxDB, Redis), `docker/.env.example`, health check wait scripts, Docker networking config |
-| **Kusal** | Database & Schema Lead | All database schemas | SQL migration scripts in `scripts/migrations/`, schema for all PG tables (routes, stops, buses, trips, stop_arrivals, anomalies, geofences) + InfluxDB telemetry schemas, Neon/InfluxDB cloud DB setup for team access, local config |
-| **Chamodh** | Data Seeding & Simulator Lead | Test data + GPS simulator | `scripts/seed_routes.py` (Moratuwa→Kadawatha route + 20+ stops with PostGIS LINESTRING/POINT geometry), `scripts/gps_simulator.py` (publishes fake GPS JSON every 3–5 seconds to AutoMQ `transport-telemetry-raw` topic) |
-| **Nidharshan** | CI/CD & Quality Lead | Pipeline + test framework | `.github/workflows/ci.yml` (ruff lint + mypy type check + pytest + Docker build), `tests/` directory structure with conftest.py, PR template, branch protection rules, `pyproject.toml` with tool configs |
-| **Nathasha** | Interface & Integration Lead | API skeleton + glue | `services/api-gateway/` FastAPI app with `/health` + `/metrics`, Pydantic models (`schemas/gps.py`, `schemas/bus_status.py`), project-wide folder structure, integration test that verifies: docker up → seed → simulate → health OK |
-
-> **Nathasha is the glue person.** She defines the project skeleton that everyone else plugs into. She also writes the end-to-end integration test that chains all other members' work together.
-
-#### How Members Collaborate
-
-```
-Janidu (Docker)             Kusal (DB Schemas)
-     │                          │
-     │  docker compose up       │  SQL migration scripts
-     │  provides running        │  run against PG + Influx
-     │  PG + Influx + AutoMQ    │  containers from Janidu
-     └──────────┬───────────────┘
-                │
-     Chamodh (Seeding + Simulator)
-                │
-     seed_routes.py writes to PG (Kusal's schema)
-     gps_simulator.py publishes to AutoMQ (Janidu's container)
-                │
-     Nidharshan (CI/CD)
-                │
-     GitHub Actions runs all of the above + linting
-                │
-     Nathasha (Integration)
-                │
-     FastAPI reads from PG + Redis
-     Integration test chains everything together
-```
-
-#### Database Setup: Local + Cloud
-
-The project uses **two database options** via a single `.env.example`:
-
-| Option | When to Use | Setup |
-|--------|-------------|-------|
-| **Local DBs (Docker)** | Solo development, testing, CI | Automatically starts via `docker compose up`. Connections: PG (`localhost:5432`), InfluxDB (`localhost:8086`) |
-| **Team Cloud DBs** | Team collaboration, shared data | Team lead creates Neon PG + InfluxDB Cloud projects, shares connection URLs privately.  |
-
-Members set the active `DATABASE_URL` in their local `.env` file (never committed to git).
 
 #### Acceptance Criteria
 
-- [ ] `docker compose up` brings up AutoMQ/Kafka + PostgreSQL + InfluxDB + Redis with zero errors
-- [ ] `python scripts/seed_routes.py` populates route + 20 stops in PostGIS
-- [ ] `python scripts/gps_simulator.py` publishes GPS messages to `transport-telemetry-raw` AutoMQ topic
-- [ ] `curl localhost:8000/health` returns 200 with dependency statuses
-- [ ] GitHub Actions runs lint + type check + tests on every push and passes
+- [x] `docker compose up` brings up AutoMQ/Kafka + PostgreSQL + InfluxDB + Redis with zero errors
+- [x] `python scripts/seed_routes.py` populates route + 20 stops in PostGIS
+- [x] `python scripts/gps_simulator.py` publishes GPS messages to AutoMQ
+- [x] `curl localhost:8000/health` returns 200 with dependency statuses
+- [x] GitHub Actions runs lint + type check + tests on every push and passes
 
 ---
 
-### Increment 1: GPS Pipeline & Live Tracking + Bus State Machine
+### Increment 1: GPS Pipeline & Live Tracking + Bus State Machine (🚀 ACTIVE)
 
-**Goal:** Prove that data flows end-to-end from GPS to a live map. Driver can start/end trips. Passenger sees buses moving.
+**Goal:** Prove that data flows end-to-end from GPS to a live map using the *real* streaming architecture (AutoMQ → Flink → Redis → Gateway). We will enforce a strict 3-Layer pattern (`routers`, `services`, `models`). No mock HTTP endpoints are permitted; the pipeline must be fully native, relying exclusively on a mathematical heuristic "stub" isolated purely within the `models` layer.
 
 | Aspect | Details |
 |--------|---------|
@@ -151,24 +90,108 @@ Members set the active `DATABASE_URL` in their local `.env` file (never committe
 | **Dependency** | Increment 0 infrastructure |
 | **Services Built** | Ingestion Service, Stream Processing (basic Flink), API Gateway (enhanced) |
 
-#### Scope
+#### Scope of Development (Cross-Group Boundaries)
 
-| Component | Deliverable |
-|-----------|------------|
-| **Ingestion Service** | MQTT → AutoMQ bridge; Pydantic validation; DLQ routing for invalid GPS. *Note: G1 calculates speed and heading locally on the node.* |
-| **Stream Processing** | Flink job: Kalman filter + bounding box check (no feature extraction yet) |
-| **Bus State Machine** | `WAITING_AT_DEPOT → DEPARTED_ORIGIN → EN_ROUTE → ARRIVED_DESTINATION` (↕ `INCIDENT_REPORTED` from `EN_ROUTE`, admin reset: `ARRIVED_DESTINATION → WAITING_AT_DEPOT`) |
-| **Driver Status API** | `POST /api/v1/trips/{id}/state` - driver taps to change trip state; `POST /api/v1/driver/start-trip` - driver starts trip |
-| **Driver Delay Reporting (FR-G2.5)** | `POST /api/v1/driver/report-delay` - driver submits delay reason (`TRAFFIC`, `BREAKDOWN`, `ACCIDENT`, `OTHER`) + estimated minutes; persisted for ETA offset processing in Increment 2 |
-| **Live Feed** | `WS wss://api.ontime.lk/v1/live` - delta updates (~every 3-5s per active bus), full state on first connect |
-| **Route API** | `GET /api/v1/routes`, `GET /api/v1/routes/{id}/buses` |
+To ensure smooth integration, responsibilities for Increment 1 are strictly divided between the subsystem groups.
 
-#### What Each Role Gets
+**What G2 (Data & Intelligence) Will Develop in Inc 1:**
+- **Stream Processing (Flink):** Consuming from AutoMQ, cleaning the GPS data, applying spatial bounding boxes.
+- **Ingestion Service:** Bridging the MQTT hardware signal to the AutoMQ `transport-telemetry-raw` topic.
+- **Anomaly Detection (L1 Rule Engine):** Deterministic physics rules (e.g., stationary bus logic, off-route deviation).
+- **ETA Data/Math Stub:** Implementing the core heuristic logic (`distance / speed`) that acts as the placeholder before the XGBoost ML model is introduced in Increment 2. *(No UI or Endpoints, strictly data layer).*
 
-| Role | Experience |
-|------|-----------|
-| **Passenger** | Opens map → sees route line → sees bus dots moving in real-time |
-| **Driver** | Logs in with bus credentials → taps **Start Trip** / **End Trip** → bus state changes flow to system |
+**What G3 & G4 Will Develop (Outside G2's Scope):**
+- **Auth & Security Service (G4):** Keycloak integration, JWT validation.
+- **CRUD & Route Services (G3/G4):** Basic REST operations for creating bus stops and fetching schedules.
+- **Driver State Machine API (G3):** G3 will handle the business logic of transitioning trips to `EN_ROUTE` via the driver app. G2 simply consumes these state changes via Kafka.
+- **Infrastructure Gateway (G4):** The external Kong API Gateway routing mobile requests.
+
+#### 5-Member Task Distribution (G2 Only) — Service-Based Ownership
+
+> **Philosophy:** Each member owns a **complete, deployable service** end-to-end (code, Dockerfile, tests, documentation). No shared "layers" — you own your service fully. Cross-service coordination happens through **shared schemas** and **defined communication contracts** documented below.
+
+##### Service Ownership Map
+
+```
+┌──────────────────────────────────────────────────────────────────────────┐
+│                     Increment 1 — Service Ownership                     │
+│                                                                          │
+│  Nidharshan              Natasha               Janidu                    │
+│  ┌────────────────┐      ┌────────────────┐    ┌────────────────┐       │
+│  │  API Gateway   │◀─────│  Stream        │◀───│  Ingestion     │       │
+│  │  (FastAPI)     │ Redis│  Processing    │Kafka│  Service       │       │
+│  │  Port 8000     │Pub/Sub│ (Flink)       │    │  Port 8001     │       │
+│  └────────────────┘      └────────────────┘    └────────────────┘       │
+│         ▲                        ▲                     ▲                 │
+│         │                        │                     │                 │
+│         │ DB/Redis        DB/InfluxDB              MQTT from G1         │
+│         │                        │                                       │
+│  Chamodh                 Kusal                                           │
+│  ┌────────────────┐      ┌──────────────────────┐                       │
+│  │  Route         │      │  Infrastructure      │                       │
+│  │  Management    │      │  + GPS Simulator      │                       │
+│  │  Port 8004     │      │  + Database Schemas   │                       │
+│  └────────────────┘      └──────────────────────┘                       │
+└──────────────────────────────────────────────────────────────────────────┘
+```
+
+| Member | Owns Service | Directory | Increment 1 Deliverables |
+|--------|-------------|-----------|--------------------------|
+| **Nidharshan** | **API Gateway** | `services/api-gateway/` | Engineer the strict 3-Layer backend (`routers/`, `services/`, `models/`). Implement the **Mathematical ETA Stub** (`distance / speed` heuristic) inside the `models/` layer. Build the WebSocket `/v1/live` endpoint that subscribes to **Redis Pub/Sub** for real-time fleet updates. Expose REST endpoints: `/api/v1/buses/live`, `/api/v1/driver/start-trip`, `/api/v1/driver/report-delay`, `/api/v1/trips/{id}/state`. Own the Dockerfile and service-level tests. |
+| **Natasha** | **Stream Processing** | `services/stream-processing/` | Lead the **Apache Flink (PyFlink)** development. Write the stream processing job that: (1) consumes raw GPS from AutoMQ topic `transport-telemetry-raw`, (2) cleans and validates GPS data (bounding box, speed sanity, deduplication), (3) applies **L1 Rule Engine** anomaly checks (stationary bus, off-route deviation, comms loss), (4) publishes cleaned positions to **Redis Pub/Sub** for the API Gateway to consume, and (5) writes time-series data to **InfluxDB**. Own the Flink job configuration, Dockerfile, and job-level tests. |
+| **Janidu** | **Ingestion Service** | `services/ingestion/` | Develop the MQTT-to-Kafka bridge service. Subscribe to G1's MQTT topic `transport/bus/{busId}/location`, validate incoming GPS payloads against the shared `GPSMessage` Pydantic schema, and produce valid messages to AutoMQ topic `transport-telemetry-raw`. Route invalid/malformed messages to `transport-telemetry-dlq` (Dead Letter Queue). Implement rate limiting, sequence checking, and duplicate detection. Own the Dockerfile, service health endpoint, and ingestion-level tests. |
+| **Chamodh** | **Route Management** | `services/route-service/` | Build the Route Management service with full CRUD operations for routes, stops, and geofences using **PostgreSQL + PostGIS**. Implement the **SQLAlchemy ORM models** for the `routes` schema (routes, stops, geofences tables). Expose REST endpoints: `GET /api/v1/routes`, `GET /api/v1/routes/{route_id}`, `GET /api/v1/routes/{route_id}/stops`. Serve route geometry (GeoJSON) for G3's map rendering. Own the Dockerfile and service-level tests. |
+| **Kusal** | **Infrastructure + Simulator** | `docker/` + `scripts/` + `schemas/` | Expand `docker-compose.yml` to orchestrate the full Increment 1 stack: add Apache Flink (`jobmanager` + `taskmanager`), MQTT broker (Mosquitto), and configure network bridges between all services. Maintain the **shared Pydantic schemas** (`schemas/`). Enhance the **GPS Simulator** (`scripts/gps_simulator.py`) to emit realistic route-following telemetry. Own **database migration scripts** (`scripts/migrations/`), the `.env.example` configuration, and **integration tests** (`tests/integration/`) that verify the full end-to-end pipeline. |
+
+##### Shared Resources (Everyone Uses, Kusal Maintains)
+
+These files are the **single source of truth** used across all services. Kusal is the maintainer, but changes require team agreement.
+
+| Shared Resource | Path | What It Contains | Who Reads It |
+|----------------|------|-----------------|-------------|
+| **GPS Schema** | `schemas/gps.py` | `GPSMessage` Pydantic model — the canonical GPS telemetry format | Natasha (Flink input), Janidu (validation), Nidharshan (API responses) |
+| **Bus Status Schema** | `schemas/bus_status.py` | `BusLifecycleState` enum, `BusStatusMessage` model | Nidharshan (state transitions), Natasha (Flink processing) |
+| **Geo Config** | `schemas/geo_config.py` | `SRI_LANKA_BOUNDS` coordinate bounding box | Natasha (Flink validation), Janidu (ingestion validation) |
+| **Schema Exports** | `schemas/__init__.py` | Centralized re-exports of all shared schemas | All members import from here |
+| **Docker Compose** | `docker/docker-compose.yml` | Full infrastructure stack definition | All members (local dev environment) |
+| **Environment Config** | `docker/.env.example` | Connection strings, ports, API keys template | All members (local setup) |
+| **Root Requirements** | `requirements.txt` | Shared Python dependencies | All members |
+
+##### Inter-Service Communication Contracts
+
+Every arrow between services has a **defined contract**. If you change the format, you must notify the downstream member.
+
+```
+  G1 (MQTT)                Janidu                     Natasha                   Nidharshan
+  ─────────               ──────────                  ──────────                ──────────
+  GPS Device    ──MQTT──▶  Ingestion    ──AutoMQ──▶   Stream       ──Redis──▶  API Gateway
+                           Service                    Processing               (WebSocket)
+                                                         │
+                                                         │──InfluxDB──▶ (time-series storage)
+                                                         │
+                           Chamodh
+                           ──────────
+                           Route Mgmt   ──PostgreSQL──▶  (route geometry for deviation checks)
+```
+
+| Contract | Protocol | Topic / Channel | Payload Schema | Producer (Member) | Consumer (Member) |
+|----------|----------|----------------|---------------|-------------------|-------------------|
+| **MQTT → Ingestion** | MQTT 3.1.1 | `transport/bus/{busId}/location` | `GPSMessage` (from `schemas/gps.py`) | G1 (external) | Janidu |
+| **Ingestion → Flink** | AutoMQ (Kafka API) | `transport-telemetry-raw` | `GPSMessage` (JSON serialized) | Janidu | Natasha |
+| **Ingestion → DLQ** | AutoMQ (Kafka API) | `transport-telemetry-dlq` | Raw invalid payload + error reason | Janidu | (debug/monitoring) |
+| **Flink → Gateway** | Redis Pub/Sub | Channel: `fleet:live` | `{busId, routeId, lat, lng, speed, heading, timestamp}` | Natasha | Nidharshan |
+| **Flink → InfluxDB** | InfluxDB Line Protocol | Bucket: `telemetry` | `gps_readings` measurement | Natasha | (historical queries) |
+| **Gateway → Bus Status** | AutoMQ (Kafka API) | `bus.status` | `BusStatusMessage` (from `schemas/bus_status.py`) | Nidharshan | Natasha |
+| **Route Geometry** | PostgreSQL (PostGIS) | Schema: `routes`, Tables: `routes`, `stops` | SQLAlchemy ORM models | Chamodh (writes) | Natasha (reads for deviation checks), Nidharshan (reads for API responses) |
+| **Redis Cache** | Redis GET/SET | `bus:{bus_id}:position`, `bus:{bus_id}:status` | JSON position / status objects | Natasha (writes) | Nidharshan (reads) |
+
+##### Cross-Member Coordination Rules
+
+1. **Schema changes require a PR review from all affected members.** If Janidu wants to add a field to `GPSMessage`, Nidharshan and Natasha must approve since they consume it.
+2. **Each member writes their own unit tests** inside their service directory or in `tests/unit/{service-name}/`.
+3. **Kusal writes integration tests** in `tests/integration/` that spin up the full Docker stack and verify end-to-end data flow.
+4. **Weekly sync:** All 5 members demo their service's current state every week. Contracts are validated during this sync.
+5. **Database access:** Chamodh owns the `routes` schema. Nidharshan reads from it (read-only). If Nidharshan needs a new query, they request it from Chamodh or use the Route Service API.
 
 #### Acceptance Criteria
 

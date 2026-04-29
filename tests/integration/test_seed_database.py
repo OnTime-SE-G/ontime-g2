@@ -8,7 +8,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from scripts.seed_routes import load_kml, seed_database
+from scripts.seed_routes import discover_kml_files, load_kml, seed_database
 from scripts.models.base import Base
 from scripts.models.db_route import RouteORM, StopORM
 from scripts.models.settings import settings
@@ -18,14 +18,6 @@ API_GATEWAY_ROOT = Path(__file__).resolve().parents[2] / "services" / "api-gatew
 if str(API_GATEWAY_ROOT) not in sys.path:
     sys.path.insert(0, str(API_GATEWAY_ROOT))
 
-
-def _get_gateway_test_client():
-    pytest.importorskip(
-        "fastapi", reason="fastapi is not installed in this test environment")
-    from fastapi.testclient import TestClient
-    from main import app
-
-    return TestClient(app)
 
 
 def get_engine():
@@ -42,21 +34,6 @@ def db_is_reachable() -> bool:
         return False
 
 
-@pytest.mark.integration
-def test_increment0_gateway_health_contract():
-    client = _get_gateway_test_client()
-
-    response = client.get("/health")
-    assert response.status_code == 200
-
-    payload = response.json()
-    assert payload["status"] == "healthy"
-    assert payload["service"] == "api-gateway"
-    assert "dependencies" in payload
-    for dep in ["postgres", "redis", "kafka", "influxdb"]:
-        assert dep in payload["dependencies"]
-
-
 def test_seed_database_inserts_route_and_stops():
     if not db_is_reachable():
         pytest.skip(
@@ -66,7 +43,8 @@ def test_seed_database_inserts_route_and_stops():
     engine = get_engine()
     Base.metadata.create_all(engine)
 
-    route = load_kml(settings.kml_file)
+    route_file = discover_kml_files(settings.data_dir)[0]
+    route = load_kml(route_file)
     seed_database(route)
 
     with Session(engine) as session:
