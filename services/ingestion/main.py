@@ -45,7 +45,7 @@ def main():
         print(f"Failed to initialize Kafka producer: {e}")
         # Not exiting yet because Kafka might not be up, or we might want it to retry (KafkaProducer handles this async usually)
 
-    # TODO (Phase 3): Initialize validation engine
+    # Validation engine (Phase 3) is a pure function and requires no initialization
     # TODO (Phase 4): Initialize MQTT subscriber and start loop
     # TODO (Phase 6): Start FastAPI health server in background thread
 
