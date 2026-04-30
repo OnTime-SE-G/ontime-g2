@@ -4,6 +4,7 @@ import paho.mqtt.client as mqtt
 from services.ingestion.config import settings
 from services.ingestion.producer import TelemetryProducer
 from services.ingestion.validator import validate_gps_payload
+from services.ingestion.metrics import metrics
 
 logger = logging.getLogger(__name__)
 
@@ -17,11 +18,6 @@ class MQTTSubscriber:
         self.client.on_connect = self.on_connect
         self.client.on_disconnect = self.on_disconnect
         self.client.on_message = self.on_message
-
-        # Basic counters for metrics (stub for Phase 6)
-        self.messages_received = 0
-        self.messages_validated = 0
-        self.messages_rejected = 0
 
     def connect(self):
         logger.info(f"Connecting to MQTT broker at {settings.mqtt_broker_host}:{settings.mqtt_broker_port}")
@@ -54,15 +50,15 @@ class MQTTSubscriber:
             logger.info("Disconnected from MQTT broker cleanly.")
 
     def on_message(self, client, userdata, msg):
-        self.messages_received += 1
-        
+        metrics.increment_received()
+
         result = validate_gps_payload(msg.payload)
 
         if result.success and result.message:
-            self.messages_validated += 1
+            metrics.increment_validated()
             self.producer.publish_valid(result.message)
         else:
-            self.messages_rejected += 1
+            metrics.increment_rejected(result.error_type or "UNKNOWN")
             self.producer.publish_to_dlq(
                 raw_payload=msg.payload,
                 error_reason=result.error_reason or "Unknown Error",
