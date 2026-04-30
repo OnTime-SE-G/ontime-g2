@@ -1,10 +1,11 @@
 import logging
+
 import paho.mqtt.client as mqtt
 
 from services.ingestion.config import settings
-from services.ingestion.producer import TelemetryProducer
-from services.ingestion.validator import validate_gps_payload
 from services.ingestion.metrics import metrics
+from services.ingestion.producer import TelemetryProducer
+from services.ingestion.validator import StatefulValidator
 
 logger = logging.getLogger(__name__)
 
@@ -12,6 +13,7 @@ logger = logging.getLogger(__name__)
 class MQTTSubscriber:
     def __init__(self, producer: TelemetryProducer):
         self.producer = producer
+        self.validator = StatefulValidator()
         # Keep local counters for compatibility with older tests and simple
         # instance-level introspection, while the shared metrics collector
         # remains the source for service-wide observability.
@@ -64,7 +66,7 @@ class MQTTSubscriber:
         self.messages_received += 1
         metrics.increment_received()
 
-        result = validate_gps_payload(msg.payload)
+        result = self.validator.validate(msg.payload)
 
         if result.success and result.message:
             self.messages_validated += 1
@@ -77,5 +79,5 @@ class MQTTSubscriber:
                 raw_payload=msg.payload,
                 error_reason=result.error_reason or "Unknown Error",
                 error_type=result.error_type or "UNKNOWN",
-                source_topic=msg.topic
+                source_topic=msg.topic,
             )
