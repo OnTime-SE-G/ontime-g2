@@ -4,13 +4,17 @@
 
 import signal
 import sys
+import threading
 
-from config import settings
-from producer import TelemetryProducer
-from mqtt_subscriber import MQTTSubscriber
+from services.ingestion.config import settings
+from services.ingestion.producer import TelemetryProducer
+from services.ingestion.mqtt_subscriber import MQTTSubscriber
+from services.ingestion.health import start_health_server
+from services.ingestion.metrics import metrics
 
 producer = None
 subscriber = None
+health_thread = None
 
 
 def handle_shutdown(sig, frame):
@@ -22,12 +26,13 @@ def handle_shutdown(sig, frame):
     if producer:
         print("Closing Kafka producer...")
         producer.close()
+    print("Ingestion Service shut down successfully.")
     sys.exit(0)
 
 
 def main():
     """Start the Ingestion Service."""
-    global producer, subscriber
+    global producer, subscriber, health_thread
     signal.signal(signal.SIGINT, handle_shutdown)
     signal.signal(signal.SIGTERM, handle_shutdown)
 
@@ -47,8 +52,10 @@ def main():
     try:
         producer = TelemetryProducer()
         print("Kafka producer initialized successfully.")
+        metrics.kafka_broker_up = True
     except Exception as e:
         print(f"Failed to initialize Kafka producer: {e}")
+        metrics.kafka_broker_up = False
 
     # Validation engine (Phase 3) is a pure function and requires no initialization
 
@@ -58,15 +65,21 @@ def main():
         subscriber = MQTTSubscriber(producer)
         subscriber.connect()
         print("MQTT subscriber initialized.")
+        metrics.mqtt_broker_up = True
     except Exception as e:
         print(f"Failed to connect MQTT subscriber: {e}")
+        metrics.mqtt_broker_up = False
 
-    # TODO (Phase 6): Start FastAPI health server in background thread
+    # (Phase 6): Start FastAPI health server in background daemon thread
+    print("Starting health/metrics server on port 8001...")
+    health_thread = threading.Thread(target=start_health_server, daemon=True)
+    health_thread.start()
+    print("Health server started (daemon thread).")
 
-    print("Service Phase 4 components loaded. Starting main loop.")
-    
+    print("All components loaded. Starting main loop.")
+
     if subscriber:
-        # Start the blocking MQTT loop
+        # Start the blocking MQTT loop (runs in main thread)
         subscriber.start()
     else:
         # Block so the container doesn't exit immediately if run without subscriber
