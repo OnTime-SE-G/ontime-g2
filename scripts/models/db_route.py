@@ -18,6 +18,12 @@ class RouteORM(Base):
         cascade="all, delete-orphan"
     )
 
+    buses = relationship(
+        "BusORM",
+        back_populates="route",
+        cascade="all, delete-orphan"
+    )
+
 
 class StopORM(Base):
     __tablename__ = "stops"

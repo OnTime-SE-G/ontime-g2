@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from scripts.seed_routes import load_kml
+from scripts.seed_routes import discover_kml_files, load_kml, route_name_from_file
 from scripts.models.route import RouteSeed
 
 
@@ -17,7 +17,17 @@ def test_load_kml_returns_route_seed():
 def test_load_kml_has_route_name():
     route = load_kml("data/moratuwa_kadawatha.kml")
 
-    assert route.name == "Moratuwa to Kadawatha"
+    assert route.name == "moratuwa_kadawatha"
+
+
+def test_route_name_from_file_uses_file_stem():
+    assert route_name_from_file("data/moratuwa_kadawatha.kml") == "moratuwa_kadawatha"
+
+
+def test_discover_kml_files_returns_data_folder_routes():
+    route_files = discover_kml_files("data")
+
+    assert Path("data/moratuwa_kadawatha.kml") in route_files
 
 
 def test_load_kml_has_geometry_points():
