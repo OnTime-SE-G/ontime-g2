@@ -10,6 +10,7 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./init:/docker-entrypoint-initdb.d
     networks:
       - ontime_network
     healthcheck:
@@ -103,7 +104,25 @@ services:
     volumes:
       - ./services/route-service:/app
     environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ontime_db}
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/route_db
+    networks:
+      - ontime_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  bus-service:
+    build:
+      context: ../services/bus-service
+      dockerfile: Dockerfile
+    container_name: ontime_bus_service
+    ports:
+      - "8003:8003"
+    volumes:
+      - ../services/bus-service:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8003 --reload
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/bus_db
     networks:
       - ontime_network
     depends_on:
@@ -138,7 +157,19 @@ services:
     networks:
       - ontime_network
     healthcheck:
-      test: [ "CMD", "mosquitto_sub", "-t", "$$SYS/#", "-C", "1", "-i", "healthcheck", "-W", "3" ]
+      test:
+        [
+          "CMD",
+          "mosquitto_sub",
+          "-t",
+          "$$SYS/#",
+          "-C",
+          "1",
+          "-i",
+          "healthcheck",
+          "-W",
+          "3",
+        ]
       interval: 10s
       timeout: 5s
       retries: 3

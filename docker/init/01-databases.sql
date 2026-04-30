@@ -1,0 +1,3 @@
+CREATE DATABASE route_db;
+CREATE DATABASE bus_db;
+CREATE DATABASE ontime_test_db;
