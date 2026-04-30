@@ -5,6 +5,7 @@
 from datetime import datetime, timezone
 
 from fastapi import FastAPI
+from fastapi.responses import PlainTextResponse
 
 from services.ingestion.metrics import metrics
 from services.ingestion.config import settings
@@ -46,7 +47,7 @@ def create_app():
             },
         }
 
-    @app.get("/metrics")
+    @app.get("/metrics", response_class=PlainTextResponse)
     def metrics_endpoint():
         """
         Prometheus-format metrics endpoint.

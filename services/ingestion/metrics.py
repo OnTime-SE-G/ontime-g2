@@ -3,7 +3,6 @@
 # Shared between mqtt_subscriber and health endpoints.
 
 import threading
-from collections import deque
 from time import time
 
 
@@ -26,7 +25,9 @@ class MetricsCollector:
         self.kafka_broker_up = True
         self.mqtt_broker_up = True
 
-        self._lock = threading.Lock()
+        # Snapshot generation calls helper methods that also read counters,
+        # so we use an RLock to keep those reads safe without deadlocking.
+        self._lock = threading.RLock()
 
     def increment_received(self):
         """Increment messages_received counter."""
