@@ -10,6 +10,9 @@ from sqlalchemy.orm import Session
 from app.models.db_route import RouteORM, StopORM
 
 
+KML_REQUIREMENTS_ERROR = "KML must contain at least 2 coordinates and 2 stops"
+
+
 def parse_kml_file(file):
     try:
         tree = ET.parse(file.file)
@@ -36,13 +39,18 @@ def parse_kml_file(file):
 
         # Stop point
         if point is not None:
-            lon, lat, *_ = str(point.text).strip().split(",")
+            try:
+                lon, lat, *_ = str(point.text).strip().split(",")
+                lat = float(lat)
+                lon = float(lon)
+            except ValueError as exc:
+                raise ValueError(KML_REQUIREMENTS_ERROR) from exc
 
             stops.append(
                 {
                     "name": stop_name,
-                    "lat": float(lat),
-                    "lon": float(lon),
+                    "lat": lat,
+                    "lon": lon,
                 }
             )
 
@@ -51,14 +59,14 @@ def parse_kml_file(file):
             raw_points = str(linestring.text).strip().split()
 
             for pair in raw_points:
-                lon, lat, *_ = pair.split(",")
-                coordinates.append((float(lon), float(lat)))
+                try:
+                    lon, lat, *_ = pair.split(",")
+                    coordinates.append((float(lon), float(lat)))
+                except ValueError as exc:
+                    raise ValueError(KML_REQUIREMENTS_ERROR) from exc
 
-    if len(coordinates) < 2:
-        raise ValueError("KML route must contain at least 2 coordinates")
-
-    if len(stops) < 2:
-        raise ValueError("KML route must contain at least 2 stops")
+    if len(coordinates) < 2 or len(stops) < 2:
+        raise ValueError(KML_REQUIREMENTS_ERROR)
 
     return coordinates, stops
 

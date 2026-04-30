@@ -64,6 +64,23 @@ UPDATED_VALID_KML = """<?xml version="1.0" encoding="UTF-8"?>
 
 INVALID_KML = "<kml><Document><Placemark></Document></kml>"
 
+INVALID_ROUTE_SHAPE_KML = """<?xml version="1.0" encoding="UTF-8"?>
+<kml xmlns="http://www.opengis.net/kml/2.2">
+  <Document>
+    <Placemark>
+      <name>Incomplete Route</name>
+      <LineString>
+        <coordinates>79.9000,7.0000,0</coordinates>
+      </LineString>
+    </Placemark>
+    <Placemark>
+      <name>Only Stop</name>
+      <Point><coordinates>79.9000,7.0000,0</coordinates></Point>
+    </Placemark>
+  </Document>
+</kml>
+"""
+
 
 def db_is_reachable(database_url: str) -> tuple[bool, str | None]:
     try:
@@ -233,6 +250,20 @@ def test_invalid_kml_upload_returns_400(client):
 
     assert response.status_code == 400
     assert "valid KML" in response.json()["detail"]
+
+
+def test_kml_upload_without_enough_coordinates_and_stops_returns_400(client):
+    response = upload_route(
+        client,
+        unique_route_name("invalid-shape-upload"),
+        INVALID_ROUTE_SHAPE_KML,
+    )
+
+    assert response.status_code == 400
+    assert (
+        response.json()["detail"]
+        == "KML must contain at least 2 coordinates and 2 stops"
+    )
 
 
 def test_update_with_invalid_kml_does_not_delete_old_route(
