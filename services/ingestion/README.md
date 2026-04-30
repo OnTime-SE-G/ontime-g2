@@ -126,7 +126,7 @@ G4 uses these interfaces for:
 | `INGESTION_KAFKA_RAW_TOPIC` | `transport-telemetry-raw` | topic for accepted telemetry |
 | `INGESTION_KAFKA_DLQ_TOPIC` | `transport-telemetry-dlq` | topic for rejected telemetry |
 | `INGESTION_SERVICE_PORT` | `8001` | port used by health and metrics server |
-| `INGESTION_MIN_MESSAGE_INTERVAL_SECONDS` | `1.0` | minimum accepted gap between messages from the same bus |
+| `INGESTION_MIN_MESSAGE_INTERVAL_SECONDS` | `3.0` | minimum accepted gap between messages from the same bus |
 | `INGESTION_DUPLICATE_CACHE_SIZE` | `100` | duplicate hash window per bus |
 
 ## Local Run
@@ -145,6 +145,13 @@ From the repo root:
 ```bash
 docker compose -f docker/docker-compose.yml up -d broker mqtt-broker ingestion-service
 ```
+
+Compose listener map:
+
+- Kafka inside Docker network: `broker:29092`
+- Kafka from host machine: `localhost:9092`
+- MQTT from host machine: `localhost:1883`
+- Ingestion health/metrics from host machine: `localhost:8001`
 
 Useful checks:
 
@@ -168,14 +175,26 @@ curl http://localhost:8001/metrics
 
 ```bash
 python -m pip install -r services/ingestion/requirements-dev.txt
-python -m pytest services/ingestion/tests -v
+python -m pytest services/ingestion/tests/unit -v --cov=services/ingestion/app --cov-report=term-missing
+python -m pytest services/ingestion/tests/integration -m integration -v
 pytest services/ingestion/tests -v
 ```
+
+Smoke test coverage includes:
+
+- containerized Kafka broker
+- containerized Mosquitto broker
+- ingestion service startup and readiness
+- MQTT publish of valid and invalid telemetry
+- assertion that raw data reaches Kafka raw topic
+- assertion that invalid data reaches Kafka DLQ
 
 ## Important Notes
 
 - The service is intentionally narrow in scope. It does not calculate ETA, render maps, or own user-facing APIs.
 - `services/ingestion/app/` is the runtime package. Tests stay under `services/ingestion/tests/`.
+- Unit tests live under `services/ingestion/tests/unit/`.
+- Docker-backed smoke tests live under `services/ingestion/tests/integration/`.
 - `services/ingestion/tests/conftest.py` is only a pytest path helper for this service's tests. It is not part of the runtime.
 
 ## Ownership

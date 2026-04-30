@@ -52,7 +52,7 @@ class IngestionSettings(BaseSettings):
         description="Port for the FastAPI health and metrics server",
     )
     min_message_interval_seconds: float = Field(
-        default=1.0,
+        default=3.0,
         ge=0,
         validation_alias=AliasChoices(
             "INGESTION_MIN_MESSAGE_INTERVAL_SECONDS",
