@@ -4,12 +4,13 @@ from sqlalchemy.orm import sessionmaker
 
 DATABASE_URL = os.getenv(
     "DATABASE_URL",
-    "postgresql://postgres:postgres@localhost:5432/bus_db"
+    "postgresql://postgres:postgres@localhost:5432/fleet_db"
 )
 
 engine = create_engine(
     DATABASE_URL,
-    pool_pre_ping=True  # avoids stale connections
+    pool_pre_ping=True,
+    future=True
 )
 
 SessionLocal = sessionmaker(

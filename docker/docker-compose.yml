@@ -111,18 +111,18 @@ services:
       postgres:
         condition: service_healthy
 
-  bus-service:
+  fleet-management-service:
     build:
-      context: ../services/bus-service
+      context: ../services/fleet-management-service
       dockerfile: Dockerfile
-    container_name: ontime_bus_service
+    container_name: ontime_fleet_service
     ports:
       - "8003:8003"
     volumes:
-      - ../services/bus-service:/app
+      - ../services/fleet-management-service:/app
     command: uvicorn app.main:app --host 0.0.0.0 --port 8003 --reload
     environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/bus_db
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/fleet_db
     networks:
       - ontime_network
     depends_on:
