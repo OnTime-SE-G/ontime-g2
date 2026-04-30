@@ -1,16 +1,12 @@
-# services/ingestion/main.py
-# Ingestion Service entry point.
-# Subscribes to MQTT, validates GPS messages, and produces to Kafka.
-
 import signal
 import sys
 import threading
 
-from services.ingestion.config import settings
-from services.ingestion.producer import TelemetryProducer
-from services.ingestion.mqtt_subscriber import MQTTSubscriber
-from services.ingestion.health import start_health_server
-from services.ingestion.metrics import metrics
+from services.ingestion.app.config import settings
+from services.ingestion.app.health import start_health_server
+from services.ingestion.app.metrics import metrics
+from services.ingestion.app.mqtt_subscriber import MQTTSubscriber
+from services.ingestion.app.producer import TelemetryProducer
 
 producer = None
 subscriber = None
@@ -18,7 +14,6 @@ health_thread = None
 
 
 def handle_shutdown(sig, frame):
-    """Graceful shutdown handler for SIGINT/SIGTERM."""
     print("\nShutting down Ingestion Service...")
     if subscriber:
         print("Stopping MQTT subscriber...")
@@ -31,8 +26,8 @@ def handle_shutdown(sig, frame):
 
 
 def main():
-    """Start the Ingestion Service."""
     global producer, subscriber, health_thread
+
     signal.signal(signal.SIGINT, handle_shutdown)
     signal.signal(signal.SIGTERM, handle_shutdown)
 
@@ -47,45 +42,40 @@ def main():
     print(f"  Health Port:  {settings.service_port}")
     print("=" * 50)
 
-    # Initialize Kafka producer
     print("Initializing Kafka producer...")
     try:
         producer = TelemetryProducer()
-        print("Kafka producer initialized successfully.")
         metrics.kafka_broker_up = True
-    except Exception as e:
-        print(f"Failed to initialize Kafka producer: {e}")
+        print("Kafka producer initialized successfully.")
+    except Exception as error:
         metrics.kafka_broker_up = False
+        print(f"Failed to initialize Kafka producer: {error}")
 
-    # Validation engine (Phase 3) is a pure function and requires no initialization
-
-    # Initialize MQTT subscriber and start loop
     print("Initializing MQTT subscriber...")
-    try:
-        subscriber = MQTTSubscriber(producer)
-        subscriber.connect()
-        print("MQTT subscriber initialized.")
-        metrics.mqtt_broker_up = True
-    except Exception as e:
-        print(f"Failed to connect MQTT subscriber: {e}")
+    if producer is not None:
+        try:
+            subscriber = MQTTSubscriber(producer)
+            subscriber.connect()
+            print("MQTT subscriber initialized.")
+        except Exception as error:
+            metrics.mqtt_broker_up = False
+            print(f"Failed to connect MQTT subscriber: {error}")
+    else:
         metrics.mqtt_broker_up = False
+        print("Skipping MQTT subscriber startup because Kafka producer is unavailable.")
 
-    # (Phase 6): Start FastAPI health server in background daemon thread
-    print("Starting health/metrics server on port 8001...")
+    print(f"Starting health/metrics server on port {settings.service_port}...")
     health_thread = threading.Thread(target=start_health_server, daemon=True)
     health_thread.start()
     print("Health server started (daemon thread).")
 
-    print("All components loaded. Starting main loop.")
-
     if subscriber:
-        # Start the blocking MQTT loop (runs in main thread)
+        print("All components loaded. Starting MQTT loop.")
         subscriber.start()
     else:
-        # Block so the container doesn't exit immediately if run without subscriber
-        while True:
-            signal.pause()
+        print("Running in degraded mode. Waiting for shutdown while health endpoints remain available.")
+        threading.Event().wait()
 
 
-if __name__ == "__main__":
+if __name__ == "__main__":  # pragma: no cover
     main()

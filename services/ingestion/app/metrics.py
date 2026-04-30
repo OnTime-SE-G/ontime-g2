@@ -1,13 +1,9 @@
-# services/ingestion/metrics.py
-# Thread-safe metrics collector for the Ingestion Service.
-# Shared between mqtt_subscriber and health endpoints.
-
 import threading
 from time import time
 
 
 class MetricsCollector:
-    """Thread-safe metrics collection."""
+    """Thread-safe metrics collection for ingestion."""
 
     def __init__(self):
         self.messages_received = 0
@@ -22,26 +18,21 @@ class MetricsCollector:
         self.start_time = time()
         self.last_message_time = 0.0
 
-        self.kafka_broker_up = True
-        self.mqtt_broker_up = True
+        self.kafka_broker_up = False
+        self.mqtt_broker_up = False
 
-        # Snapshot generation calls helper methods that also read counters,
-        # so we use an RLock to keep those reads safe without deadlocking.
         self._lock = threading.RLock()
 
     def increment_received(self):
-        """Increment messages_received counter."""
         with self._lock:
             self.messages_received += 1
             self.last_message_time = time()
 
     def increment_validated(self):
-        """Increment messages_validated counter."""
         with self._lock:
             self.messages_validated += 1
 
     def increment_rejected(self, error_type: str):
-        """Increment rejection counter based on error type."""
         with self._lock:
             if error_type == "JSON_PARSE":
                 self.messages_rejected_json += 1
@@ -57,23 +48,20 @@ class MetricsCollector:
                 self.messages_rejected_sequence += 1
 
     def get_uptime_seconds(self) -> float:
-        """Get uptime in seconds."""
         return time() - self.start_time
 
     def total_rejected(self) -> int:
-        """Get total rejected messages."""
         with self._lock:
             return (
-                self.messages_rejected_json +
-                self.messages_rejected_schema +
-                self.messages_rejected_geo +
-                self.messages_rejected_duplicate +
-                self.messages_rejected_rate_limit +
-                self.messages_rejected_sequence
+                self.messages_rejected_json
+                + self.messages_rejected_schema
+                + self.messages_rejected_geo
+                + self.messages_rejected_duplicate
+                + self.messages_rejected_rate_limit
+                + self.messages_rejected_sequence
             )
 
     def get_snapshot(self) -> dict:
-        """Get a snapshot of all metrics (thread-safe)."""
         with self._lock:
             return {
                 "messages_received": self.messages_received,
@@ -91,5 +79,4 @@ class MetricsCollector:
             }
 
 
-# Global metrics instance
 metrics = MetricsCollector()

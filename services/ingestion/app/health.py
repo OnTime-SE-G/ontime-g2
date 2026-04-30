@@ -1,59 +1,65 @@
-# services/ingestion/health.py
-# Health and metrics endpoints for the Ingestion Service.
-# Runs on port 8001 via FastAPI + Uvicorn.
-
 from datetime import datetime, timezone
 
-from fastapi import FastAPI
-from fastapi.responses import PlainTextResponse
+from fastapi import FastAPI, status
+from fastapi.responses import JSONResponse, PlainTextResponse
 
-from services.ingestion.metrics import metrics
-from services.ingestion.config import settings
+from services.ingestion.app.config import settings
+from services.ingestion.app.metrics import metrics
+
+
+def _build_health_payload(snapshot: dict) -> dict:
+    kafka_ok = snapshot["kafka_broker_up"]
+    mqtt_ok = snapshot["mqtt_broker_up"]
+
+    return {
+        "status": "healthy" if (kafka_ok and mqtt_ok) else "degraded",
+        "service": "ingestion-service",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "dependencies": {
+            "kafka_broker": "up" if kafka_ok else "down",
+            "mqtt_broker": "up" if mqtt_ok else "down",
+        },
+        "counters": {
+            "messages_received": snapshot["messages_received"],
+            "messages_validated": snapshot["messages_validated"],
+            "messages_rejected": snapshot["messages_rejected"],
+        },
+    }
 
 
 def create_app():
-    """Create the FastAPI app."""
     app = FastAPI(
         title="OnTime Ingestion Service",
-        version="1.0.0",
-        description="Health and metrics endpoints for the GPS ingestion service"
+        version="1.1.0",
+        description="Health and metrics endpoints for the GPS ingestion service",
     )
 
     @app.get("/health")
     def health():
-        """
-        Health check endpoint.
-        Returns service status, dependencies, and message counters.
-        """
-        snapshot = metrics.get_snapshot()
+        return _build_health_payload(metrics.get_snapshot())
 
-        # Determine overall status
-        kafka_ok = snapshot["kafka_broker_up"]
-        mqtt_ok = snapshot["mqtt_broker_up"]
-        status = "healthy" if (kafka_ok and mqtt_ok) else "degraded"
-
+    @app.get("/health/live")
+    def live():
         return {
-            "status": status,
+            "status": "alive",
             "service": "ingestion-service",
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "dependencies": {
-                "kafka_broker": "up" if kafka_ok else "down",
-                "mqtt_broker": "up" if mqtt_ok else "down",
-            },
-            "counters": {
-                "messages_received": snapshot["messages_received"],
-                "messages_validated": snapshot["messages_validated"],
-                "messages_rejected": snapshot["messages_rejected"],
-            },
         }
+
+    @app.get("/health/ready")
+    def ready():
+        snapshot = metrics.get_snapshot()
+        payload = _build_health_payload(snapshot)
+        status_code = (
+            status.HTTP_200_OK
+            if snapshot["kafka_broker_up"] and snapshot["mqtt_broker_up"]
+            else status.HTTP_503_SERVICE_UNAVAILABLE
+        )
+        return JSONResponse(status_code=status_code, content=payload)
 
     @app.get("/metrics", response_class=PlainTextResponse)
     def metrics_endpoint():
-        """
-        Prometheus-format metrics endpoint.
-        """
         snapshot = metrics.get_snapshot()
-
         prometheus_lines = [
             "# HELP ingestion_messages_received_total Total messages received from MQTT",
             "# TYPE ingestion_messages_received_total counter",
@@ -84,7 +90,6 @@ def create_app():
             "# TYPE ingestion_mqtt_broker_up gauge",
             f'ingestion_mqtt_broker_up {1 if snapshot["mqtt_broker_up"] else 0}',
         ]
-
         return "\n".join(prometheus_lines)
 
     return app
@@ -94,14 +99,10 @@ app = create_app()
 
 
 def start_health_server():
-    """
-    Start the FastAPI health server in a blocking manner.
-    Call this from a daemon thread in main.py.
-    """
-    import uvicorn
     import logging
 
-    # Suppress uvicorn logs (optional - comment out if you want them)
+    import uvicorn
+
     logging.getLogger("uvicorn.access").setLevel(logging.WARNING)
 
     uvicorn.run(

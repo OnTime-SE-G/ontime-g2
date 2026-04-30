@@ -1,1 +1,1 @@
-# services/ingestion/__init__.py
+"""Ingestion service package."""

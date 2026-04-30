@@ -2,26 +2,24 @@ import logging
 
 import paho.mqtt.client as mqtt
 
-from services.ingestion.config import settings
-from services.ingestion.metrics import metrics
-from services.ingestion.producer import TelemetryProducer
-from services.ingestion.validator import StatefulValidator
+from services.ingestion.app.config import settings
+from services.ingestion.app.metrics import metrics
+from services.ingestion.app.producer import TelemetryProducer
+from services.ingestion.app.validator import StatefulValidator
 
 logger = logging.getLogger(__name__)
 
 
 class MQTTSubscriber:
     def __init__(self, producer: TelemetryProducer):
+        if producer is None:
+            raise ValueError("TelemetryProducer is required for MQTTSubscriber")
+
         self.producer = producer
         self.validator = StatefulValidator()
-        # Keep local counters for compatibility with older tests and simple
-        # instance-level introspection, while the shared metrics collector
-        # remains the source for service-wide observability.
         self.messages_received = 0
         self.messages_validated = 0
         self.messages_rejected = 0
-        # Use Protocol v5 or v3.1.1 based on what paho-mqtt defaults to.
-        # We specify a clean session for stateless consumption, relying on Kafka for persistence.
         self.client = mqtt.Client(
             callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
             clean_session=True,
@@ -31,16 +29,18 @@ class MQTTSubscriber:
         self.client.on_message = self.on_message
 
     def connect(self):
-        logger.info(f"Connecting to MQTT broker at {settings.mqtt_broker_host}:{settings.mqtt_broker_port}")
+        logger.info(
+            "Connecting to MQTT broker at %s:%s",
+            settings.mqtt_broker_host,
+            settings.mqtt_broker_port,
+        )
         self.client.connect(settings.mqtt_broker_host, settings.mqtt_broker_port, 60)
 
     def start(self):
-        """Starts the blocking MQTT network loop."""
         logger.info("Starting MQTT subscriber loop...")
         self.client.loop_forever()
 
     def stop(self):
-        """Stops the loop and disconnects."""
         logger.info("Stopping MQTT subscriber...")
         self.client.loop_stop()
         self.client.disconnect()
@@ -48,19 +48,23 @@ class MQTTSubscriber:
     def on_connect(self, client, userdata, connect_flags, reason_code, properties):
         if reason_code == 0:
             logger.info("Connected to MQTT broker successfully.")
-            # Subscribe on connect so it resubscribes upon reconnection
             client.subscribe(settings.mqtt_topic_pattern)
-            logger.info(f"Subscribed to topic pattern: {settings.mqtt_topic_pattern}")
+            logger.info("Subscribed to topic pattern: %s", settings.mqtt_topic_pattern)
+            metrics.mqtt_broker_up = True
         else:
-            logger.error(f"Failed to connect to MQTT broker, return code {reason_code}")
+            logger.error("Failed to connect to MQTT broker, return code %s", reason_code)
+            metrics.mqtt_broker_up = False
 
     def on_disconnect(self, client, userdata, disconnect_flags, reason_code, properties):
         if reason_code != 0:
             logger.warning(
-                f"Unexpected disconnection from MQTT broker (code {reason_code}). Reconnecting..."
+                "Unexpected disconnection from MQTT broker (code %s). Reconnecting...",
+                reason_code,
             )
+            metrics.mqtt_broker_up = False
         else:
             logger.info("Disconnected from MQTT broker cleanly.")
+            metrics.mqtt_broker_up = False
 
     def on_message(self, client, userdata, msg):
         self.messages_received += 1
