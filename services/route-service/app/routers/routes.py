@@ -337,13 +337,18 @@ def get_route_stops(route_id: int, db: Session = Depends(get_db)):
 
 
 @router.get("/{route_id}/buses", response_model=RouteBusesResponse)
-def get_route_buses(route_id: int):
+def get_route_buses(route_id: int, db: Session = Depends(get_db)):
     """
     List buses currently assigned to a route.
 
     This endpoint is a placeholder for future live bus integration. It returns
     an empty bus list until bus tracking data is connected.
     """
+    route = db.query(RouteORM).filter(RouteORM.id == route_id).first()
+
+    if not route:
+        raise HTTPException(status_code=404, detail="Route not found")
+
     return {
         "route_id": route_id,
         "buses": [],
