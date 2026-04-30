@@ -167,6 +167,7 @@ curl http://localhost:8001/metrics
 ## Tests
 
 ```bash
+python -m pip install -r services/ingestion/requirements-dev.txt
 python -m pytest services/ingestion/tests -v
 pytest services/ingestion/tests -v
 ```
