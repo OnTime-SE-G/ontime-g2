@@ -7,6 +7,9 @@ class FleetBusCreate(BaseModel):
     capacity: int = 50
 
 
+from pydantic import BaseModel, ConfigDict
+
+
 class FleetBusResponse(BaseModel):
     id: int
     fleet_code: str
@@ -14,5 +17,4 @@ class FleetBusResponse(BaseModel):
     capacity: int
     route_id: int | None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
