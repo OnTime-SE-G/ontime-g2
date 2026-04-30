@@ -1,9 +1,8 @@
 import json
-import time
 from datetime import datetime, timezone, timedelta
 from unittest.mock import patch
 
-from services.ingestion.validator import StatefulValidator
+from services.ingestion.app.validator import StatefulValidator
 
 
 def test_duplicate_message():
@@ -56,7 +55,7 @@ def test_rate_limit():
     }
     
     # Mock time.monotonic to simulate rapid arrival
-    with patch("services.ingestion.validator.time.monotonic") as mock_time:
+    with patch("services.ingestion.app.validator.time.monotonic") as mock_time:
         mock_time.return_value = 100.0
         
         # First message
@@ -95,7 +94,7 @@ def test_out_of_order_sequence():
         "timestamp": (base_time - timedelta(seconds=10)).isoformat()
     }
     
-    with patch("services.ingestion.validator.time.monotonic") as mock_time:
+    with patch("services.ingestion.app.validator.time.monotonic") as mock_time:
         mock_time.return_value = 100.0
         
         # First message
@@ -135,7 +134,7 @@ def test_independent_bus_state():
         "timestamp": (base_time - timedelta(seconds=10)).isoformat()
     }
     
-    with patch("services.ingestion.validator.time.monotonic") as mock_time:
+    with patch("services.ingestion.app.validator.time.monotonic") as mock_time:
         mock_time.return_value = 100.0
         
         # Bus A message

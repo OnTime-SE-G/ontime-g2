@@ -1,18 +1,17 @@
 FROM python:3.11-slim
 
-WORKDIR /app
+WORKDIR /workspace
 
-# Copy and install service-specific dependencies
-COPY services/ingestion/requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+ENV PYTHONUNBUFFERED=1
 
-# Copy shared schemas (used for GPS message validation)
-COPY schemas/ /app/schemas/
+COPY services/ingestion/requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir -r /tmp/requirements.txt
 
-# Copy service code
-COPY services/ingestion/ /app/
+COPY schemas /workspace/schemas
+COPY services/ingestion /workspace/services/ingestion
 
-# Health endpoint on port 8001
 EXPOSE 8001
 
-CMD ["python", "main.py"]
+HEALTHCHECK --interval=30s --timeout=5s --retries=5 CMD python -c "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health/live', timeout=3)"
+
+CMD ["python", "-m", "services.ingestion.app.main"]

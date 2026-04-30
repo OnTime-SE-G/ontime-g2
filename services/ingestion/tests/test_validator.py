@@ -1,7 +1,7 @@
 import json
 from datetime import datetime, timezone
 
-from services.ingestion.validator import validate_gps_payload
+from services.ingestion.app.validator import validate_gps_payload
 
 
 def test_valid_gps_message():

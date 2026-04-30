@@ -2,10 +2,10 @@ from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 from schemas.gps import GPSMessage
-from services.ingestion.producer import TelemetryProducer
+from services.ingestion.app.producer import TelemetryProducer
 
 
-@patch("services.ingestion.producer.KafkaProducer")
+@patch("services.ingestion.app.producer.KafkaProducer")
 def test_publish_valid(mock_kafka_class):
     # Setup mock
     mock_producer = MagicMock()
@@ -38,7 +38,7 @@ def test_publish_valid(mock_kafka_class):
     assert kwargs["value"]["busId"] == "BUS_123"
 
 
-@patch("services.ingestion.producer.KafkaProducer")
+@patch("services.ingestion.app.producer.KafkaProducer")
 def test_publish_to_dlq(mock_kafka_class):
     # Setup mock
     mock_producer = MagicMock()

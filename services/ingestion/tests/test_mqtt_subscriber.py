@@ -1,6 +1,6 @@
 from unittest.mock import MagicMock
 
-from services.ingestion.mqtt_subscriber import MQTTSubscriber
+from services.ingestion.app.mqtt_subscriber import MQTTSubscriber
 
 
 def test_on_message_valid_payload():

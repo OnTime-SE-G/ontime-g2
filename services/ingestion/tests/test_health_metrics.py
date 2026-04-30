@@ -1,12 +1,10 @@
-"""
-Test suite for Phase 6: Health and Metrics Endpoints
-Tests the metrics collector and health/metrics endpoints.
-"""
-
-import pytest
 import threading
 import time
-from services.ingestion.metrics import MetricsCollector
+
+from fastapi.testclient import TestClient
+
+from services.ingestion.app.health import create_app
+from services.ingestion.app.metrics import MetricsCollector
 
 
 class TestMetricsCollectorCore:
@@ -73,13 +71,13 @@ class TestMetricsCollectorCore:
     def test_broker_status(self):
         """Test broker status tracking."""
         mc = MetricsCollector()
-        assert mc.kafka_broker_up is True
-        assert mc.mqtt_broker_up is True
+        assert mc.kafka_broker_up is False
+        assert mc.mqtt_broker_up is False
 
-        mc.kafka_broker_up = False
+        mc.kafka_broker_up = True
         snapshot = mc.get_snapshot()
-        assert snapshot["kafka_broker_up"] is False
-        assert snapshot["mqtt_broker_up"] is True
+        assert snapshot["kafka_broker_up"] is True
+        assert snapshot["mqtt_broker_up"] is False
 
     def test_snapshot_consistency(self):
         """Test that snapshot is consistent and thread-safe."""
@@ -110,19 +108,39 @@ class TestHealthEndpointIntegration:
 
     def test_health_endpoint_imports(self):
         """Test that health module can be imported."""
-        from services.ingestion.health import create_app
         assert callable(create_app)
 
     def test_create_app_returns_fastapi_app(self):
         """Test that create_app returns a FastAPI app."""
-        from services.ingestion.health import create_app
         app = create_app()
         assert hasattr(app, "routes")
 
     def test_health_endpoint_routes_exist(self):
         """Test that health and metrics routes are registered."""
-        from services.ingestion.health import create_app
         app = create_app()
         routes = [route.path for route in app.routes]
         assert "/health" in routes
+        assert "/health/live" in routes
+        assert "/health/ready" in routes
         assert "/metrics" in routes
+
+    def test_ready_endpoint_returns_503_when_dependencies_down(self):
+        app = create_app()
+        client = TestClient(app)
+
+        from services.ingestion.app.health import metrics
+
+        metrics.kafka_broker_up = False
+        metrics.mqtt_broker_up = False
+
+        response = client.get("/health/ready")
+        assert response.status_code == 503
+        assert response.json()["status"] == "degraded"
+
+    def test_live_endpoint_returns_200(self):
+        app = create_app()
+        client = TestClient(app)
+
+        response = client.get("/health/live")
+        assert response.status_code == 200
+        assert response.json()["status"] == "alive"
