@@ -57,7 +57,7 @@ def unassign_route(bus_id: int, db: Session = Depends(get_db)):
     if not bus:
         raise HTTPException(status_code=404, detail="Bus not found")
 
-    bus.route_id = None
+    setattr(bus, "route_id", None)
     db.commit()
     db.refresh(bus)
 
