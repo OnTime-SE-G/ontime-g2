@@ -24,20 +24,28 @@ class TestMetricsCollectorCore:
     def test_increment_rejected_types(self):
         collector = MetricsCollector()
         collector.increment_rejected("JSON_PARSE")
+        collector.increment_rejected("MISSING_TIMESTAMP")
         collector.increment_rejected("SCHEMA_VALIDATION")
         collector.increment_rejected("GEO_BOUNDS")
         collector.increment_rejected("DUPLICATE")
         collector.increment_rejected("RATE_LIMIT")
+        collector.increment_rejected("RATE_LIMIT_EVENT_TIME")
         collector.increment_rejected("SEQUENCE_ERROR")
+        collector.increment_rejected("FUTURE_TIMESTAMP")
+        collector.increment_rejected("STALE_REPLAY")
 
         snapshot = collector.get_snapshot()
         assert snapshot["messages_rejected_json"] == 1
+        assert snapshot["messages_rejected_missing_timestamp"] == 1
         assert snapshot["messages_rejected_schema"] == 1
         assert snapshot["messages_rejected_geo"] == 1
         assert snapshot["messages_rejected_duplicate"] == 1
         assert snapshot["messages_rejected_rate_limit"] == 1
+        assert snapshot["messages_rejected_rate_limit_event_time"] == 1
         assert snapshot["messages_rejected_sequence"] == 1
-        assert snapshot["messages_rejected"] == 6
+        assert snapshot["messages_rejected_future_timestamp"] == 1
+        assert snapshot["messages_rejected_stale_replay"] == 1
+        assert snapshot["messages_rejected"] == 10
 
     def test_unknown_rejection_type_does_not_increment_totals(self):
         collector = MetricsCollector()
@@ -95,7 +103,11 @@ class TestMetricsCollectorCore:
         collector.increment_rejected("JSON_PARSE")
         collector.increment_rejected("SCHEMA_VALIDATION")
         collector.increment_rejected("GEO_BOUNDS")
-        assert collector.get_snapshot()["messages_rejected"] == 3
+        collector.increment_rejected("MISSING_TIMESTAMP")
+        collector.increment_rejected("RATE_LIMIT_EVENT_TIME")
+        collector.increment_rejected("FUTURE_TIMESTAMP")
+        collector.increment_rejected("STALE_REPLAY")
+        assert collector.get_snapshot()["messages_rejected"] == 7
 
 
 @pytest.fixture
@@ -189,6 +201,10 @@ class TestHealthEndpoints:
         assert "ingestion_messages_received_total 1" in body
         assert "ingestion_messages_validated_total 1" in body
         assert 'ingestion_messages_rejected_total{reason="RATE_LIMIT"} 1' in body
+        assert 'ingestion_messages_rejected_total{reason="RATE_LIMIT_EVENT_TIME"} 0' in body
+        assert 'ingestion_messages_rejected_total{reason="FUTURE_TIMESTAMP"} 0' in body
+        assert 'ingestion_messages_rejected_total{reason="STALE_REPLAY"} 0' in body
+        assert 'ingestion_messages_rejected_total{reason="MISSING_TIMESTAMP"} 0' in body
         assert "ingestion_kafka_broker_up 1" in body
         assert "ingestion_mqtt_broker_up 1" in body
 

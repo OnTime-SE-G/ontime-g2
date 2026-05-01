@@ -1,3 +1,5 @@
+import json
+from datetime import datetime, timezone
 from unittest.mock import MagicMock
 
 import pytest
@@ -143,11 +145,17 @@ def test_on_disconnect_clean_shutdown_marks_broker_down(subscriber_with_mocks):
 
 def test_on_message_valid_payload(subscriber_with_mocks):
     subscriber, mock_producer, _, collector = subscriber_with_mocks
-    payload = (
-        b'{"busId": "BUS_001", "tripId": "TRIP_001", "lat": 6.9271, '
-        b'"lon": 79.8612, "speed": 45.0, "heading": 120.0, '
-        b'"timestamp": "2026-05-02T10:15:30Z"}'
-    )
+    payload = json.dumps(
+        {
+            "busId": "BUS_001",
+            "tripId": "TRIP_001",
+            "lat": 6.9271,
+            "lon": 79.8612,
+            "speed": 45.0,
+            "heading": 120.0,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    ).encode("utf-8")
 
     mock_msg = MagicMock()
     mock_msg.topic = "transport/bus/BUS_001/location"

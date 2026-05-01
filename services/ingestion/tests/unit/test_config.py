@@ -10,6 +10,9 @@ def test_config_loads_with_defaults():
     assert settings.mqtt_ca_cert_path is None
     assert settings.service_port == 8001
     assert settings.min_message_interval_seconds == 3.0
+    assert settings.min_event_interval_seconds == 1.0
+    assert settings.max_future_skew_seconds == 30.0
+    assert settings.max_stale_age_seconds == 86400.0
     assert "transport/bus/+/location" in settings.mqtt_topic_pattern
 
 
@@ -27,3 +30,15 @@ def test_config_loads_hivemq_mqtt_options(monkeypatch):
     assert settings.mqtt_password == "hivemq-pass"
     assert settings.mqtt_client_id == "ingestion-hivemq"
     assert settings.mqtt_ca_cert_path == "/certs/hivemq-ca.pem"
+
+
+def test_config_loads_event_time_validation_options(monkeypatch):
+    monkeypatch.setenv("INGESTION_MIN_EVENT_INTERVAL_SECONDS", "2.5")
+    monkeypatch.setenv("INGESTION_MAX_FUTURE_SKEW_SECONDS", "45")
+    monkeypatch.setenv("INGESTION_MAX_STALE_AGE_SECONDS", "3600")
+
+    settings = IngestionSettings()
+
+    assert settings.min_event_interval_seconds == 2.5
+    assert settings.max_future_skew_seconds == 45.0
+    assert settings.max_stale_age_seconds == 3600.0
