@@ -29,6 +29,31 @@ class IngestionSettings(BaseSettings):
         validation_alias=AliasChoices("INGESTION_MQTT_TOPIC_PATTERN", "MQTT_TOPIC_PATTERN"),
         description="MQTT topic pattern to subscribe to",
     )
+    mqtt_tls_enabled: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("INGESTION_MQTT_TLS_ENABLED", "MQTT_TLS_ENABLED"),
+        description="Enable TLS for MQTT broker connections",
+    )
+    mqtt_username: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("INGESTION_MQTT_USERNAME", "MQTT_USERNAME"),
+        description="Optional MQTT username",
+    )
+    mqtt_password: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("INGESTION_MQTT_PASSWORD", "MQTT_PASSWORD"),
+        description="Optional MQTT password",
+    )
+    mqtt_client_id: str = Field(
+        default="ontime-ingestion-service",
+        validation_alias=AliasChoices("INGESTION_MQTT_CLIENT_ID", "MQTT_CLIENT_ID"),
+        description="MQTT client identifier for ingestion",
+    )
+    mqtt_ca_cert_path: str | None = Field(
+        default=None,
+        validation_alias=AliasChoices("INGESTION_MQTT_CA_CERT_PATH", "MQTT_CA_CERT_PATH"),
+        description="Optional CA certificate path for MQTT TLS",
+    )
 
     kafka_broker_url: str = Field(
         default="broker:29092",
