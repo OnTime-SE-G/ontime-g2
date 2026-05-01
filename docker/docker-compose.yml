@@ -10,6 +10,7 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./init:/docker-entrypoint-initdb.d
     networks:
       - ontime_network
     healthcheck:
@@ -102,13 +103,28 @@ services:
       - "8002:8002"
     volumes:
       - ../services/route-service:/app
-
     command: uvicorn app.main:app --host 0.0.0.0 --port 8002 --reload
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ontime_db}
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: 5432
+    networks:
+      - ontime_network
+    depends_on:
+      postgres:
+        condition: service_healthy
 
+  fleet-management-service:
+    build:
+      context: ../services/fleet-management-service
+      dockerfile: Dockerfile
+    container_name: ontime_fleet_service
+    ports:
+      - "8003:8003"
+    volumes:
+      - ../services/fleet-management-service:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8003 --reload
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/fleet_db
+      - ROUTE_SERVICE_URL=http://route-service:8002
     networks:
       - ontime_network
     depends_on:
@@ -193,7 +209,15 @@ services:
       mqtt-broker:
         condition: service_healthy
     healthcheck:
-      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health/ready', timeout=3)" ]
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request;
+            urllib.request.urlopen('http://127.0.0.1:8001/health/ready',
+            timeout=3)",
+        ]
       interval: 15s
       timeout: 5s
       retries: 5
