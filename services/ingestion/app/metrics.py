@@ -13,6 +13,8 @@ class MetricsCollector:
         self.messages_rejected_schema = 0
         self.messages_rejected_geo = 0
         self.messages_rejected_duplicate = 0
+        self.messages_rejected_inactive_trip = 0
+        self.messages_rejected_trip_cache_rebuilding = 0
         self.messages_rejected_rate_limit = 0
         self.messages_rejected_rate_limit_event_time = 0
         self.messages_rejected_sequence = 0
@@ -24,6 +26,9 @@ class MetricsCollector:
 
         self.kafka_broker_up = False
         self.mqtt_broker_up = False
+        self.trip_cache_status = "unknown"
+        self.active_trip_count = 0
+        self.last_trip_lifecycle_time = None
 
         self._lock = threading.RLock()
 
@@ -48,6 +53,10 @@ class MetricsCollector:
                 self.messages_rejected_geo += 1
             elif error_type == "DUPLICATE":
                 self.messages_rejected_duplicate += 1
+            elif error_type == "INACTIVE_TRIP":
+                self.messages_rejected_inactive_trip += 1
+            elif error_type == "TRIP_CACHE_REBUILDING":
+                self.messages_rejected_trip_cache_rebuilding += 1
             elif error_type == "RATE_LIMIT":
                 self.messages_rejected_rate_limit += 1
             elif error_type == "RATE_LIMIT_EVENT_TIME":
@@ -58,6 +67,18 @@ class MetricsCollector:
                 self.messages_rejected_future_timestamp += 1
             elif error_type == "STALE_REPLAY":
                 self.messages_rejected_stale_replay += 1
+
+    def update_trip_cache(
+        self,
+        *,
+        status: str,
+        active_trip_count: int,
+        last_lifecycle_timestamp: str | None,
+    ):
+        with self._lock:
+            self.trip_cache_status = status
+            self.active_trip_count = active_trip_count
+            self.last_trip_lifecycle_time = last_lifecycle_timestamp
 
     def get_uptime_seconds(self) -> float:
         return time() - self.start_time
@@ -70,6 +91,8 @@ class MetricsCollector:
                 + self.messages_rejected_schema
                 + self.messages_rejected_geo
                 + self.messages_rejected_duplicate
+                + self.messages_rejected_inactive_trip
+                + self.messages_rejected_trip_cache_rebuilding
                 + self.messages_rejected_rate_limit
                 + self.messages_rejected_rate_limit_event_time
                 + self.messages_rejected_sequence
@@ -88,6 +111,10 @@ class MetricsCollector:
                 "messages_rejected_schema": self.messages_rejected_schema,
                 "messages_rejected_geo": self.messages_rejected_geo,
                 "messages_rejected_duplicate": self.messages_rejected_duplicate,
+                "messages_rejected_inactive_trip": self.messages_rejected_inactive_trip,
+                "messages_rejected_trip_cache_rebuilding": (
+                    self.messages_rejected_trip_cache_rebuilding
+                ),
                 "messages_rejected_rate_limit": self.messages_rejected_rate_limit,
                 "messages_rejected_rate_limit_event_time": (
                     self.messages_rejected_rate_limit_event_time
@@ -98,6 +125,9 @@ class MetricsCollector:
                 "uptime_seconds": self.get_uptime_seconds(),
                 "kafka_broker_up": self.kafka_broker_up,
                 "mqtt_broker_up": self.mqtt_broker_up,
+                "trip_cache_status": self.trip_cache_status,
+                "active_trip_count": self.active_trip_count,
+                "last_trip_lifecycle_time": self.last_trip_lifecycle_time,
             }
 
 

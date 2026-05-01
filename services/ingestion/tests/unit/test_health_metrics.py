@@ -33,6 +33,8 @@ class TestMetricsCollectorCore:
         collector.increment_rejected("SEQUENCE_ERROR")
         collector.increment_rejected("FUTURE_TIMESTAMP")
         collector.increment_rejected("STALE_REPLAY")
+        collector.increment_rejected("INACTIVE_TRIP")
+        collector.increment_rejected("TRIP_CACHE_REBUILDING")
 
         snapshot = collector.get_snapshot()
         assert snapshot["messages_rejected_json"] == 1
@@ -40,12 +42,14 @@ class TestMetricsCollectorCore:
         assert snapshot["messages_rejected_schema"] == 1
         assert snapshot["messages_rejected_geo"] == 1
         assert snapshot["messages_rejected_duplicate"] == 1
+        assert snapshot["messages_rejected_inactive_trip"] == 1
+        assert snapshot["messages_rejected_trip_cache_rebuilding"] == 1
         assert snapshot["messages_rejected_rate_limit"] == 1
         assert snapshot["messages_rejected_rate_limit_event_time"] == 1
         assert snapshot["messages_rejected_sequence"] == 1
         assert snapshot["messages_rejected_future_timestamp"] == 1
         assert snapshot["messages_rejected_stale_replay"] == 1
-        assert snapshot["messages_rejected"] == 10
+        assert snapshot["messages_rejected"] == 12
 
     def test_unknown_rejection_type_does_not_increment_totals(self):
         collector = MetricsCollector()
@@ -86,6 +90,19 @@ class TestMetricsCollectorCore:
         assert snapshot["kafka_broker_up"] is True
         assert snapshot["mqtt_broker_up"] is False
 
+    def test_update_trip_cache_status(self):
+        collector = MetricsCollector()
+        collector.update_trip_cache(
+            status="ready",
+            active_trip_count=3,
+            last_lifecycle_timestamp="2026-05-02T10:00:00+00:00",
+        )
+
+        snapshot = collector.get_snapshot()
+        assert snapshot["trip_cache_status"] == "ready"
+        assert snapshot["active_trip_count"] == 3
+        assert snapshot["last_trip_lifecycle_time"] == "2026-05-02T10:00:00+00:00"
+
     def test_snapshot_consistency(self):
         collector = MetricsCollector()
         collector.increment_received()
@@ -107,7 +124,9 @@ class TestMetricsCollectorCore:
         collector.increment_rejected("RATE_LIMIT_EVENT_TIME")
         collector.increment_rejected("FUTURE_TIMESTAMP")
         collector.increment_rejected("STALE_REPLAY")
-        assert collector.get_snapshot()["messages_rejected"] == 7
+        collector.increment_rejected("INACTIVE_TRIP")
+        collector.increment_rejected("TRIP_CACHE_REBUILDING")
+        assert collector.get_snapshot()["messages_rejected"] == 9
 
 
 @pytest.fixture
@@ -176,8 +195,10 @@ class TestHealthEndpoints:
         assert payload["service"] == "ingestion-service"
         assert payload["dependencies"]["kafka_broker"] == "up"
         assert payload["dependencies"]["mqtt_broker"] == "down"
+        assert payload["dependencies"]["trip_cache"] == "unknown"
         assert payload["counters"]["messages_received"] == 1
         assert payload["counters"]["messages_rejected"] == 1
+        assert payload["counters"]["active_trip_count"] == 0
 
     def test_live_endpoint_returns_200(self, health_client):
         client, _ = health_client
@@ -201,6 +222,8 @@ class TestHealthEndpoints:
         assert "ingestion_messages_received_total 1" in body
         assert "ingestion_messages_validated_total 1" in body
         assert 'ingestion_messages_rejected_total{reason="RATE_LIMIT"} 1' in body
+        assert 'ingestion_messages_rejected_total{reason="INACTIVE_TRIP"} 0' in body
+        assert 'ingestion_messages_rejected_total{reason="TRIP_CACHE_REBUILDING"} 0' in body
         assert 'ingestion_messages_rejected_total{reason="RATE_LIMIT_EVENT_TIME"} 0' in body
         assert 'ingestion_messages_rejected_total{reason="FUTURE_TIMESTAMP"} 0' in body
         assert 'ingestion_messages_rejected_total{reason="STALE_REPLAY"} 0' in body

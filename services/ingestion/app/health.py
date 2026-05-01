@@ -18,11 +18,13 @@ def _build_health_payload(snapshot: dict) -> dict:
         "dependencies": {
             "kafka_broker": "up" if kafka_ok else "down",
             "mqtt_broker": "up" if mqtt_ok else "down",
+            "trip_cache": snapshot["trip_cache_status"],
         },
         "counters": {
             "messages_received": snapshot["messages_received"],
             "messages_validated": snapshot["messages_validated"],
             "messages_rejected": snapshot["messages_rejected"],
+            "active_trip_count": snapshot["active_trip_count"],
         },
     }
 
@@ -76,6 +78,8 @@ def create_app():
             f'ingestion_messages_rejected_total{{reason="SCHEMA_VALIDATION"}} {snapshot["messages_rejected_schema"]}',
             f'ingestion_messages_rejected_total{{reason="GEO_BOUNDS"}} {snapshot["messages_rejected_geo"]}',
             f'ingestion_messages_rejected_total{{reason="DUPLICATE"}} {snapshot["messages_rejected_duplicate"]}',
+            f'ingestion_messages_rejected_total{{reason="INACTIVE_TRIP"}} {snapshot["messages_rejected_inactive_trip"]}',
+            f'ingestion_messages_rejected_total{{reason="TRIP_CACHE_REBUILDING"}} {snapshot["messages_rejected_trip_cache_rebuilding"]}',
             f'ingestion_messages_rejected_total{{reason="RATE_LIMIT"}} {snapshot["messages_rejected_rate_limit"]}',
             f'ingestion_messages_rejected_total{{reason="RATE_LIMIT_EVENT_TIME"}} {snapshot["messages_rejected_rate_limit_event_time"]}',
             f'ingestion_messages_rejected_total{{reason="SEQUENCE_ERROR"}} {snapshot["messages_rejected_sequence"]}',
