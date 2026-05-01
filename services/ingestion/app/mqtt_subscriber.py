@@ -22,6 +22,7 @@ class MQTTSubscriber:
         self.messages_rejected = 0
         self.client = mqtt.Client(
             callback_api_version=mqtt.CallbackAPIVersion.VERSION2,
+            client_id=settings.mqtt_client_id,
             clean_session=True,
         )
         self.client.on_connect = self.on_connect
@@ -34,6 +35,16 @@ class MQTTSubscriber:
             settings.mqtt_broker_host,
             settings.mqtt_broker_port,
         )
+        if settings.mqtt_username or settings.mqtt_password:
+            self.client.username_pw_set(
+                settings.mqtt_username,
+                settings.mqtt_password,
+            )
+        if settings.mqtt_tls_enabled:
+            if settings.mqtt_ca_cert_path:
+                self.client.tls_set(ca_certs=settings.mqtt_ca_cert_path)
+            else:
+                self.client.tls_set()
         self.client.connect(settings.mqtt_broker_host, settings.mqtt_broker_port, 60)
 
     def start(self):
