@@ -1,9 +1,11 @@
 from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.db_fleet import FleetBusORM
 from app.schemas.fleet import FleetBusCreate, FleetBusResponse
+from app.services.route_service import validate_route_exists
 
 router = APIRouter(
     prefix="/api/v1/fleet/buses",
@@ -16,7 +18,15 @@ router = APIRouter(
 def create_bus(bus: FleetBusCreate, db: Session = Depends(get_db)):
     db_bus = FleetBusORM(**bus.model_dump())
     db.add(db_bus)
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(
+            status_code=409,
+            detail="Bus with this fleet_code or plate_number already exists",
+        ) from exc
+
     db.refresh(db_bus)
     return db_bus
 
@@ -42,6 +52,8 @@ def assign_route(bus_id: int, route_id: int, db: Session = Depends(get_db)):
     bus = db.query(FleetBusORM).filter(FleetBusORM.id == bus_id).first()
     if not bus:
         raise HTTPException(status_code=404, detail="Bus not found")
+
+    validate_route_exists(route_id)
 
     bus.route_id = route_id
     db.commit()

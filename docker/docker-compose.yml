@@ -105,7 +105,7 @@ services:
       - ../services/route-service:/app
     command: uvicorn app.main:app --host 0.0.0.0 --port 8002 --reload
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/route_db
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ontime_db}
     networks:
       - ontime_network
     depends_on:
@@ -124,6 +124,7 @@ services:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8003 --reload
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/fleet_db
+      - ROUTE_SERVICE_URL=http://route-service:8002
     networks:
       - ontime_network
     depends_on:

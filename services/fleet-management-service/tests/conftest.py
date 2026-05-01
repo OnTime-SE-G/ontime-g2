@@ -18,8 +18,8 @@ TEST_DATABASE_URL = os.getenv(
     "TEST_DATABASE_URL",
     f"postgresql://{os.getenv('POSTGRES_USER', 'postgres')}:"
     f"{os.getenv('POSTGRES_PASSWORD', 'postgres')}@"
-    f"{os.getenv('POSTGRES_HOST', 'localhost')}:"
-    f"{os.getenv('POSTGRES_PORT', '5433')}/"
+    f"{os.getenv('POSTGRES_HOST', 'postgres')}:"
+    f"{os.getenv('POSTGRES_PORT', '5432')}/"
     f"{os.getenv('POSTGRES_DB_TEST', 'ontime_test_db')}"
 )
 
