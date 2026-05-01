@@ -85,6 +85,33 @@ class IngestionSettings(BaseSettings):
         ),
         description="Minimum accepted interval between messages from the same bus",
     )
+    min_event_interval_seconds: float = Field(
+        default=1.0,
+        ge=0,
+        validation_alias=AliasChoices(
+            "INGESTION_MIN_EVENT_INTERVAL_SECONDS",
+            "MIN_EVENT_INTERVAL_SECONDS",
+        ),
+        description="Minimum accepted event-time interval between messages from the same bus",
+    )
+    max_future_skew_seconds: float = Field(
+        default=30.0,
+        ge=0,
+        validation_alias=AliasChoices(
+            "INGESTION_MAX_FUTURE_SKEW_SECONDS",
+            "MAX_FUTURE_SKEW_SECONDS",
+        ),
+        description="Maximum allowed future event-time skew in seconds",
+    )
+    max_stale_age_seconds: float = Field(
+        default=86400.0,
+        ge=0,
+        validation_alias=AliasChoices(
+            "INGESTION_MAX_STALE_AGE_SECONDS",
+            "MAX_STALE_AGE_SECONDS",
+        ),
+        description="Maximum allowed event age before stale replay rejection",
+    )
     duplicate_cache_size: int = Field(
         default=100,
         ge=1,
