@@ -1,9 +1,8 @@
 import hashlib
 import json
-import time
 from collections import deque
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from pydantic import ValidationError
@@ -117,10 +116,46 @@ def validate_gps_payload(raw_bytes: bytes) -> ValidationResult:
     return ValidationResult(success=True, message=message, location=message)
 
 
+def _as_utc(value: datetime) -> datetime:
+    if value.tzinfo is None:
+        return value.replace(tzinfo=timezone.utc)
+    return value.astimezone(timezone.utc)
+
+
+def _timestamp_window_result(event_timestamp: datetime) -> ValidationResult | None:
+    now = datetime.now(timezone.utc)
+    event_time = _as_utc(event_timestamp)
+    future_skew_seconds = (event_time - now).total_seconds()
+    stale_age_seconds = (now - event_time).total_seconds()
+
+    if future_skew_seconds > settings.max_future_skew_seconds:
+        return ValidationResult(
+            success=False,
+            error_reason=(
+                f"Future timestamp rejected: event timestamp is "
+                f"{future_skew_seconds:.3f}s ahead of ingestion clock"
+            ),
+            error_type="FUTURE_TIMESTAMP",
+        )
+
+    if stale_age_seconds > settings.max_stale_age_seconds:
+        return ValidationResult(
+            success=False,
+            error_reason=(
+                f"Stale replay rejected: event timestamp is "
+                f"{stale_age_seconds:.3f}s old"
+            ),
+            error_type="STALE_REPLAY",
+        )
+
+    return None
+
+
 @dataclass
 class BusIngestionState:
     last_timestamp: datetime
-    last_receive_time: float
+    last_lat: float
+    last_lon: float
     recent_hashes: deque
 
 
@@ -129,6 +164,7 @@ class StatefulValidator:
         self,
         *,
         duplicate_cache_size: Optional[int] = None,
+        min_event_interval_seconds: Optional[float] = None,
         min_message_interval_seconds: Optional[float] = None,
     ):
         self._bus_state: dict[str, BusIngestionState] = {}
@@ -137,11 +173,16 @@ class StatefulValidator:
             if duplicate_cache_size is not None
             else settings.duplicate_cache_size
         )
-        self._min_message_interval_seconds = (
-            min_message_interval_seconds
-            if min_message_interval_seconds is not None
-            else settings.min_message_interval_seconds
+        self._min_event_interval_seconds = (
+            min_event_interval_seconds
+            if min_event_interval_seconds is not None
+            else (
+                min_message_interval_seconds
+                if min_message_interval_seconds is not None
+                else settings.min_event_interval_seconds
+            )
         )
+        self._min_message_interval_seconds = self._min_event_interval_seconds
 
     def validate(self, raw_bytes: bytes) -> ValidationResult:
         result = validate_gps_payload(raw_bytes)
@@ -150,17 +191,26 @@ class StatefulValidator:
 
         message = result.message
         bus_id = message.bus_id
+        event_timestamp = _as_utc(message.timestamp)
+
+        timestamp_window_error = _timestamp_window_result(event_timestamp)
+        if timestamp_window_error:
+            return timestamp_window_error
+
         payload_hash = hashlib.sha256(
-            f"{bus_id}_{message.timestamp.isoformat()}_{message.lat}_{message.lon}".encode("utf-8")
+            (
+                f"{bus_id}_{message.trip_id}_{event_timestamp.isoformat()}_"
+                f"{message.lat}_{message.lon}"
+            ).encode("utf-8")
         ).hexdigest()
 
         state = self._bus_state.get(bus_id)
-        current_time = time.monotonic()
 
         if state is None:
             self._bus_state[bus_id] = BusIngestionState(
-                last_timestamp=message.timestamp,
-                last_receive_time=current_time,
+                last_timestamp=event_timestamp,
+                last_lat=message.lat,
+                last_lon=message.lon,
                 recent_hashes=deque([payload_hash], maxlen=self._duplicate_cache_size),
             )
             return result
@@ -172,23 +222,28 @@ class StatefulValidator:
                 error_type="DUPLICATE",
             )
 
-        if current_time - state.last_receive_time < self._min_message_interval_seconds:
-            return ValidationResult(
-                success=False,
-                error_reason=f"Rate limit exceeded for bus {bus_id}",
-                error_type="RATE_LIMIT",
-            )
-
-        if message.timestamp <= state.last_timestamp:
+        if event_timestamp < state.last_timestamp:
             return ValidationResult(
                 success=False,
                 error_reason=(
-                    f"Message out of sequence: {message.timestamp} <= {state.last_timestamp}"
+                    f"Message out of sequence: {event_timestamp} < {state.last_timestamp}"
                 ),
                 error_type="SEQUENCE_ERROR",
             )
 
-        state.last_timestamp = message.timestamp
-        state.last_receive_time = current_time
+        event_interval_seconds = (event_timestamp - state.last_timestamp).total_seconds()
+        if event_interval_seconds < self._min_event_interval_seconds:
+            return ValidationResult(
+                success=False,
+                error_reason=(
+                    f"Event-time rate limit exceeded for bus {bus_id}: "
+                    f"{event_interval_seconds:.3f}s < {self._min_event_interval_seconds:.3f}s"
+                ),
+                error_type="RATE_LIMIT_EVENT_TIME",
+            )
+
+        state.last_timestamp = event_timestamp
+        state.last_lat = message.lat
+        state.last_lon = message.lon
         state.recent_hashes.append(payload_hash)
         return result
