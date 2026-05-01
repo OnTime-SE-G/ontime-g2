@@ -473,12 +473,12 @@ Required design:
 | Member | Primary Ownership | Secondary Responsibility |
 |--------|-------------------|--------------------------|
 | Janidu | Ingestion Service | G1 MQTT contract, event-time validation, active-trip GPS filtering via Kafka cache |
-| Chamodh | Route Service, Fleet Management Service, **ETA Service (with Nidharshan)** | Strict DB ownership for route/fleet, trip lifecycle APIs, trip.lifecycle Kafka producer |
-| Nidharshan | G2 API Gateway, **ETA Service (with Chamodh)** | Kong integration point, REST aggregation, WebSocket, ETA heuristic interface |
+| Chamodh | Route Service, Fleet Management Service, **API Gateway (Aggregation)** | Strict DB ownership for route/fleet, trip lifecycle APIs, API aggregation layer |
+| Nidharshan | G2 API Gateway, **ETA Service (with Kusal)** | Kong integration point, WebSocket, ETA heuristic interface |
 | Natasha | Stream Processing and Anomaly Service | PyFlink, Redis live feed, InfluxDB writes, routeId enrichment, L1 anomaly rule model |
-| Kusal | Infrastructure, schemas, simulator, integration tests | Docker Compose, shared contracts, CI, E2E demo flow, demo script |
+| Kusal | Infrastructure, schemas, simulator, integration tests, **ETA Service & WebSocket** | Docker Compose, shared contracts, CI, E2E demo flow, ETA data/model layer |
 
-> **ETA Service collaboration:** Chamodh and Nidharshan will work together on the ETA Service. Chamodh handles the data/model layer (since he owns route geometry critical for distance calculations), and Nidharshan handles the service/API layer (since he owns the API Gateway that exposes ETA endpoints). This balances workload since Route Service is mostly complete.
+> **ETA Service collaboration:** Kusal and Nidharshan will work together on the ETA Service and the WebSocket. Kusal handles the data/model layer and WebSocket logic, and Nidharshan handles the service/API layer. Chamodh focuses on the API Gateway (Aggregation).
 
 If existing service README ownership sections conflict with this table, update the README files to match this plan.
 
@@ -527,7 +527,7 @@ If existing service README ownership sections conflict with this table, update t
 
 ---
 
-### 12.2 Chamodh — Route Service, Fleet Service, and ETA Service (Data/Model Layer)
+### 12.2 Chamodh — Route Service, Fleet Service, and API Gateway (Aggregation)
 
 **Phase C1 — Database Ownership Migration**
 
@@ -562,24 +562,19 @@ If existing service README ownership sections conflict with this table, update t
 - Ensure health endpoints follow standard.
 - **Tests:** Start trip → DB updated + Kafka event published. End trip → DB updated + Kafka event published. Double start → rejected. Active trip lookup returns correct data.
 
-**Phase C4 — ETA Service Data/Model Layer (with Nidharshan)**
+**Phase C4 — API Gateway (Aggregation)**
 
-- Create ETA service directory structure: `services/eta-service/app/models/`, `services/eta-service/app/services/`.
-- Implement `eta_model.py` with the heuristic interface:
-  ```python
-  class ETAModel:
-      def predict(self, remaining_distance_m, current_speed_mps, ...) -> ETAPrediction
-  ```
-- Heuristic implementation: `eta_seconds = remaining_distance_m / max(current_speed_mps, MIN_SPEED)`.
-- Return `model_version: "heuristic-v1"` and `confidence` score.
-- Support stop-level predictions: given a list of remaining stops with distances, return ETA for each.
-- **Tests:** Heuristic model returns correct ETA for known inputs. Zero speed uses minimum speed fallback. Stop-level predictions are ordered correctly.
+- Convert API Gateway from single-file `main.py` into proper layered structure.
+- Add internal service HTTP clients using `httpx.AsyncClient` for Route and Fleet services.
+- Expose route endpoints by proxying to Route Service: `GET /api/v1/routes`, `GET /api/v1/routes/search`, `GET /api/v1/routes/{routeId}`, `GET /api/v1/routes/{routeId}/stops`.
+- Expose fleet endpoints by proxying to Fleet Service: `GET /api/v1/fleet/buses`, `GET /api/v1/fleet/buses/route/{routeId}`.
+- Add driver action endpoints that call Fleet Service via HTTP.
+- **Tests:** Each proxy endpoint returns correct data from downstream service. Driver endpoints correctly call Fleet.
 
 **Phase C5 — Tests and Documentation**
 
-- Add tests for trip lifecycle, active-trip lookup, and ETA model.
+- Add tests for trip lifecycle, active-trip lookup, and API Gateway aggregation.
 - Document service boundaries and database ownership in Fleet and Route READMEs.
-- Document ETA model interface for future ML replacement.
 
 ---
 
@@ -605,17 +600,11 @@ If existing service README ownership sections conflict with this table, update t
 
 **Phase N2 — Passenger and Driver REST APIs**
 
-- Expose route endpoints by proxying to Route Service: `GET /api/v1/routes`, `GET /api/v1/routes/search`, `GET /api/v1/routes/{routeId}`, `GET /api/v1/routes/{routeId}/stops`.
-- Expose fleet endpoints by proxying to Fleet Service: `GET /api/v1/fleet/buses`, `GET /api/v1/fleet/buses/route/{routeId}`.
 - Expose ETA endpoints by proxying to ETA Service: `GET /api/v1/eta/routes/{routeId}`, `GET /api/v1/eta/buses/{busId}`.
-- Add driver action endpoints that call Fleet Service via HTTP:
-  - `POST /api/v1/driver/start-trip` → calls Fleet `POST /internal/fleet/trips/start`
-  - `POST /api/v1/driver/end-trip` → calls Fleet `POST /internal/fleet/trips/end`
-  - `POST /api/v1/driver/report-delay` → stores delay offset for ETA adjustment
 - Keep internal service URLs hidden from user traffic.
-- **Tests:** Each proxy endpoint returns correct data from downstream service. Driver endpoints correctly call Fleet.
+- **Tests:** Each proxy endpoint returns correct data from downstream service.
 
-**Phase N3 — WebSocket Live Feed**
+**Phase N3 — WebSocket Live Feed (with Kusal)**
 
 - Implement `WS /v1/live` endpoint.
 - On WebSocket connect: read latest fleet snapshot from Redis keys `bus:*:position` and send as initial state.
@@ -624,11 +613,11 @@ If existing service README ownership sections conflict with this table, update t
 - Handle connection lifecycle: clean up Redis subscriptions on disconnect.
 - **Tests:** WebSocket connects and receives initial state. Redis Pub/Sub messages are forwarded to clients. Disconnect cleans up subscriptions.
 
-**Phase N4 — ETA Service API Layer (with Chamodh)**
+**Phase N4 — ETA Service API Layer (with Kusal)**
 
 - Create ETA service FastAPI app: `services/eta-service/app/main.py`.
 - Add Kafka consumer for `transport-telemetry-cleaned` in background thread.
-- On each enriched GPS event: run Chamodh's `ETAModel.predict()` with remaining distance and speed from enriched stream.
+- On each enriched GPS event: run Kusal's `ETAModel.predict()` with remaining distance and speed from enriched stream.
 - Write ETA predictions to Redis Pub/Sub `eta:live` for WebSocket.
 - Expose REST API:
   - `GET /api/v1/eta/routes/{routeId}` → latest ETA for all active buses on route
@@ -687,7 +676,7 @@ If existing service README ownership sections conflict with this table, update t
 
 ---
 
-### 12.5 Kusal — Infrastructure, Schemas, Simulator, Integration
+### 12.5 Kusal — Infrastructure, Schemas, Simulator, Integration, ETA Service (Model), and WebSocket
 
 **Phase K1 — Docker Stack Expansion**
 
@@ -738,6 +727,19 @@ If existing service README ownership sections conflict with this table, update t
   8. Print pass/fail summary
 - **Tests:** Demo script runs end-to-end without errors. All assertions pass.
 
+**Phase K5 — ETA Service Data/Model Layer (with Nidharshan)**
+
+- Create ETA service directory structure: `services/eta-service/app/models/`, `services/eta-service/app/services/`.
+- Implement `eta_model.py` with the heuristic interface:
+  ```python
+  class ETAModel:
+      def predict(self, remaining_distance_m, current_speed_mps, ...) -> ETAPrediction
+  ```
+- Heuristic implementation: `eta_seconds = remaining_distance_m / max(current_speed_mps, MIN_SPEED)`.
+- Return `model_version: "heuristic-v1"` and `confidence` score.
+- Support stop-level predictions: given a list of remaining stops with distances, return ETA for each.
+- **Tests:** Heuristic model returns correct ETA for known inputs. Zero speed uses minimum speed fallback. Stop-level predictions are ordered correctly.
+
 ## 13. Global Subphases
 
 ### Phase 0 — Contract Freeze
@@ -772,7 +774,7 @@ If existing service README ownership sections conflict with this table, update t
 
 ### Phase 4 — Heuristic Intelligence
 
-- ETA service returns stop-level mathematical ETA (Chamodh model + Nidharshan API).
+- ETA service returns stop-level mathematical ETA (Kusal model + Nidharshan API).
 - Anomaly service returns L1 rule alerts.
 - Models are isolated in replaceable files.
 
@@ -794,7 +796,7 @@ If existing service README ownership sections conflict with this table, update t
 - Buffered GPS replay is validated using payload timestamp, not receive time.
 - Live map receives bus location updates through WebSocket within 2 seconds after stream processing.
 - PyFlink enriches GPS with routeId and remaining distance before publishing to cleaned topic.
-- ETA per stop is available using `heuristic-v1` (Chamodh model, Nidharshan API).
+- ETA per stop is available using `heuristic-v1` (Kusal model, Nidharshan API).
 - Anomaly service produces L1 rule alerts using `rules-v1` with cached route geometry.
 - Redis stores latest live positions and publishes live deltas.
 - InfluxDB stores historical GPS readings.
