@@ -1,6 +1,6 @@
 # Ingestion Service
 
-The ingestion service is G2's MQTT-to-Kafka gateway. It accepts GPS telemetry from G1, validates it against the shared `GPSMessage` contract, applies stateful filtering, and forwards clean data to Kafka for downstream stream processing.
+The ingestion service is G2's MQTT-to-Kafka gateway. It accepts GPS telemetry from G1, validates it against the shared `GPSLocationMessage` input contract, enriches accepted active-trip telemetry into `GPSMessage`, applies stateful filtering, and forwards clean data to Kafka for downstream stream processing.
 
 ## What Phase 7 Completes
 
@@ -44,7 +44,7 @@ services/ingestion/
 ## Responsibilities
 
 - subscribe to MQTT topic `transport/bus/+/location`
-- validate JSON and `GPSMessage` schema
+- validate JSON and `GPSLocationMessage` schema from G1
 - reject coordinates outside Sri Lanka bounds
 - detect duplicates from the same bus
 - enforce minimum message interval per bus
@@ -183,6 +183,11 @@ G4 uses these interfaces for:
 | `MQTT_BROKER_HOST` | `mqtt-broker` | MQTT broker host |
 | `MQTT_BROKER_PORT` | `1883` | MQTT broker port |
 | `MQTT_TOPIC_PATTERN` | `transport/bus/+/location` | MQTT subscription pattern |
+| `MQTT_TLS_ENABLED` | `false` | enable TLS for HiveMQ-style brokers |
+| `MQTT_USERNAME` | unset | optional MQTT username |
+| `MQTT_PASSWORD` | unset | optional MQTT password |
+| `MQTT_CLIENT_ID` | `ontime-ingestion-service` | MQTT client identifier |
+| `MQTT_CA_CERT_PATH` | unset | optional CA certificate path for MQTT TLS |
 | `KAFKA_BROKER_URL` | `broker:29092` | Kafka bootstrap server |
 | `INGESTION_KAFKA_RAW_TOPIC` | `transport-telemetry-raw` | topic for accepted telemetry |
 | `INGESTION_KAFKA_DLQ_TOPIC` | `transport-telemetry-dlq` | topic for rejected telemetry |
