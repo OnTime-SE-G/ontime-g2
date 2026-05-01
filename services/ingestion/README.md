@@ -1,6 +1,6 @@
 # Ingestion Service
 
-The ingestion service is G2's MQTT-to-Kafka gateway. It accepts GPS telemetry from G1, validates it against the shared `GPSMessage` contract, applies stateful filtering, and forwards clean data to Kafka for downstream stream processing.
+The ingestion service is G2's MQTT-to-Kafka gateway. It accepts GPS telemetry from G1, validates it against the shared `GPSLocationMessage` input contract, enriches accepted active-trip telemetry into `GPSMessage`, applies stateful filtering, and forwards clean data to Kafka for downstream stream processing.
 
 ## What Phase 7 Completes
 
@@ -44,7 +44,7 @@ services/ingestion/
 ## Responsibilities
 
 - subscribe to MQTT topic `transport/bus/+/location`
-- validate JSON and `GPSMessage` schema
+- validate JSON and `GPSLocationMessage` schema from G1
 - reject coordinates outside Sri Lanka bounds
 - detect duplicates from the same bus
 - enforce minimum message interval per bus
@@ -61,21 +61,82 @@ services/ingestion/
 |------|-------|
 | Producer group | G1 Device & Edge |
 | Protocol | MQTT 3.1.1 |
-| Transport | Mosquitto broker |
+| Transport | Local Mosquitto by default; HiveMQ-compatible config planned |
 | Topic | `transport/bus/{busId}/location` |
-| Payload contract | `schemas/gps.py::GPSMessage` |
+| G1 payload contract | `busId`, `lat`, `lon`, `speed`, `heading`, `timestamp` |
+| Accepted raw Kafka contract | `GPSMessage` after ingestion enriches active `tripId` |
 | Expected publish cadence | every 3 to 5 seconds per active bus |
 | Current dev publisher | `scripts/gps_simulator.py` |
 
-Required payload fields:
+Frozen contract decisions:
 
-- `busId`
-- `tripId`
-- `lat`
-- `lon`
-- `speed`
-- `heading`
-- `timestamp`
+- G1 must not send `tripId`; ingestion resolves it from `busId` plus Kafka `trip.lifecycle`.
+- `busId` is the Fleet bus `id`, serialized as a string, for example `"1"`.
+- `timestamp` is required and must be ISO 8601 UTC, for example `"2026-05-02T10:15:30Z"`.
+- `speed` is reported in km/h.
+- `heading` is degrees from `0` to `360`; if the GPS course is invalid or stationary, send `0`.
+- G1 location publishes must use retained=false.
+- Heartbeat may use retained=true only if it is timestamped and treated as device status, not live movement.
+- Inactive GPS is rejected to DLQ with `INACTIVE_TRIP`.
+- Startup cache rebuild must not create false `INACTIVE_TRIP` DLQ entries.
+
+Location payload sent by G1:
+
+```json
+{
+  "busId": "1",
+  "lat": 6.9271,
+  "lon": 79.8612,
+  "speed": 35.0,
+  "heading": 120.0,
+  "timestamp": "2026-05-02T10:15:30Z"
+}
+```
+
+Accepted raw Kafka payload after ingestion enrichment:
+
+```json
+{
+  "busId": "1",
+  "tripId": "TRIP-001",
+  "lat": 6.9271,
+  "lon": 79.8612,
+  "speed": 35.0,
+  "heading": 120.0,
+  "timestamp": "2026-05-02T10:15:30Z"
+}
+```
+
+Heartbeat topic:
+
+```text
+transport/bus/{busId}/heartbeat
+```
+
+Heartbeat is separate from live GPS and must not be published to
+`transport-telemetry-raw`.
+
+Planned event-time validation thresholds:
+
+| Variable | Value | Meaning |
+|----------|-------|---------|
+| `INGESTION_MIN_EVENT_INTERVAL_SECONDS` | `1.0` | minimum event-time gap accepted per bus |
+| `INGESTION_MAX_FUTURE_SKEW_SECONDS` | `30` | maximum allowed future clock skew |
+| `INGESTION_MAX_STALE_AGE_SECONDS` | `86400` | maximum stale replay age in seconds |
+
+Trip lifecycle dependency:
+
+```json
+{
+  "event": "TRIP_STARTED",
+  "busId": "1",
+  "tripId": "TRIP-001",
+  "routeId": "202",
+  "timestamp": "2026-05-02T10:00:00Z"
+}
+```
+
+Fleet must publish the same `busId` value that G1 publishes.
 
 ### G2 ingestion -> downstream G2 interface
 
@@ -122,6 +183,11 @@ G4 uses these interfaces for:
 | `MQTT_BROKER_HOST` | `mqtt-broker` | MQTT broker host |
 | `MQTT_BROKER_PORT` | `1883` | MQTT broker port |
 | `MQTT_TOPIC_PATTERN` | `transport/bus/+/location` | MQTT subscription pattern |
+| `MQTT_TLS_ENABLED` | `false` | enable TLS for HiveMQ-style brokers |
+| `MQTT_USERNAME` | unset | optional MQTT username |
+| `MQTT_PASSWORD` | unset | optional MQTT password |
+| `MQTT_CLIENT_ID` | `ontime-ingestion-service` | MQTT client identifier |
+| `MQTT_CA_CERT_PATH` | unset | optional CA certificate path for MQTT TLS |
 | `KAFKA_BROKER_URL` | `broker:29092` | Kafka bootstrap server |
 | `INGESTION_KAFKA_RAW_TOPIC` | `transport-telemetry-raw` | topic for accepted telemetry |
 | `INGESTION_KAFKA_DLQ_TOPIC` | `transport-telemetry-dlq` | topic for rejected telemetry |

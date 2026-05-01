@@ -4,12 +4,16 @@
 
 from .bus_status import BusLifecycleState, BusStatusMessage
 from .geo_config import CoordinateBounds, SRI_LANKA_BOUNDS
-from .gps import GPSMessage
+from .gps import GPSLocationMessage, GPSMessage
+from .trip_lifecycle import TripLifecycleEvent, TripLifecycleEventType
 
 __all__ = [
     "BusLifecycleState",
     "BusStatusMessage",
     "CoordinateBounds",
+    "GPSLocationMessage",
     "GPSMessage",
     "SRI_LANKA_BOUNDS",
+    "TripLifecycleEvent",
+    "TripLifecycleEventType",
 ]
