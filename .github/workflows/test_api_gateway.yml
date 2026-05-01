@@ -4,6 +4,9 @@ name: API Gateway CI
 
 on:
   pull_request:
+    paths: 
+      - "services/api-gateway/**"
+      - ".github/workflows/test_api_gateway.yml"
 
 jobs:
   test:

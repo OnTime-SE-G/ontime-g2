@@ -4,6 +4,8 @@ name: Python CI
 
 on:
   pull_request:
+    paths:
+      - "scripts/**"
 
 jobs:
   test:

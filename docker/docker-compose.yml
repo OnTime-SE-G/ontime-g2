@@ -101,14 +101,20 @@ services:
     ports:
       - "8002:8002"
     volumes:
-      - ./services/route-service:/app
+      - ../services/route-service:/app
+
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8002 --reload
     environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ontime_db}
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ontime_db}
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+
     networks:
       - ontime_network
     depends_on:
       postgres:
         condition: service_healthy
+    restart: unless-stopped
 
   broker:
     image: confluentinc/confluent-local:7.5.0
@@ -145,7 +151,19 @@ services:
     networks:
       - ontime_network
     healthcheck:
-      test: [ "CMD", "mosquitto_sub", "-t", "$$SYS/#", "-C", "1", "-i", "healthcheck", "-W", "3" ]
+      test:
+        [
+          "CMD",
+          "mosquitto_sub",
+          "-t",
+          "$$SYS/#",
+          "-C",
+          "1",
+          "-i",
+          "healthcheck",
+          "-W",
+          "3",
+        ]
       interval: 10s
       timeout: 5s
       retries: 3

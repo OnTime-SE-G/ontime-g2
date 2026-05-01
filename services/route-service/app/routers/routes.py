@@ -1,0 +1,357 @@
+#services/route-service/app/routers/routes.py
+
+from fastapi import APIRouter, Depends, HTTPException
+from geoalchemy2 import Geography
+from sqlalchemy.orm import Session
+from sqlalchemy import func
+import json
+
+from app.database import get_db
+from app.models.db_route import RouteORM, StopORM
+from app.schemas import (
+    RouteBusesResponse,
+    RouteGeoJSONResponse,
+    RouteProgressResponse,
+    RouteSearchResponse,
+    RouteStopsResponse,
+    RouteSummary,
+)
+
+router = APIRouter(
+    prefix="/api/v1/routes",
+    tags=["Routes"]
+)
+
+@router.get("", response_model=list[RouteSummary])
+def get_routes(db: Session = Depends(get_db)):
+    """
+    List all available routes.
+
+    Returns each route with its ID and display name. Geometry and stop details
+    are intentionally omitted from this list response.
+    """
+    routes = db.query(RouteORM).all()
+
+    return [
+        {
+            "id": route.id,
+            "name": route.name
+        }
+        for route in routes
+    ]
+
+@router.get("/search", response_model=RouteSearchResponse)
+def search_routes(
+    start_lat: float,
+    start_lon: float,
+    end_lat: float,
+    end_lon: float,
+    radius_m: int = 500,
+    db: Session = Depends(get_db)
+):
+    """
+    Search for routes near both a start point and an end point.
+
+    The start and end coordinates are matched against route geometry using the
+    given radius in meters. A route is returned only when both points are within
+    the search radius.
+    """
+    start_point = func.ST_SetSRID(
+        func.ST_MakePoint(start_lon, start_lat), 4326
+    )
+
+    end_point = func.ST_SetSRID(
+        func.ST_MakePoint(end_lon, end_lat), 4326
+    )
+
+    routes = db.query(RouteORM).all()
+    results = []
+
+    for route in routes:
+        start_near = db.scalar(
+            db.query(
+                func.ST_DWithin(
+                    func.cast(RouteORM.geometry, Geography),
+                    func.cast(start_point, Geography),
+                    radius_m
+                )
+            ).filter(RouteORM.id == route.id).statement
+        )
+
+        end_near = db.scalar(
+            db.query(
+                func.ST_DWithin(
+                    func.cast(RouteORM.geometry, Geography),
+                    func.cast(end_point, Geography),
+                    radius_m
+                )
+            ).filter(RouteORM.id == route.id).statement
+        )
+
+        if start_near and end_near:
+            results.append(
+                {
+                    "route_id": route.id,
+                    "name": route.name
+                }
+            )
+    return {
+        "count": len(results),
+        "routes": results
+    }
+
+@router.get("/{route_id}/progress", response_model=RouteProgressResponse)
+def get_route_progress(
+    route_id: int,
+    lat: float,
+    lon: float,
+    target_stop_order: int,
+    db: Session = Depends(get_db)
+):
+    """
+    Calculate bus progress along a route toward a target stop.
+
+    The provided latitude and longitude represent the current bus position.
+    The endpoint validates that the position is close to the route, then
+    returns travelled distance, remaining distance, total distance to the
+    target stop, and progress percentage.
+    """
+    route = db.query(RouteORM).filter(RouteORM.id == route_id).first()
+
+    if not route:
+        raise HTTPException(status_code=404, detail="Route not found")
+
+    stop = (
+        db.query(StopORM)
+        .filter(
+            StopORM.route_id == route_id,
+            StopORM.stop_order == target_stop_order
+        )
+        .first()
+    )
+
+    if not stop:
+        raise HTTPException(status_code=404, detail="Target stop not found")
+
+    bus_point = func.ST_SetSRID(
+        func.ST_MakePoint(lon, lat), 4326
+    )
+
+    near_route = db.scalar(
+        db.query(
+            func.ST_DWithin(
+                func.cast(RouteORM.geometry, Geography),
+                func.cast(bus_point, Geography),
+                100
+            )
+        ).filter(RouteORM.id == route_id).statement
+    )
+
+    if not near_route:
+        raise HTTPException(
+            status_code=400,
+            detail="Coordinate is too far from route"
+        )
+
+    bus_frac = db.scalar(
+        db.query(
+            func.ST_LineLocatePoint(
+                RouteORM.geometry,
+                bus_point
+            )
+        ).filter(RouteORM.id == route_id).statement
+    )
+
+    stop_frac = db.scalar(
+        db.query(
+            func.ST_LineLocatePoint(
+                RouteORM.geometry,
+                StopORM.location
+            )
+        ).filter(
+            RouteORM.id == route_id,
+            StopORM.id == stop.id
+        ).statement
+    )
+
+    travelled_m = db.scalar(
+        db.query(
+            func.ST_Length(
+                func.cast(
+                    func.ST_LineSubstring(
+                        RouteORM.geometry,
+                        0,
+                        bus_frac
+                    ),
+                    Geography
+                )
+            )
+        ).filter(RouteORM.id == route_id).statement
+    )
+
+    if bus_frac >= stop_frac:
+        remaining_m = 0
+    else:
+        remaining_m = db.scalar(
+            db.query(
+                func.ST_Length(
+                    func.cast(
+                        func.ST_LineSubstring(
+                            RouteORM.geometry,
+                            bus_frac,
+                            stop_frac
+                        ),
+                        Geography
+                    )
+                )
+            ).filter(RouteORM.id == route_id).statement
+        )
+
+    total_to_target_m = travelled_m + remaining_m
+
+    progress_pct = (
+        (travelled_m / total_to_target_m) * 100
+        if total_to_target_m > 0 else 0
+    )
+
+    return {
+        "route_id": route_id,
+        "target_stop_order": target_stop_order,
+        "target_stop_name": stop.name,
+        "travelled_m": round(travelled_m, 2),
+        "remaining_m": round(remaining_m, 2),
+        "total_to_target_m": round(total_to_target_m, 2),
+        "progress_pct": round(progress_pct, 2)
+    }
+
+@router.get("/{route_id}", response_model=RouteGeoJSONResponse)
+def get_route(route_id: int, db: Session = Depends(get_db)):
+    """
+    Get a route with geometry and stop locations as GeoJSON.
+
+    Returns a GeoJSON FeatureCollection containing one route LineString feature
+    and Point features for the route stops. Returns 404 when the route or its
+    geometry cannot be found.
+    """
+    route = db.query(RouteORM).filter(RouteORM.id == route_id).first()
+
+    if not route:
+        raise HTTPException(status_code=404, detail="Route not found")
+
+    # Route geometry as GeoJSON
+    route_geojson_raw = db.scalar(
+        db.query(func.ST_AsGeoJSON(RouteORM.geometry))
+        .filter(RouteORM.id == route_id)
+        .statement
+    )
+
+    if not route_geojson_raw:
+        raise HTTPException(status_code=404, detail="Route geometry not found")
+
+    route_geometry = json.loads(route_geojson_raw)
+
+    # Stops
+    stops_rows = (
+        db.query(
+            StopORM.id,
+            StopORM.name,
+            StopORM.stop_order,
+            func.ST_AsGeoJSON(StopORM.location).label("geojson")
+        )
+        .filter(StopORM.route_id == route_id)
+        .order_by(StopORM.stop_order)
+        .all()
+    )
+
+    features = []
+
+    # Add route line feature
+    features.append(
+        {
+            "type": "Feature",
+            "geometry": route_geometry,
+            "properties": {
+                "feature_type": "route",
+                "route_id": route.id,
+                "name": route.name
+            }
+        }
+    )
+
+    # Add stop point features
+    for stop in stops_rows:
+        stop_geometry = json.loads(stop.geojson) if stop.geojson else None
+
+        features.append(
+            {
+                "type": "Feature",
+                "geometry": stop_geometry,
+                "properties": {
+                    "feature_type": "stop",
+                    "stop_id": stop.id,
+                    "name": stop.name,
+                    "order": stop.stop_order,
+                    "route_id": route.id
+                }
+            }
+        )
+
+    return {
+        "type": "FeatureCollection",
+        "features": features
+    }
+
+
+@router.get("/{route_id}/stops", response_model=RouteStopsResponse)
+def get_route_stops(route_id: int, db: Session = Depends(get_db)):
+    """
+    List stops for a route in stop order.
+
+    Returns route metadata and an ordered list of stops with ID, name, and stop
+    order. Returns 404 when the route ID does not exist.
+    """
+    route = db.query(RouteORM).filter(RouteORM.id == route_id).first()
+
+    if not route:
+        raise HTTPException(status_code=404, detail="Route not found")
+
+    stops = (
+        db.query(StopORM)
+        .filter(StopORM.route_id == route_id)
+        .order_by(StopORM.stop_order)
+        .all()
+    )
+
+    return {
+        "route_id": route.id,
+        "route_name": route.name,
+        "stops": [
+            {
+                "id": stop.id,
+                "name": stop.name,
+                "stop_order": stop.stop_order
+            }
+            for stop in stops
+        ]
+    }
+
+
+@router.get("/{route_id}/buses", response_model=RouteBusesResponse)
+def get_route_buses(route_id: int, db: Session = Depends(get_db)):
+    """
+    List buses currently assigned to a route.
+
+    This endpoint is a placeholder for future live bus integration. It returns
+    an empty bus list until bus tracking data is connected.
+    """
+    route = db.query(RouteORM).filter(RouteORM.id == route_id).first()
+
+    if not route:
+        raise HTTPException(status_code=404, detail="Route not found")
+
+    return {
+        "route_id": route_id,
+        "buses": [],
+        "message": "Bus integration not implemented yet"
+    }
+
