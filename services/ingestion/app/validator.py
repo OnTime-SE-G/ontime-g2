@@ -9,7 +9,7 @@ from typing import Optional
 from pydantic import ValidationError
 
 from schemas.geo_config import SRI_LANKA_BOUNDS
-from schemas.gps import GPSMessage
+from schemas.gps import GPSLocationMessage, GPSMessage
 from services.ingestion.app.config import settings
 
 
@@ -17,44 +17,104 @@ from services.ingestion.app.config import settings
 class ValidationResult:
     success: bool
     message: Optional[GPSMessage] = None
+    location: Optional[GPSLocationMessage] = None
     error_reason: Optional[str] = None
     error_type: Optional[str] = None
 
 
-def validate_gps_payload(raw_bytes: bytes) -> ValidationResult:
-    """Validate a raw GPS telemetry payload without side effects."""
+def _parse_payload(raw_bytes: bytes) -> tuple[dict | None, ValidationResult | None]:
     try:
         decoded_string = raw_bytes.decode("utf-8")
         parsed_json = json.loads(decoded_string)
     except (UnicodeDecodeError, json.JSONDecodeError) as error:
-        return ValidationResult(
+        return None, ValidationResult(
             success=False,
             error_reason=f"Failed to parse JSON: {error}",
             error_type="JSON_PARSE",
         )
 
-    try:
-        message = GPSMessage.model_validate(parsed_json)
-    except ValidationError as error:
-        errors = error.errors()
-        error_messages = [
-            f"{entry['loc'][0]}: {entry['msg']}" if entry["loc"] else entry["msg"]
-            for entry in errors
-        ]
-        return ValidationResult(
+    if not isinstance(parsed_json, dict):
+        return None, ValidationResult(
             success=False,
-            error_reason=f"Schema validation failed: {'; '.join(error_messages)}",
+            error_reason="Schema validation failed: payload must be a JSON object",
             error_type="SCHEMA_VALIDATION",
         )
 
-    if not SRI_LANKA_BOUNDS.contains(lat=message.lat, lon=message.lon):
-        return ValidationResult(
-            success=False,
-            error_reason=f"Coordinates out of bounds: lat={message.lat}, lon={message.lon}",
-            error_type="GEO_BOUNDS",
-        )
+    return parsed_json, None
 
-    return ValidationResult(success=True, message=message)
+
+def _missing_timestamp_result() -> ValidationResult:
+    return ValidationResult(
+        success=False,
+        error_reason="Missing required event timestamp",
+        error_type="MISSING_TIMESTAMP",
+    )
+
+
+def _validation_error_result(error: ValidationError) -> ValidationResult:
+    errors = error.errors()
+    error_messages = [
+        f"{entry['loc'][0]}: {entry['msg']}" if entry["loc"] else entry["msg"]
+        for entry in errors
+    ]
+    return ValidationResult(
+        success=False,
+        error_reason=f"Schema validation failed: {'; '.join(error_messages)}",
+        error_type="SCHEMA_VALIDATION",
+    )
+
+
+def _geo_bounds_result(location: GPSLocationMessage) -> ValidationResult | None:
+    if SRI_LANKA_BOUNDS.contains(lat=location.lat, lon=location.lon):
+        return None
+
+    return ValidationResult(
+        success=False,
+        error_reason=f"Coordinates out of bounds: lat={location.lat}, lon={location.lon}",
+        error_type="GEO_BOUNDS",
+    )
+
+
+def validate_gps_location_payload(raw_bytes: bytes) -> ValidationResult:
+    """Validate the G1 MQTT GPS payload shape before trip enrichment."""
+    parsed_json, error_result = _parse_payload(raw_bytes)
+    if error_result:
+        return error_result
+
+    if "timestamp" not in parsed_json:
+        return _missing_timestamp_result()
+
+    try:
+        location = GPSLocationMessage.model_validate(parsed_json)
+    except ValidationError as error:
+        return _validation_error_result(error)
+
+    geo_error = _geo_bounds_result(location)
+    if geo_error:
+        return geo_error
+
+    return ValidationResult(success=True, location=location)
+
+
+def validate_gps_payload(raw_bytes: bytes) -> ValidationResult:
+    """Validate an enriched GPS telemetry payload without side effects."""
+    parsed_json, error_result = _parse_payload(raw_bytes)
+    if error_result:
+        return error_result
+
+    if "timestamp" not in parsed_json:
+        return _missing_timestamp_result()
+
+    try:
+        message = GPSMessage.model_validate(parsed_json)
+    except ValidationError as error:
+        return _validation_error_result(error)
+
+    geo_error = _geo_bounds_result(message)
+    if geo_error:
+        return geo_error
+
+    return ValidationResult(success=True, message=message, location=message)
 
 
 @dataclass

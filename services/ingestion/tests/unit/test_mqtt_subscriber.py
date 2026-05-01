@@ -31,6 +31,41 @@ def test_connect_uses_configured_broker(subscriber_with_mocks):
         subscriber_module.settings.mqtt_broker_port,
         60,
     )
+    mock_client.username_pw_set.assert_not_called()
+    mock_client.tls_set.assert_not_called()
+
+
+def test_connect_configures_username_password_when_present(subscriber_with_mocks, monkeypatch):
+    subscriber, _, mock_client, _ = subscriber_with_mocks
+    monkeypatch.setattr(subscriber_module.settings, "mqtt_username", "device-user")
+    monkeypatch.setattr(subscriber_module.settings, "mqtt_password", "device-pass")
+
+    subscriber.connect()
+
+    mock_client.username_pw_set.assert_called_once_with("device-user", "device-pass")
+    mock_client.connect.assert_called_once()
+
+
+def test_connect_configures_tls_when_enabled(subscriber_with_mocks, monkeypatch):
+    subscriber, _, mock_client, _ = subscriber_with_mocks
+    monkeypatch.setattr(subscriber_module.settings, "mqtt_tls_enabled", True)
+    monkeypatch.setattr(subscriber_module.settings, "mqtt_ca_cert_path", None)
+
+    subscriber.connect()
+
+    mock_client.tls_set.assert_called_once_with()
+    mock_client.connect.assert_called_once()
+
+
+def test_connect_configures_tls_with_ca_cert_path(subscriber_with_mocks, monkeypatch):
+    subscriber, _, mock_client, _ = subscriber_with_mocks
+    monkeypatch.setattr(subscriber_module.settings, "mqtt_tls_enabled", True)
+    monkeypatch.setattr(subscriber_module.settings, "mqtt_ca_cert_path", "/certs/ca.pem")
+
+    subscriber.connect()
+
+    mock_client.tls_set.assert_called_once_with(ca_certs="/certs/ca.pem")
+    mock_client.connect.assert_called_once()
 
 
 def test_start_uses_loop_forever(subscriber_with_mocks):
@@ -110,7 +145,8 @@ def test_on_message_valid_payload(subscriber_with_mocks):
     subscriber, mock_producer, _, collector = subscriber_with_mocks
     payload = (
         b'{"busId": "BUS_001", "tripId": "TRIP_001", "lat": 6.9271, '
-        b'"lon": 79.8612, "speed": 45.0, "heading": 120.0}'
+        b'"lon": 79.8612, "speed": 45.0, "heading": 120.0, '
+        b'"timestamp": "2026-05-02T10:15:30Z"}'
     )
 
     mock_msg = MagicMock()
