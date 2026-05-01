@@ -1,13 +1,10 @@
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class FleetBusCreate(BaseModel):
     fleet_code: str
     plate_number: str
-    capacity: int = 50
-
-
-from pydantic import BaseModel, ConfigDict
+    capacity: int = Field(default=50, gt=0)
 
 
 class FleetBusResponse(BaseModel):
