@@ -223,6 +223,42 @@ services:
       retries: 5
       start_period: 20s
 
+  flink-jobmanager:
+    build:
+      context: ..
+      dockerfile: services/stream-processing/Dockerfile
+    container_name: ontime_flink_jobmanager
+    command: jobmanager
+    ports:
+      - "8081:8081"
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+      - KAFKA_BROKER_URL=broker:29092
+    networks:
+      - ontime_network
+    depends_on:
+      broker:
+        condition: service_healthy
+
+  flink-taskmanager:
+    build:
+      context: ..
+      dockerfile: services/stream-processing/Dockerfile
+    container_name: ontime_flink_taskmanager
+    command: taskmanager
+    depends_on:
+      - flink-jobmanager
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+        taskmanager.numberOfTaskSlots: 2
+      - KAFKA_BROKER_URL=broker:29092
+    networks:
+      - ontime_network
+
 networks:
   ontime_network:
     driver: bridge

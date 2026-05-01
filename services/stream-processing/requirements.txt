@@ -1,0 +1,6 @@
+apache-flink==1.17.1
+pydantic-settings
+httpx
+redis
+influxdb-client
+pydantic
