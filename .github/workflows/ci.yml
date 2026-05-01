@@ -1,49 +1,293 @@
-# .github/workflows/ci.yml
-
-name: Python CI
+---
+name: G2 CI
 
 on:
   pull_request:
-    paths:
-      - "scripts/**"
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  REGISTRY: ghcr.io
+  IMAGE_PREFIX: transit-g2
 
 jobs:
-  test:
+  lint:
     runs-on: ubuntu-latest
-
-    services:
-      postgres:
-        image: postgis/postgis:16-3.4
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: transport
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd="pg_isready -U postgres -d transport"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=5
-
-    env:
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/transport
-      KML_FILE: data/moratuwa_kadawatha.kml
-
     steps:
-      - name: Checkout code
+      # Pull the repo so the workflow can inspect files
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.13"
+          python-version: "3.12"
 
-      - name: Install dependencies
+      - name: Install lint tools
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install yamllint
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
 
-      - name: Run tests with coverage
+      # Lint YAML only when YAML exists
+      - name: Lint YAML
+        if: ${{ hashFiles('**/*.yml', '**/*.yaml') != '' }}
         run: |
-          python -m pytest tests -v --cov=scripts --cov-report=term-missing
+          if [ -f .yamllint.yml ]; then
+            yamllint -c .yamllint.yml .
+          else
+            yamllint .
+          fi
+
+      - name: Install kubeconform
+        if: ${{ hashFiles('k8s/**/*.yml', 'k8s/**/*.yaml') != '' }}
+        run: |
+          curl -sL https://github.com/yannh/kubeconform/releases/download/v0.6.7/kubeconform-linux-amd64.tar.gz | tar xz
+          sudo mv kubeconform /usr/local/bin/kubeconform
+
+      # Validate k8s manifests only when k8s files exist
+      - name: Validate Kubernetes manifests
+        if: ${{ hashFiles('k8s/**/*.yml', 'k8s/**/*.yaml') != '' }}
+        run: |
+          find k8s -type f \( -name "*.yml" -o -name "*.yaml" \) -print0 \
+            | xargs -0 kubeconform -strict -summary -ignore-missing-schemas -kubernetes-version 1.29.0
+
+      - name: Lint shell scripts
+        if: ${{ hashFiles('**/*.sh') != '' }}
+        run: |
+          find . -type f -name "*.sh" -print0 | xargs -0 shellcheck
+
+  unit_test:
+    runs-on: ubuntu-latest
+    needs: [lint]
+    steps:
+      # Test stage is flexible: skips if tests do not exist
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Detect Python tests
+        id: pytests
+        run: |
+          if find . -type f -name "test_*.py" -o -path "*/tests/*.py" | grep -q .; then
+            echo "has_pytests=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_pytests=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Python
+        if: ${{ steps.pytests.outputs.has_pytests == 'true' }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python test deps
+        if: ${{ steps.pytests.outputs.has_pytests == 'true' }}
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f requirements.txt ]; then
+            pip install -r requirements.txt
+          elif [ -f requirements-dev.txt ]; then
+            pip install -r requirements-dev.txt
+          else
+            pip install pytest pytest-cov
+          fi
+
+      - name: Execute pytest
+        if: ${{ steps.pytests.outputs.has_pytests == 'true' }}
+        run: |
+          pytest --cov=. --cov-report=xml
+
+      - name: Enforce coverage gate (>= 70%)
+        if: ${{ steps.pytests.outputs.has_pytests == 'true' }}
+        run: |
+          python - <<'PY'
+          import xml.etree.ElementTree as ET
+          tree = ET.parse('coverage.xml')
+          rate = float(tree.getroot().attrib.get('line-rate', 0))
+          if rate < 0.70:
+              raise SystemExit(f"Coverage gate failed: {rate:.2%} < 70%")
+          print(f"Coverage OK: {rate:.2%}")
+          PY
+
+      - name: Detect Node tests
+        id: nodetests
+        run: |
+          if [ -f package.json ]; then
+            node -e "process.exit(require('./package.json').scripts?.test ? 0 : 1)" \
+              && echo "has_node_tests=true" >> "$GITHUB_OUTPUT" \
+              || echo "has_node_tests=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_node_tests=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Set up Node
+        if: ${{ steps.nodetests.outputs.has_node_tests == 'true' }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Node deps
+        if: ${{ steps.nodetests.outputs.has_node_tests == 'true' }}
+        run: npm ci
+
+      - name: Run Node tests
+        if: ${{ steps.nodetests.outputs.has_node_tests == 'true' }}
+        run: npm test -- --ci
+
+      - name: Upload coverage artifact
+        if: ${{ steps.pytests.outputs.has_pytests == 'true' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+
+  contract_test:
+    runs-on: ubuntu-latest
+    needs: [unit_test]
+    steps:
+      # Validate Kong and OpenAPI contracts when present
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install decK
+        if: ${{ hashFiles('kong/kong.yaml') != '' }}
+        run: |
+          curl -sL https://github.com/kong/deck/releases/download/v1.31.0/deck_1.31.0_linux_amd64.tar.gz | tar xz
+          sudo mv deck /usr/local/bin/deck
+
+      - name: Validate Kong config
+        if: ${{ hashFiles('kong/kong.yaml') != '' }}
+        run: deck validate -s kong/kong.yaml
+
+      - name: Lint OpenAPI specs (Spectral)
+        if: ${{ hashFiles('specs/**/*.yml', 'specs/**/*.yaml') != '' }}
+        run: |
+          docker run --rm -v "$PWD:/work" stoplight/spectral:6 \
+            lint /work/specs/openapi.yaml
+
+  build_image:
+    runs-on: ubuntu-latest
+    needs: [contract_test]
+    steps:
+      # Build/push images only if Dockerfiles exist
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Find Dockerfiles
+        id: dockerfiles
+        run: |
+          mapfile -t files < <(find . -name Dockerfile -not -path "./.git/*")
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "count=0" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          printf '%s\n' "${files[@]}" > dockerfiles.txt
+          echo "count=${#files[@]}" >> "$GITHUB_OUTPUT"
+
+      - name: Set up QEMU
+        if: ${{ steps.dockerfiles.outputs.count != '0' }}
+        uses: docker/setup-qemu-action@v3
+
+      - name: Set up Buildx
+        if: ${{ steps.dockerfiles.outputs.count != '0' }}
+        uses: docker/setup-buildx-action@v3
+
+      - name: Log in to GHCR
+        if: ${{ github.event_name == 'push' && steps.dockerfiles.outputs.count != '0' }}
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ github.token }}
+
+      - name: Build images (push on main)
+        if: ${{ steps.dockerfiles.outputs.count != '0' }}
+        run: |
+          while read -r dockerfile; do
+            context_dir="$(dirname "$dockerfile")"
+            service_name="$(basename "$context_dir")"
+            image="${{ env.REGISTRY }}/${{ github.repository_owner }}"
+            image="${image}/${{ env.IMAGE_PREFIX }}-${service_name}:${{ github.sha }}"
+
+            if [ "${{ github.event_name }}" = "push" ]; then
+              docker buildx build --push -t "$image" -f "$dockerfile" "$context_dir"
+            else
+              docker buildx build --load -t "$image" -f "$dockerfile" "$context_dir"
+            fi
+          done < dockerfiles.txt
+
+      - name: Install Trivy
+        if: ${{ steps.dockerfiles.outputs.count != '0' }}
+        run: |
+          curl -sfL \
+            https://raw.githubusercontent.com/aquasecurity/trivy/main/contrib/install.sh \
+            | sh -s -- -b /usr/local/bin
+
+      - name: Trivy scan (CRITICAL only)
+        if: ${{ steps.dockerfiles.outputs.count != '0' }}
+        run: |
+          while read -r dockerfile; do
+            context_dir="$(dirname "$dockerfile")"
+            service_name="$(basename "$context_dir")"
+            image="${{ env.REGISTRY }}/${{ github.repository_owner }}"
+            image="${image}/${{ env.IMAGE_PREFIX }}-${service_name}:${{ github.sha }}"
+            trivy image --severity CRITICAL --exit-code 1 "$image"
+          done < dockerfiles.txt
+
+  integration_test:
+    runs-on: ubuntu-latest
+    needs: [build_image]
+    steps:
+      # Use docker-compose and smoke tests when available
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Bring up compose stack
+        if: ${{ hashFiles('docker/docker-compose.yml') != '' }}
+        run: docker compose -f docker/docker-compose.yml up -d
+
+      - name: Run smoke tests
+        if: ${{ hashFiles('tests/integration/smoke.sh') != '' }}
+        run: bash tests/integration/smoke.sh
+
+      - name: Tear down compose stack
+        if: ${{ always() && hashFiles('docker/docker-compose.yml') != '' }}
+        run: docker compose -f docker/docker-compose.yml down
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [integration_test]
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    env:
+      KUBE_CONFIG_B64: ${{ vars.KUBE_CONFIG_B64 }}
+    steps:
+      # Deploy only on main pushes and only when kubeconfig + manifests exist
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up kubectl
+        if: ${{ env.KUBE_CONFIG_B64 != '' && hashFiles('k8s/**/*.yml', 'k8s/**/*.yaml') != '' }}
+        uses: azure/setup-kubectl@v4
+        with:
+          version: "v1.29.0"
+
+      - name: Configure kubeconfig
+        if: ${{ env.KUBE_CONFIG_B64 != '' && hashFiles('k8s/**/*.yml', 'k8s/**/*.yaml') != '' }}
+        run: |
+          mkdir -p ~/.kube
+          echo "$KUBE_CONFIG_B64" | base64 -d > ~/.kube/config
+
+      - name: Apply manifests to staging
+        if: ${{ env.KUBE_CONFIG_B64 != '' && hashFiles('k8s/**/*.yml', 'k8s/**/*.yaml') != '' }}
+        run: kubectl apply -f k8s
+
+      - name: Skip deploy (missing kubeconfig or manifests)
+        if: ${{ env.KUBE_CONFIG_B64 == '' || hashFiles('k8s/**/*.yml', 'k8s/**/*.yaml') == '' }}
+        run: |
+          echo "Deploy skipped: missing KUBE_CONFIG_B64 or k8s manifests."
