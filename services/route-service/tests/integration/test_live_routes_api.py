@@ -82,7 +82,10 @@ INVALID_ROUTE_SHAPE_KML = """<?xml version="1.0" encoding="UTF-8"?>
 """
 
 
-def db_is_reachable(database_url: str) -> tuple[bool, str | None]:
+def db_is_reachable(database_url: str | None) -> tuple[bool, str | None]:
+    if not database_url:
+        return False, "DATABASE_URL is not set."
+
     try:
         engine = create_engine(database_url)
         with engine.connect() as conn:
@@ -202,14 +205,15 @@ def test_search_endpoint_returns_valid_shape(client):
     assert isinstance(data["routes"], list)
 
 
-def test_first_route_detail_if_exists(client):
-    routes_response = client.get("/api/v1/routes")
-    routes = routes_response.json()
+def test_created_route_detail_returns_feature_collection(client, uploaded_route_ids):
+    create_response = upload_route(
+        client,
+        unique_route_name("detail-route"),
+    )
+    assert create_response.status_code == 200
 
-    if not routes:
-        pytest.skip("No routes exist in database.")
-
-    route_id = routes[0]["id"]
+    route_id = create_response.json()["route_id"]
+    uploaded_route_ids.append(route_id)
 
     response = client.get(f"/api/v1/routes/{route_id}")
 
@@ -220,6 +224,7 @@ def test_first_route_detail_if_exists(client):
     assert data["type"] == "FeatureCollection"
     assert "features" in data
     assert isinstance(data["features"], list)
+    assert len(data["features"]) == 3
 
 
 def test_valid_kml_upload_creates_route(client, uploaded_route_ids):

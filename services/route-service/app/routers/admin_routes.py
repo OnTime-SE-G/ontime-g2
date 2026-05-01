@@ -1,4 +1,5 @@
 from fastapi import APIRouter, UploadFile, File, Depends, Form, HTTPException
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.database import get_db
@@ -53,6 +54,11 @@ def update_route(
         return replace_route_from_kml_file(file, route, route_name, db)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except SQLAlchemyError as exc:
+        raise HTTPException(
+            status_code=500,
+            detail="Route update failed. Existing route was kept.",
+        ) from exc
 
 
 @router.delete("/{route_id}", response_model=RouteDeleteResponse)

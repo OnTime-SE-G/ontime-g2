@@ -5,6 +5,7 @@ import xml.etree.ElementTree as ET
 from geoalchemy2.shape import from_shape
 from shapely.geometry import LineString, Point
 from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.models.db_route import RouteORM, StopORM
@@ -128,21 +129,28 @@ def replace_route_from_kml_file(file, route: RouteORM, route_name: str, db: Sess
     """
     coordinates, stops = parse_kml_file(file)
 
-    route.name = route_name
-    route.geometry = from_shape(LineString(coordinates), srid=4326)
-    route.stops.clear()
+    try:
+        route.name = route_name
+        route.geometry = from_shape(LineString(coordinates), srid=4326)
+        route.stops.clear()
 
-    for index, stop in enumerate(stops, start=1):
-        route.stops.append(
-            StopORM(
-                name=stop["name"],
-                stop_order=index,
-                location=from_shape(Point(stop["lon"], stop["lat"]), srid=4326),
+        for index, stop in enumerate(stops, start=1):
+            route.stops.append(
+                StopORM(
+                    name=stop["name"],
+                    stop_order=index,
+                    location=from_shape(
+                        Point(stop["lon"], stop["lat"]),
+                        srid=4326,
+                    ),
+                )
             )
-        )
 
-    db.commit()
-    db.refresh(route)
+        db.commit()
+        db.refresh(route)
+    except SQLAlchemyError:
+        db.rollback()
+        raise
 
     return {
         "message": "Route imported successfully",
