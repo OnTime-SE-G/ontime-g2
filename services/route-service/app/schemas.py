@@ -17,11 +17,28 @@ class HealthResponse(BaseModel):
 class RouteSummary(BaseModel):
     id: int
     name: str
+    route_number: str | None = None
+    color: str | None = None
+    destination: str | None = None
 
 
 class RouteSearchResult(BaseModel):
     route_id: int
     name: str
+    route_number: str | None = None
+    color: str | None = None
+    start_stop_id: int
+    start_stop_name: str
+    end_stop_id: int
+    end_stop_name: str
+
+
+class StopNearbyResponse(BaseModel):
+    id: int
+    name: str
+    coordinates: list[float] | None = None
+    distance_m: float
+    routes: list[str] = []
 
 
 class RouteSearchResponse(BaseModel):
@@ -73,6 +90,13 @@ class StopFeature(BaseModel):
 class RouteGeoJSONResponse(BaseModel):
     type: Literal["FeatureCollection"]
     features: list[RouteFeature | StopFeature]
+
+
+class StopAggregatedResponse(BaseModel):
+    id: int
+    name: str
+    coordinates: list[float] | None = None
+    routes: list[str] = []
 
 
 class StopSummary(BaseModel):
