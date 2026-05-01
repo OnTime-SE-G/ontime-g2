@@ -1,55 +1,204 @@
 # Ingestion Service
 
-Receives GPS telemetry from MQTT, validates against the shared `GPSMessage` schema, and bridges valid messages to Kafka. Invalid messages are routed to a Dead Letter Queue (DLQ) with error metadata.
+The ingestion service is G2's MQTT-to-Kafka gateway. It accepts GPS telemetry from G1, validates it against the shared `GPSMessage` contract, applies stateful filtering, and forwards clean data to Kafka for downstream stream processing.
 
-## Architecture
+## What Phase 7 Completes
 
+- packages runtime code under `services/ingestion/app/`
+- adds a Docker image entrypoint for the full worker
+- integrates `ingestion-service` into `docker/docker-compose.yml`
+- exposes liveness and readiness probes for operations
+- documents the G1 and G4 integration interfaces clearly
+
+## Runtime Flow
+
+```text
+G1 GPS device / simulator
+  -> MQTT broker (Mosquitto)
+  -> ingestion-service
+     -> schema validation
+     -> geo validation
+     -> duplicate / rate / sequence checks
+     -> valid message -> Kafka raw topic
+     -> invalid message -> Kafka DLQ topic
 ```
-G1 Devices / Simulator ──MQTT──▶ Mosquitto ──▶ Ingestion Service ──▶ Kafka
-                                                     │
-                                                     └──▶ DLQ (invalid messages)
+
+## Directory Layout
+
+```text
+services/ingestion/
+  app/
+    config.py
+    health.py
+    main.py
+    metrics.py
+    mqtt_subscriber.py
+    producer.py
+    validator.py
+  tests/
+  Dockerfile
+  requirements.txt
+  README.md
 ```
 
 ## Responsibilities
 
-- Subscribe to MQTT topic `transport/bus/+/location`
-- Validate GPS payloads against `GPSMessage` Pydantic schema
-- Validate coordinates within Sri Lanka bounding box
-- Detect duplicate messages, enforce rate limits, check timestamp sequence
-- Produce valid messages to `transport-telemetry-raw` Kafka topic
-- Route invalid messages to `transport-telemetry-dlq` with error reason
-- Expose `/health` and `/metrics` endpoints on port 8001
+- subscribe to MQTT topic `transport/bus/+/location`
+- validate JSON and `GPSMessage` schema
+- reject coordinates outside Sri Lanka bounds
+- detect duplicates from the same bus
+- enforce minimum message interval per bus
+- reject out-of-order timestamps per bus
+- publish valid messages to Kafka topic `transport-telemetry-raw`
+- publish invalid messages to Kafka topic `transport-telemetry-dlq`
+- expose `/health`, `/health/live`, `/health/ready`, and `/metrics`
 
-## Kafka Topics (Output)
+## Interfaces
 
-| Topic | Content |
-|-------|---------|
-| `transport-telemetry-raw` | Validated GPS messages (consumed by Natasha's Flink) |
-| `transport-telemetry-dlq` | Invalid messages + error metadata (debug/monitoring) |
+### G1 -> G2 ingestion interface
 
-## Running Locally
+| Item | Value |
+|------|-------|
+| Producer group | G1 Device & Edge |
+| Protocol | MQTT 3.1.1 |
+| Transport | Mosquitto broker |
+| Topic | `transport/bus/{busId}/location` |
+| Payload contract | `schemas/gps.py::GPSMessage` |
+| Expected publish cadence | every 3 to 5 seconds per active bus |
+| Current dev publisher | `scripts/gps_simulator.py` |
 
-```bash
-# From repo root
-cd services/ingestion
-pip install -r requirements.txt
-python main.py
-```
+Required payload fields:
+
+- `busId`
+- `tripId`
+- `lat`
+- `lon`
+- `speed`
+- `heading`
+- `timestamp`
+
+### G2 ingestion -> downstream G2 interface
+
+| Item | Value |
+|------|-------|
+| Consumer | stream-processing / downstream Kafka consumers |
+| Protocol | Kafka |
+| Valid topic | `transport-telemetry-raw` |
+| Invalid topic | `transport-telemetry-dlq` |
+| Keying | valid messages keyed by `busId` |
+
+DLQ envelope includes:
+
+- original payload
+- error reason
+- error type
+- source
+- source topic
+- received timestamp
+
+### G4 -> G2 ingestion interface
+
+| Item | Value |
+|------|-------|
+| Consumer group | G4 Platform, Security & Integration |
+| Access method | Docker Compose / container runtime / HTTP scrape |
+| Health summary | `GET /health` |
+| Liveness probe | `GET /health/live` |
+| Readiness probe | `GET /health/ready` |
+| Metrics scrape | `GET /metrics` |
+| Default service port | `8001` |
+
+G4 uses these interfaces for:
+
+- container health monitoring
+- orchestrator readiness checks
+- Prometheus scraping
+- debugging dependency failures
 
 ## Environment Variables
 
 | Variable | Default | Description |
 |----------|---------|-------------|
-| `MQTT_BROKER_HOST` | `mqtt-broker` | Mosquitto broker hostname |
-| `MQTT_BROKER_PORT` | `1883` | Mosquitto broker port |
+| `MQTT_BROKER_HOST` | `mqtt-broker` | MQTT broker host |
+| `MQTT_BROKER_PORT` | `1883` | MQTT broker port |
 | `MQTT_TOPIC_PATTERN` | `transport/bus/+/location` | MQTT subscription pattern |
 | `KAFKA_BROKER_URL` | `broker:29092` | Kafka bootstrap server |
-| `KAFKA_RAW_TOPIC` | `transport-telemetry-raw` | Output topic for valid messages |
-| `KAFKA_DLQ_TOPIC` | `transport-telemetry-dlq` | Output topic for invalid messages |
-| `SERVICE_PORT` | `8001` | Health/metrics endpoint port |
+| `INGESTION_KAFKA_RAW_TOPIC` | `transport-telemetry-raw` | topic for accepted telemetry |
+| `INGESTION_KAFKA_DLQ_TOPIC` | `transport-telemetry-dlq` | topic for rejected telemetry |
+| `INGESTION_SERVICE_PORT` | `8001` | port used by health and metrics server |
+| `INGESTION_MIN_MESSAGE_INTERVAL_SECONDS` | `3.0` | minimum accepted gap between messages from the same bus |
+| `INGESTION_DUPLICATE_CACHE_SIZE` | `100` | duplicate hash window per bus |
 
-## Ownership and Review
+## Local Run
 
-- **Owner:** Janidu
-- **Required reviewer:** Natasha (consumes from `transport-telemetry-raw`)
-- **Optional reviewer:** Kusal (shared schemas, docker-compose)
+From the repo root:
+
+```bash
+python -m pip install -r services/ingestion/requirements.txt
+python -m services.ingestion.app.main
+```
+
+## Docker Compose Run
+
+From the repo root:
+
+```bash
+docker compose -f docker/docker-compose.yml up -d broker mqtt-broker ingestion-service
+```
+
+Compose listener map:
+
+- Kafka inside Docker network: `broker:29092`
+- Kafka from host machine: `localhost:9092`
+- MQTT from host machine: `localhost:1883`
+- Ingestion health/metrics from host machine: `localhost:8001`
+
+Useful checks:
+
+```bash
+curl http://localhost:8001/health
+curl http://localhost:8001/health/live
+curl http://localhost:8001/health/ready
+curl http://localhost:8001/metrics
+```
+
+## Phase 7 Validation Checklist
+
+- `docker compose` includes `ingestion-service`
+- image starts with `python -m services.ingestion.app.main`
+- readiness endpoint returns `200` only when Kafka and MQTT are connected
+- liveness endpoint stays available while the service process is alive
+- ingestion tests pass locally
+- docs describe G1 and G4 integration points
+
+## Tests
+
+```bash
+python -m pip install -r services/ingestion/requirements-dev.txt
+python -m pytest services/ingestion/tests/unit -v --cov=services/ingestion/app --cov-report=term-missing
+python -m pytest services/ingestion/tests/integration -m integration -v
+pytest services/ingestion/tests -v
+```
+
+Smoke test coverage includes:
+
+- containerized Kafka broker
+- containerized Mosquitto broker
+- ingestion service startup and readiness
+- MQTT publish of valid and invalid telemetry
+- assertion that raw data reaches Kafka raw topic
+- assertion that invalid data reaches Kafka DLQ
+
+## Important Notes
+
+- The service is intentionally narrow in scope. It does not calculate ETA, render maps, or own user-facing APIs.
+- `services/ingestion/app/` is the runtime package. Tests stay under `services/ingestion/tests/`.
+- Unit tests live under `services/ingestion/tests/unit/`.
+- Docker-backed smoke tests live under `services/ingestion/tests/integration/`.
+- `services/ingestion/tests/conftest.py` is only a pytest path helper for this service's tests. It is not part of the runtime.
+
+## Ownership
+
+- Owner: Janidu
+- Downstream reviewer: Natasha
+- Infrastructure reviewer: Kusal

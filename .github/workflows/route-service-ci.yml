@@ -1,0 +1,84 @@
+name: Route Service CI
+
+on:
+  push:
+    paths:
+      - "services/route-service/**"
+      - ".github/workflows/route-service-ci.yml"
+  pull_request:
+    paths:
+      - "services/route-service/**"
+      - ".github/workflows/route-service-ci.yml"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgis/postgis:16-3.4
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: ontime_test_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d ontime_test_db"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    defaults:
+      run:
+        working-directory: services/route-service
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/ontime_test_db
+      PYTHONPATH: .
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install httpx psycopg2-binary python-multipart pytest-cov
+
+      - name: Enable PostGIS extension
+        run: |
+          python - <<'PY'
+          import time
+          import psycopg2
+
+          for _ in range(20):
+              try:
+                  conn = psycopg2.connect(
+                      host="localhost",
+                      port=5432,
+                      user="postgres",
+                      password="postgres",
+                      dbname="ontime_test_db"
+                  )
+                  conn.autocommit = True
+                  cur = conn.cursor()
+                  cur.execute("CREATE EXTENSION IF NOT EXISTS postgis;")
+                  cur.close()
+                  conn.close()
+                  print("PostGIS enabled")
+                  break
+              except Exception:
+                  time.sleep(2)
+          else:
+              raise RuntimeError("Database not ready")
+          PY
+
+      - name: Run tests
+        run: pytest -v tests

@@ -169,7 +169,7 @@ git clone https://github.com/your-org/ontime-g2.git
 cd ontime-g2
 
 # 2. Copy environment config
-cp .env.example .env
+cp docker/.env.example docker/.env
 # Edit .env — uncomment the connections you want (local Docker URLs or Cloud connections like Neon PG / InfluxDB Cloud)
 
 # 3. Start infrastructure locally
@@ -188,7 +188,10 @@ python scripts/seed_routes.py
 # 6. Start the API server
 cd services/api-gateway && uvicorn main:app --reload --port 8000
 
-# 7. (Optional) Start GPS simulator
+# 7. Start the ingestion service
+python -m services.ingestion.app.main
+
+# 8. (Optional) Start GPS simulator
 python scripts/gps_simulator.py
 ```
 
@@ -198,6 +201,33 @@ python scripts/gps_simulator.py
 curl http://localhost:8000/health
 # Should return: {"status": "healthy", ...}
 ```
+
+### Ingestion Service 
+
+The ingestion service is now wired into local Docker Compose as `ingestion-service`.
+
+Quick start:
+
+```bash
+docker compose -f docker/docker-compose.yml up -d broker mqtt-broker ingestion-service
+curl http://localhost:8001/health
+curl http://localhost:8001/health/ready
+```
+
+Runtime package layout:
+
+```text
+services/ingestion/
+  app/    # runtime code
+  tests/  # service tests
+```
+
+Cross-group interfaces around ingestion:
+
+- G1 connects to G2 ingestion over MQTT using topic `transport/bus/{busId}/location`.
+- G1 payloads must match the shared `GPSMessage` contract in `schemas/gps.py`.
+- G4 connects to ingestion over HTTP for operations and monitoring using `/health`, `/health/live`, `/health/ready`, and `/metrics`.
+- G4 deploys or supervises the service through Docker Compose now and can later reuse the same readiness and metrics endpoints for Kubernetes and Prometheus.
 
 ---
 
@@ -247,6 +277,9 @@ pytest tests/integration/ -v
 
 # Run load tests
 locust -f tests/load/locustfile.py
+
+# Run ingestion service tests
+python -m pytest services/ingestion/tests -v
 ```
 
 ---

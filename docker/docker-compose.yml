@@ -102,9 +102,11 @@ services:
     ports:
       - "8002:8002"
     volumes:
-      - ./services/route-service:/app
+      - ../services/route-service:/app
+
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8002 --reload
     environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/route_db
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/route_db
     networks:
       - ontime_network
     depends_on:
@@ -123,11 +125,15 @@ services:
     command: uvicorn app.main:app --host 0.0.0.0 --port 8003 --reload
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/fleet_db
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: 5432
+
     networks:
       - ontime_network
     depends_on:
       postgres:
         condition: service_healthy
+    restart: unless-stopped
 
   broker:
     image: confluentinc/confluent-local:7.5.0
@@ -135,11 +141,18 @@ services:
     ports:
       - "9092:9092"
     environment:
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,CONTROLLER://0.0.0.0:29093,PLAINTEXT_HOST://0.0.0.0:9092
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_NODE_ID: 1
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:29093
     networks:
       - ontime_network
     healthcheck:
-      test: [ "CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list" ]
+      test: [ "CMD-SHELL", "kafka-topics --bootstrap-server localhost:29092 --list" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -173,6 +186,45 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
+
+  ingestion-service:
+    build:
+      context: ..
+      dockerfile: services/ingestion/Dockerfile
+    container_name: ontime_ingestion
+    ports:
+      - "8001:8001"
+    environment:
+      MQTT_BROKER_HOST: mqtt-broker
+      MQTT_BROKER_PORT: 1883
+      MQTT_TOPIC_PATTERN: transport/bus/+/location
+      KAFKA_BROKER_URL: broker:29092
+      INGESTION_KAFKA_RAW_TOPIC: transport-telemetry-raw
+      INGESTION_KAFKA_DLQ_TOPIC: transport-telemetry-dlq
+      INGESTION_SERVICE_PORT: 8001
+      INGESTION_MIN_MESSAGE_INTERVAL_SECONDS: 3.0
+      INGESTION_DUPLICATE_CACHE_SIZE: 100
+    networks:
+      - ontime_network
+    depends_on:
+      broker:
+        condition: service_healthy
+      mqtt-broker:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request;
+            urllib.request.urlopen('http://127.0.0.1:8001/health/ready',
+            timeout=3)",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
 
 networks:
   ontime_network:
