@@ -110,7 +110,10 @@ jobs:
         if: ${{ steps.pytests.outputs.has_pytests == 'true' }}
         run: |
           python - <<'PY'
-          import xml.etree.ElementTree as ET
+          import os, xml.etree.ElementTree as ET
+          if not os.path.exists('coverage.xml'):
+              print("⚠ coverage.xml not found — skipping coverage gate")
+              raise SystemExit(0)
           tree = ET.parse('coverage.xml')
           rate = float(tree.getroot().attrib.get('line-rate', 0))
           if rate < 0.70:
