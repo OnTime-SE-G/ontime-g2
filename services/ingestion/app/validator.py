@@ -9,6 +9,7 @@ from pydantic import ValidationError
 
 from schemas.geo_config import SRI_LANKA_BOUNDS
 from schemas.gps import GPSLocationMessage, GPSMessage
+from schemas.heartbeat import HeartbeatMessage
 from services.ingestion.app.config import settings
 
 
@@ -17,6 +18,7 @@ class ValidationResult:
     success: bool
     message: Optional[GPSMessage] = None
     location: Optional[GPSLocationMessage] = None
+    heartbeat: Optional[HeartbeatMessage] = None
     error_reason: Optional[str] = None
     error_type: Optional[str] = None
 
@@ -114,6 +116,23 @@ def validate_gps_payload(raw_bytes: bytes) -> ValidationResult:
         return geo_error
 
     return ValidationResult(success=True, message=message, location=message)
+
+
+def validate_heartbeat_payload(raw_bytes: bytes) -> ValidationResult:
+    """Validate the G1 MQTT device-status heartbeat payload."""
+    parsed_json, error_result = _parse_payload(raw_bytes)
+    if error_result:
+        return error_result
+
+    if "timestamp" not in parsed_json:
+        return _missing_timestamp_result()
+
+    try:
+        heartbeat = HeartbeatMessage.model_validate(parsed_json)
+    except ValidationError as error:
+        return _validation_error_result(error)
+
+    return ValidationResult(success=True, heartbeat=heartbeat)
 
 
 def _as_utc(value: datetime) -> datetime:
