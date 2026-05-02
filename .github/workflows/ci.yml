@@ -222,6 +222,11 @@ jobs:
             image="${{ env.REGISTRY }}/${owner}"
             image="${image}/${{ env.IMAGE_PREFIX }}-${service_name}:${{ github.sha }}"
 
+            # Use repo root as context if Dockerfile copies paths outside its dir
+            if grep -qE '^COPY (services|schemas)/' "$dockerfile"; then
+              context_dir="."
+            fi
+
             if [ "${{ github.event_name }}" = "push" ]; then
               docker buildx build --push -t "$image" -f "$dockerfile" "$context_dir"
             else
