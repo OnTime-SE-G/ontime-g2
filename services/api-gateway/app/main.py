@@ -4,7 +4,7 @@
 
 from fastapi import FastAPI
 
-from app.routers import system, routes, buses
+from app.routers import system, routes, buses, stops, admin_routes, admin_fleet
 
 app = FastAPI(
     title="OnTime API Gateway",
@@ -23,6 +23,9 @@ async def count_requests(request, call_next):
 app.include_router(system.router)
 app.include_router(routes.router)
 app.include_router(buses.router)
+app.include_router(stops.router)
+app.include_router(admin_routes.router)
+app.include_router(admin_fleet.router)
 
 if __name__ == "__main__":
     import uvicorn
