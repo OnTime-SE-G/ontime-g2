@@ -4,6 +4,7 @@ import pytest
 from pydantic import ValidationError
 
 from schemas.gps import GPSLocationMessage, GPSMessage
+from schemas.heartbeat import HeartbeatMessage
 from schemas.trip_lifecycle import TripLifecycleEvent
 
 
@@ -82,3 +83,23 @@ def test_trip_lifecycle_event_schema_matches_fleet_contract():
     assert event.bus_id == "1"
     assert event.trip_id == "TRIP-001"
     assert event.route_id == "202"
+
+
+def test_heartbeat_message_schema_matches_g1_device_status_contract():
+    heartbeat = HeartbeatMessage.model_validate(
+        {
+            "busId": "1",
+            "deviceId": "GPS-1",
+            "timestamp": "2026-05-02T10:15:30Z",
+            "gpsFix": True,
+            "satellites": 8,
+            "signalQuality": 21,
+            "batteryVoltage": 3.9,
+            "firmwareVersion": "g1-0.1.0",
+        }
+    )
+
+    assert heartbeat.bus_id == "1"
+    assert heartbeat.device_id == "GPS-1"
+    assert heartbeat.gps_fix is True
+    assert heartbeat.timestamp.tzinfo is not None

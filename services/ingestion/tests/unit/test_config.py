@@ -19,6 +19,7 @@ def test_config_loads_with_defaults():
     assert settings.trip_cache_rebuild_timeout_seconds == 60.0
     assert settings.startup_buffer_max_messages == 1000
     assert "transport/bus/+/location" in settings.mqtt_topic_pattern
+    assert settings.mqtt_heartbeat_topic_pattern == "transport/bus/+/heartbeat"
 
 
 def test_config_loads_hivemq_mqtt_options(monkeypatch):
@@ -35,6 +36,14 @@ def test_config_loads_hivemq_mqtt_options(monkeypatch):
     assert settings.mqtt_password == "hivemq-pass"
     assert settings.mqtt_client_id == "ingestion-hivemq"
     assert settings.mqtt_ca_cert_path == "/certs/hivemq-ca.pem"
+
+
+def test_config_loads_heartbeat_topic_option(monkeypatch):
+    monkeypatch.setenv("INGESTION_MQTT_HEARTBEAT_TOPIC_PATTERN", "device/+/pulse")
+
+    settings = IngestionSettings()
+
+    assert settings.mqtt_heartbeat_topic_pattern == "device/+/pulse"
 
 
 def test_config_loads_event_time_validation_options(monkeypatch):

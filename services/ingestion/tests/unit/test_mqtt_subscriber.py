@@ -110,7 +110,12 @@ def test_on_connect_success_subscribes_and_marks_broker_up(subscriber_with_mocks
         properties=None,
     )
 
-    mock_client.subscribe.assert_called_once_with(subscriber_module.settings.mqtt_topic_pattern)
+    mock_client.subscribe.assert_called_once_with(
+        [
+            (subscriber_module.settings.mqtt_topic_pattern, 0),
+            (subscriber_module.settings.mqtt_heartbeat_topic_pattern, 0),
+        ]
+    )
     assert collector.mqtt_broker_up is True
 
 
@@ -186,6 +191,65 @@ def test_on_message_valid_payload(subscriber_with_mocks):
     published_message = mock_producer.publish_valid.call_args.args[0]
     assert published_message.bus_id == "1"
     assert published_message.trip_id == "TRIP_001"
+    mock_producer.publish_to_dlq.assert_not_called()
+
+
+def test_on_message_valid_heartbeat_tracks_device_status_only(subscriber_with_mocks):
+    subscriber, mock_producer, _, collector = subscriber_with_mocks
+    payload = json.dumps(
+        {
+            "busId": "1",
+            "deviceId": "GPS-1",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "gpsFix": True,
+            "satellites": 8,
+            "signalQuality": 21,
+            "batteryVoltage": 3.9,
+            "firmwareVersion": "g1-0.1.0",
+        }
+    ).encode("utf-8")
+    mock_msg = MagicMock(topic="transport/bus/1/heartbeat", payload=payload)
+
+    subscriber.on_message(client=None, userdata=None, msg=mock_msg)
+
+    snapshot = collector.get_snapshot()
+    assert snapshot["messages_received"] == 1
+    assert snapshot["heartbeat_messages_received"] == 1
+    assert snapshot["heartbeat_messages_invalid"] == 0
+    assert "1" in snapshot["latest_heartbeat_by_bus"]
+    assert subscriber.messages_validated == 0
+    assert subscriber.messages_rejected == 0
+    mock_producer.publish_valid.assert_not_called()
+    mock_producer.publish_to_dlq.assert_not_called()
+
+
+def test_invalid_heartbeat_does_not_affect_location_validation(subscriber_with_mocks):
+    subscriber, mock_producer, _, collector = subscriber_with_mocks
+    heartbeat_msg = MagicMock(
+        topic="transport/bus/1/heartbeat",
+        payload=b"bad_data",
+    )
+    location_payload = json.dumps(
+        {
+            "busId": "1",
+            "lat": 6.9271,
+            "lon": 79.8612,
+            "speed": 45.0,
+            "heading": 120.0,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+    ).encode("utf-8")
+    location_msg = MagicMock(topic="transport/bus/1/location", payload=location_payload)
+
+    subscriber.on_message(client=None, userdata=None, msg=heartbeat_msg)
+    subscriber.on_message(client=None, userdata=None, msg=location_msg)
+
+    snapshot = collector.get_snapshot()
+    assert snapshot["messages_received"] == 2
+    assert snapshot["heartbeat_messages_invalid"] == 1
+    assert subscriber.messages_validated == 1
+    assert subscriber.messages_rejected == 0
+    mock_producer.publish_valid.assert_called_once()
     mock_producer.publish_to_dlq.assert_not_called()
 
 

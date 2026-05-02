@@ -1,5 +1,6 @@
 import threading
 import time
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
@@ -20,6 +21,28 @@ class TestMetricsCollectorCore:
         collector = MetricsCollector()
         collector.increment_validated()
         assert collector.get_snapshot()["messages_validated"] == 1
+
+    def test_record_heartbeat_status(self):
+        collector = MetricsCollector()
+        timestamp = datetime.now(timezone.utc)
+
+        collector.record_heartbeat(
+            bus_id="1",
+            timestamp=timestamp,
+        )
+
+        snapshot = collector.get_snapshot()
+        assert snapshot["heartbeat_messages_received"] == 1
+        assert snapshot["heartbeat_messages_invalid"] == 0
+        assert snapshot["latest_heartbeat_by_bus"]["1"] == timestamp.isoformat()
+        assert snapshot["heartbeat_age_seconds_by_bus"]["1"] >= 0
+
+    def test_increment_invalid_heartbeat(self):
+        collector = MetricsCollector()
+
+        collector.increment_invalid_heartbeat()
+
+        assert collector.get_snapshot()["heartbeat_messages_invalid"] == 1
 
     def test_increment_rejected_types(self):
         collector = MetricsCollector()
@@ -198,7 +221,10 @@ class TestHealthEndpoints:
         assert payload["dependencies"]["trip_cache"] == "unknown"
         assert payload["counters"]["messages_received"] == 1
         assert payload["counters"]["messages_rejected"] == 1
+        assert payload["counters"]["heartbeats_received"] == 0
+        assert payload["counters"]["heartbeats_invalid"] == 0
         assert payload["counters"]["active_trip_count"] == 0
+        assert payload["device_status"]["latest_heartbeat_by_bus"] == {}
 
     def test_live_endpoint_returns_200(self, health_client):
         client, _ = health_client
@@ -212,6 +238,7 @@ class TestHealthEndpoints:
         collector.mqtt_broker_up = True
         collector.increment_received()
         collector.increment_validated()
+        collector.record_heartbeat(bus_id="1", timestamp=datetime.now(timezone.utc))
         collector.increment_rejected("RATE_LIMIT")
 
         response = client.get("/metrics")
@@ -221,6 +248,9 @@ class TestHealthEndpoints:
         body = response.text
         assert "ingestion_messages_received_total 1" in body
         assert "ingestion_messages_validated_total 1" in body
+        assert "ingestion_heartbeat_messages_received_total 1" in body
+        assert "ingestion_heartbeat_messages_invalid_total 0" in body
+        assert 'ingestion_heartbeat_age_seconds{bus_id="1"}' in body
         assert 'ingestion_messages_rejected_total{reason="RATE_LIMIT"} 1' in body
         assert 'ingestion_messages_rejected_total{reason="INACTIVE_TRIP"} 0' in body
         assert 'ingestion_messages_rejected_total{reason="TRIP_CACHE_REBUILDING"} 0' in body

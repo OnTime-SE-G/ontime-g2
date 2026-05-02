@@ -1,7 +1,11 @@
 import json
 from datetime import datetime, timezone
 
-from services.ingestion.app.validator import validate_gps_location_payload, validate_gps_payload
+from services.ingestion.app.validator import (
+    validate_gps_location_payload,
+    validate_gps_payload,
+    validate_heartbeat_payload,
+)
 
 
 def test_valid_gps_message():
@@ -159,3 +163,38 @@ def test_missing_timestamp_returns_specific_error_type():
     assert result.success is False
     assert result.error_type == "MISSING_TIMESTAMP"
     assert "timestamp" in result.error_reason
+
+
+def test_valid_heartbeat_message():
+    payload = {
+        "busId": "1",
+        "deviceId": "GPS-1",
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "gpsFix": True,
+        "satellites": 8,
+        "signalQuality": 21,
+        "batteryVoltage": 3.9,
+        "firmwareVersion": "g1-0.1.0",
+    }
+    raw_bytes = json.dumps(payload).encode("utf-8")
+
+    result = validate_heartbeat_payload(raw_bytes)
+
+    assert result.success is True
+    assert result.heartbeat is not None
+    assert result.heartbeat.bus_id == "1"
+    assert result.message is None
+    assert result.location is None
+
+
+def test_heartbeat_requires_timestamp():
+    payload = {
+        "busId": "1",
+        "deviceId": "GPS-1",
+    }
+    raw_bytes = json.dumps(payload).encode("utf-8")
+
+    result = validate_heartbeat_payload(raw_bytes)
+
+    assert result.success is False
+    assert result.error_type == "MISSING_TIMESTAMP"
