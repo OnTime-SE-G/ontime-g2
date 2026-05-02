@@ -1,7 +1,3 @@
-# services/api-gateway/main.py
-# OnTime API Gateway — FastAPI application.
-# Serves health, metrics, and API endpoints for the frontend.
-
 import os
 import socket
 from datetime import datetime, timezone
@@ -9,18 +5,12 @@ from typing import Dict
 from urllib.error import URLError
 from urllib.request import urlopen
 
-from fastapi import FastAPI
+from fastapi import APIRouter, Request
 from fastapi.responses import PlainTextResponse
 
-app = FastAPI(
-    title="OnTime API Gateway",
-    version="0.1.0",
-    description="G2 API gateway service for REST and WebSocket endpoints.",
-)
+router = APIRouter(tags=["System"])
 
 SERVICE_START_TIME = datetime.now(timezone.utc)
-app.state.request_count = 0
-
 
 def _can_open_tcp(host: str, port: int, timeout: float = 0.4) -> bool:
     try:
@@ -29,14 +19,12 @@ def _can_open_tcp(host: str, port: int, timeout: float = 0.4) -> bool:
     except OSError:
         return False
 
-
 def _can_get_http(url: str, timeout: float = 0.6) -> bool:
     try:
         with urlopen(url, timeout=timeout) as response:
             return 200 <= response.status < 500
     except (URLError, OSError):
         return False
-
 
 def _dependency_status() -> Dict[str, str]:
     postgres_host = os.getenv("POSTGRES_HOST", "localhost")
@@ -57,15 +45,7 @@ def _dependency_status() -> Dict[str, str]:
         "influxdb": "up" if influx_ok else "down",
     }
 
-
-@app.middleware("http")
-async def count_requests(request, call_next):
-    response = await call_next(request)
-    app.state.request_count += 1
-    return response
-
-
-@app.get("/health")
+@router.get("/health")
 def health() -> Dict[str, object]:
     return {
         "status": "healthy",
@@ -74,17 +54,17 @@ def health() -> Dict[str, object]:
         "dependencies": _dependency_status(),
     }
 
-
-@app.get("/metrics", response_class=PlainTextResponse)
-def metrics() -> str:
-    uptime_seconds = int((datetime.now(timezone.utc) -
-                         SERVICE_START_TIME).total_seconds())
+@router.get("/metrics", response_class=PlainTextResponse)
+def metrics(request: Request) -> str:
+    uptime_seconds = int((datetime.now(timezone.utc) - SERVICE_START_TIME).total_seconds())
+    # Safely get request count from app state
+    request_count = getattr(request.app.state, "request_count", 0)
 
     return "\n".join(
         [
             "# HELP api_gateway_requests_total Total HTTP requests handled by API gateway",
             "# TYPE api_gateway_requests_total counter",
-            f"api_gateway_requests_total {app.state.request_count}",
+            f"api_gateway_requests_total {request_count}",
             "# HELP api_gateway_uptime_seconds Service uptime in seconds",
             "# TYPE api_gateway_uptime_seconds gauge",
             f"api_gateway_uptime_seconds {uptime_seconds}",
@@ -92,12 +72,6 @@ def metrics() -> str:
         ]
     )
 
-
-@app.get("/api/v1/status")
+@router.get("/api/v1/status")
 def api_v1_status() -> Dict[str, str]:
     return {"status": "ok", "service": "api-gateway", "version": "v1"}
-
-
-if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True)

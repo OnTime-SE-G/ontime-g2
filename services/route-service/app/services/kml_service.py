@@ -8,7 +8,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
-from app.models.db_route import RouteORM, StopORM
+from app.models.db_route import RouteORM, StopORM, RouteStopLinkORM
 
 
 KML_REQUIREMENTS_ERROR = "KML must contain at least 2 coordinates and 2 stops"
@@ -99,18 +99,32 @@ def import_kml_file(file, route_name: str, db: Session):
     db.add(route_row)
     db.flush()
 
-    # Insert stops
-    for index, stop in enumerate(stops, start=1):
-        point = Point(stop["lon"], stop["lat"])
+    # Insert or reuse stops
+    for index, stop_data in enumerate(stops, start=1):
+        stop_name = stop_data["name"]
 
-        stop_row = StopORM(
-            route_id=route_row.id,
-            name=stop["name"],
-            stop_order=index,
-            location=from_shape(point, srid=4326),
+        existing_stop = db.scalar(
+            select(StopORM).where(StopORM.name == stop_name)
         )
 
-        db.add(stop_row)
+        if existing_stop:
+            stop_id = existing_stop.id
+        else:
+            point = Point(stop_data["lon"], stop_data["lat"])
+            stop_row = StopORM(
+                name=stop_name,
+                location=from_shape(point, srid=4326),
+            )
+            db.add(stop_row)
+            db.flush()
+            stop_id = stop_row.id
+
+        link = RouteStopLinkORM(
+            route_id=route_row.id,
+            stop_id=stop_id,
+            stop_order=index
+        )
+        db.add(link)
 
     db.commit()
     db.refresh(route_row)
@@ -132,19 +146,33 @@ def replace_route_from_kml_file(file, route: RouteORM, route_name: str, db: Sess
     try:
         route.name = route_name
         route.geometry = from_shape(LineString(coordinates), srid=4326)
-        route.stops.clear()
+        route.stop_links.clear()
 
-        for index, stop in enumerate(stops, start=1):
-            route.stops.append(
-                StopORM(
-                    name=stop["name"],
-                    stop_order=index,
-                    location=from_shape(
-                        Point(stop["lon"], stop["lat"]),
-                        srid=4326,
-                    ),
-                )
+        for index, stop_data in enumerate(stops, start=1):
+            stop_name = stop_data["name"]
+
+            existing_stop = db.scalar(
+                select(StopORM).where(StopORM.name == stop_name)
             )
+
+            if existing_stop:
+                stop_id = existing_stop.id
+            else:
+                point = Point(stop_data["lon"], stop_data["lat"])
+                stop_row = StopORM(
+                    name=stop_name,
+                    location=from_shape(point, srid=4326),
+                )
+                db.add(stop_row)
+                db.flush()
+                stop_id = stop_row.id
+
+            link = RouteStopLinkORM(
+                route_id=route.id,
+                stop_id=stop_id,
+                stop_order=index
+            )
+            db.add(link)
 
         db.commit()
         db.refresh(route)
