@@ -18,11 +18,18 @@ def _build_health_payload(snapshot: dict) -> dict:
         "dependencies": {
             "kafka_broker": "up" if kafka_ok else "down",
             "mqtt_broker": "up" if mqtt_ok else "down",
+            "trip_cache": snapshot["trip_cache_status"],
         },
         "counters": {
             "messages_received": snapshot["messages_received"],
             "messages_validated": snapshot["messages_validated"],
+            "heartbeats_received": snapshot["heartbeat_messages_received"],
+            "heartbeats_invalid": snapshot["heartbeat_messages_invalid"],
             "messages_rejected": snapshot["messages_rejected"],
+            "active_trip_count": snapshot["active_trip_count"],
+        },
+        "device_status": {
+            "latest_heartbeat_by_bus": snapshot["latest_heartbeat_by_bus"],
         },
     }
 
@@ -69,6 +76,24 @@ def create_app():
             "# TYPE ingestion_messages_validated_total counter",
             f'ingestion_messages_validated_total {snapshot["messages_validated"]}',
             "",
+            "# HELP ingestion_heartbeat_messages_received_total Total heartbeat messages received from MQTT",
+            "# TYPE ingestion_heartbeat_messages_received_total counter",
+            (
+                "ingestion_heartbeat_messages_received_total "
+                f'{snapshot["heartbeat_messages_received"]}'
+            ),
+            "",
+            "# HELP ingestion_heartbeat_messages_invalid_total Total invalid heartbeat messages received from MQTT",
+            "# TYPE ingestion_heartbeat_messages_invalid_total counter",
+            f'ingestion_heartbeat_messages_invalid_total {snapshot["heartbeat_messages_invalid"]}',
+            "",
+            "# HELP ingestion_heartbeat_age_seconds Last heartbeat age per bus",
+            "# TYPE ingestion_heartbeat_age_seconds gauge",
+            *[
+                f'ingestion_heartbeat_age_seconds{{bus_id="{bus_id}"}} {age_seconds:.1f}'
+                for bus_id, age_seconds in snapshot["heartbeat_age_seconds_by_bus"].items()
+            ],
+            "",
             "# HELP ingestion_messages_rejected_total Total messages rejected by error type",
             "# TYPE ingestion_messages_rejected_total counter",
             f'ingestion_messages_rejected_total{{reason="JSON_PARSE"}} {snapshot["messages_rejected_json"]}',
@@ -76,6 +101,8 @@ def create_app():
             f'ingestion_messages_rejected_total{{reason="SCHEMA_VALIDATION"}} {snapshot["messages_rejected_schema"]}',
             f'ingestion_messages_rejected_total{{reason="GEO_BOUNDS"}} {snapshot["messages_rejected_geo"]}',
             f'ingestion_messages_rejected_total{{reason="DUPLICATE"}} {snapshot["messages_rejected_duplicate"]}',
+            f'ingestion_messages_rejected_total{{reason="INACTIVE_TRIP"}} {snapshot["messages_rejected_inactive_trip"]}',
+            f'ingestion_messages_rejected_total{{reason="TRIP_CACHE_REBUILDING"}} {snapshot["messages_rejected_trip_cache_rebuilding"]}',
             f'ingestion_messages_rejected_total{{reason="RATE_LIMIT"}} {snapshot["messages_rejected_rate_limit"]}',
             f'ingestion_messages_rejected_total{{reason="RATE_LIMIT_EVENT_TIME"}} {snapshot["messages_rejected_rate_limit_event_time"]}',
             f'ingestion_messages_rejected_total{{reason="SEQUENCE_ERROR"}} {snapshot["messages_rejected_sequence"]}',

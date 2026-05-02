@@ -29,6 +29,14 @@ class IngestionSettings(BaseSettings):
         validation_alias=AliasChoices("INGESTION_MQTT_TOPIC_PATTERN", "MQTT_TOPIC_PATTERN"),
         description="MQTT topic pattern to subscribe to",
     )
+    mqtt_heartbeat_topic_pattern: str = Field(
+        default="transport/bus/+/heartbeat",
+        validation_alias=AliasChoices(
+            "INGESTION_MQTT_HEARTBEAT_TOPIC_PATTERN",
+            "MQTT_HEARTBEAT_TOPIC_PATTERN",
+        ),
+        description="MQTT topic pattern for GPS device-status heartbeats",
+    )
     mqtt_tls_enabled: bool = Field(
         default=False,
         validation_alias=AliasChoices("INGESTION_MQTT_TLS_ENABLED", "MQTT_TLS_ENABLED"),
@@ -69,6 +77,45 @@ class IngestionSettings(BaseSettings):
         default="transport-telemetry-dlq",
         validation_alias=AliasChoices("INGESTION_KAFKA_DLQ_TOPIC", "KAFKA_DLQ_TOPIC"),
         description="Kafka topic for rejected messages",
+    )
+    kafka_trip_lifecycle_topic: str = Field(
+        default="trip.lifecycle",
+        validation_alias=AliasChoices(
+            "INGESTION_KAFKA_TRIP_LIFECYCLE_TOPIC",
+            "KAFKA_TRIP_LIFECYCLE_TOPIC",
+        ),
+        description="Kafka topic for Fleet trip lifecycle events",
+    )
+    trip_cache_consumer_group: str = Field(
+        default="ingestion-trip-cache",
+        validation_alias=AliasChoices(
+            "INGESTION_TRIP_CACHE_CONSUMER_GROUP",
+            "TRIP_CACHE_CONSUMER_GROUP",
+        ),
+        description="Kafka consumer group for ingestion active trip cache",
+    )
+    require_active_trip: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("INGESTION_REQUIRE_ACTIVE_TRIP", "REQUIRE_ACTIVE_TRIP"),
+        description="Reject GPS unless bus has an active trip in the local cache",
+    )
+    trip_cache_rebuild_timeout_seconds: float = Field(
+        default=60.0,
+        ge=0,
+        validation_alias=AliasChoices(
+            "INGESTION_TRIP_CACHE_REBUILD_TIMEOUT_SECONDS",
+            "TRIP_CACHE_REBUILD_TIMEOUT_SECONDS",
+        ),
+        description="Maximum time allowed for initial trip cache rebuild",
+    )
+    startup_buffer_max_messages: int = Field(
+        default=1000,
+        ge=1,
+        validation_alias=AliasChoices(
+            "INGESTION_STARTUP_BUFFER_MAX_MESSAGES",
+            "STARTUP_BUFFER_MAX_MESSAGES",
+        ),
+        description="Maximum GPS messages buffered while trip cache is rebuilding",
     )
 
     service_port: int = Field(
