@@ -1,23 +1,270 @@
 # Ingestion Service
 
-Receives telemetry and validates message contracts before publishing events.
+The ingestion service is G2's MQTT-to-Kafka gateway. It accepts GPS telemetry from G1, validates it against the shared `GPSLocationMessage` input contract, enriches accepted active-trip telemetry into `GPSMessage`, applies stateful filtering, and forwards clean data to Kafka for downstream stream processing.
+
+## What Phase 7 Completes
+
+- packages runtime code under `services/ingestion/app/`
+- adds a Docker image entrypoint for the full worker
+- integrates `ingestion-service` into `docker/docker-compose.yml`
+- exposes liveness and readiness probes for operations
+- documents the G1 and G4 integration interfaces clearly
+
+## Runtime Flow
+
+```text
+G1 GPS device / simulator
+  -> MQTT broker (Mosquitto)
+  -> ingestion-service
+     -> schema validation
+     -> geo validation
+     -> duplicate / rate / sequence checks
+     -> valid message -> Kafka raw topic
+     -> invalid message -> Kafka DLQ topic
+```
+
+## Directory Layout
+
+```text
+services/ingestion/
+  app/
+    config.py
+    health.py
+    main.py
+    metrics.py
+    mqtt_subscriber.py
+    producer.py
+    validator.py
+  tests/
+  Dockerfile
+  requirements.txt
+  README.md
+```
 
 ## Responsibilities
 
-- MQTT or simulator intake
-- Schema validation
-- Dead-letter routing for invalid payloads
-- Publish clean events to Kafka topics
+- subscribe to MQTT topic `transport/bus/+/location`
+- validate JSON and `GPSLocationMessage` schema from G1
+- reject coordinates outside Sri Lanka bounds
+- detect duplicates from the same bus
+- enforce minimum message interval per bus
+- reject out-of-order timestamps per bus
+- publish valid messages to Kafka topic `transport-telemetry-raw`
+- publish invalid messages to Kafka topic `transport-telemetry-dlq`
+- expose `/health`, `/health/live`, `/health/ready`, and `/metrics`
 
-## Expected outputs
+## Interfaces
 
-- `transport-telemetry-raw`
-- `transport-telemetry-dlq`
+### G1 -> G2 ingestion interface
 
-## Ownership and Review
+| Item | Value |
+|------|-------|
+| Producer group | G1 Device & Edge |
+| Protocol | MQTT 3.1.1 |
+| Transport | Local Mosquitto by default; HiveMQ-compatible config planned |
+| Topic | `transport/bus/{busId}/location` |
+| G1 payload contract | `busId`, `lat`, `lon`, `speed`, `heading`, `timestamp` |
+| Accepted raw Kafka contract | `GPSMessage` after ingestion enriches active `tripId` |
+| Expected publish cadence | every 3 to 5 seconds per active bus |
+| Current dev publisher | `scripts/gps_simulator.py` |
 
-- Owner: Chamodh
-- Required reviewer: Nathasha
-- Optional reviewer: Janidu
+Frozen contract decisions:
 
+- G1 must not send `tripId`; ingestion resolves it from `busId` plus Kafka `trip.lifecycle`.
+- `busId` is the Fleet bus `id`, serialized as a string, for example `"1"`.
+- `timestamp` is required and must be ISO 8601 UTC, for example `"2026-05-02T10:15:30Z"`.
+- `speed` is reported in km/h.
+- `heading` is degrees from `0` to `360`; if the GPS course is invalid or stationary, send `0`.
+- G1 location publishes must use retained=false.
+- Heartbeat may use retained=true only if it is timestamped and treated as device status, not live movement.
+- Inactive GPS is rejected to DLQ with `INACTIVE_TRIP`.
+- Startup cache rebuild must not create false `INACTIVE_TRIP` DLQ entries.
 
+Location payload sent by G1:
+
+```json
+{
+  "busId": "1",
+  "lat": 6.9271,
+  "lon": 79.8612,
+  "speed": 35.0,
+  "heading": 120.0,
+  "timestamp": "2026-05-02T10:15:30Z"
+}
+```
+
+Accepted raw Kafka payload after ingestion enrichment:
+
+```json
+{
+  "busId": "1",
+  "tripId": "TRIP-001",
+  "lat": 6.9271,
+  "lon": 79.8612,
+  "speed": 35.0,
+  "heading": 120.0,
+  "timestamp": "2026-05-02T10:15:30Z"
+}
+```
+
+Heartbeat topic:
+
+```text
+transport/bus/{busId}/heartbeat
+```
+
+Heartbeat is separate from live GPS and must not be published to
+`transport-telemetry-raw`.
+
+Planned event-time validation thresholds:
+
+| Variable | Value | Meaning |
+|----------|-------|---------|
+| `INGESTION_MIN_EVENT_INTERVAL_SECONDS` | `1.0` | minimum event-time gap accepted per bus |
+| `INGESTION_MAX_FUTURE_SKEW_SECONDS` | `30` | maximum allowed future clock skew |
+| `INGESTION_MAX_STALE_AGE_SECONDS` | `86400` | maximum stale replay age in seconds |
+
+Trip lifecycle dependency:
+
+```json
+{
+  "event": "TRIP_STARTED",
+  "busId": "1",
+  "tripId": "TRIP-001",
+  "routeId": "202",
+  "timestamp": "2026-05-02T10:00:00Z"
+}
+```
+
+Fleet must publish the same `busId` value that G1 publishes.
+
+### G2 ingestion -> downstream G2 interface
+
+| Item | Value |
+|------|-------|
+| Consumer | stream-processing / downstream Kafka consumers |
+| Protocol | Kafka |
+| Valid topic | `transport-telemetry-raw` |
+| Invalid topic | `transport-telemetry-dlq` |
+| Keying | valid messages keyed by `busId` |
+
+DLQ envelope includes:
+
+- original payload
+- error reason
+- error type
+- source
+- source topic
+- received timestamp
+
+### G4 -> G2 ingestion interface
+
+| Item | Value |
+|------|-------|
+| Consumer group | G4 Platform, Security & Integration |
+| Access method | Docker Compose / container runtime / HTTP scrape |
+| Health summary | `GET /health` |
+| Liveness probe | `GET /health/live` |
+| Readiness probe | `GET /health/ready` |
+| Metrics scrape | `GET /metrics` |
+| Default service port | `8001` |
+
+G4 uses these interfaces for:
+
+- container health monitoring
+- orchestrator readiness checks
+- Prometheus scraping
+- debugging dependency failures
+
+## Environment Variables
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `MQTT_BROKER_HOST` | `mqtt-broker` | MQTT broker host |
+| `MQTT_BROKER_PORT` | `1883` | MQTT broker port |
+| `MQTT_TOPIC_PATTERN` | `transport/bus/+/location` | MQTT subscription pattern |
+| `MQTT_TLS_ENABLED` | `false` | enable TLS for HiveMQ-style brokers |
+| `MQTT_USERNAME` | unset | optional MQTT username |
+| `MQTT_PASSWORD` | unset | optional MQTT password |
+| `MQTT_CLIENT_ID` | `ontime-ingestion-service` | MQTT client identifier |
+| `MQTT_CA_CERT_PATH` | unset | optional CA certificate path for MQTT TLS |
+| `KAFKA_BROKER_URL` | `broker:29092` | Kafka bootstrap server |
+| `INGESTION_KAFKA_RAW_TOPIC` | `transport-telemetry-raw` | topic for accepted telemetry |
+| `INGESTION_KAFKA_DLQ_TOPIC` | `transport-telemetry-dlq` | topic for rejected telemetry |
+| `INGESTION_SERVICE_PORT` | `8001` | port used by health and metrics server |
+| `INGESTION_MIN_MESSAGE_INTERVAL_SECONDS` | `3.0` | minimum accepted gap between messages from the same bus |
+| `INGESTION_DUPLICATE_CACHE_SIZE` | `100` | duplicate hash window per bus |
+
+## Local Run
+
+From the repo root:
+
+```bash
+python -m pip install -r services/ingestion/requirements.txt
+python -m services.ingestion.app.main
+```
+
+## Docker Compose Run
+
+From the repo root:
+
+```bash
+docker compose -f docker/docker-compose.yml up -d broker mqtt-broker ingestion-service
+```
+
+Compose listener map:
+
+- Kafka inside Docker network: `broker:29092`
+- Kafka from host machine: `localhost:9092`
+- MQTT from host machine: `localhost:1883`
+- Ingestion health/metrics from host machine: `localhost:8001`
+
+Useful checks:
+
+```bash
+curl http://localhost:8001/health
+curl http://localhost:8001/health/live
+curl http://localhost:8001/health/ready
+curl http://localhost:8001/metrics
+```
+
+## Phase 7 Validation Checklist
+
+- `docker compose` includes `ingestion-service`
+- image starts with `python -m services.ingestion.app.main`
+- readiness endpoint returns `200` only when Kafka and MQTT are connected
+- liveness endpoint stays available while the service process is alive
+- ingestion tests pass locally
+- docs describe G1 and G4 integration points
+
+## Tests
+
+```bash
+python -m pip install -r services/ingestion/requirements-dev.txt
+python -m pytest services/ingestion/tests/unit -v --cov=services/ingestion/app --cov-report=term-missing
+python -m pytest services/ingestion/tests/integration -m integration -v
+pytest services/ingestion/tests -v
+```
+
+Smoke test coverage includes:
+
+- containerized Kafka broker
+- containerized Mosquitto broker
+- ingestion service startup and readiness
+- MQTT publish of valid and invalid telemetry
+- assertion that raw data reaches Kafka raw topic
+- assertion that invalid data reaches Kafka DLQ
+
+## Important Notes
+
+- The service is intentionally narrow in scope. It does not calculate ETA, render maps, or own user-facing APIs.
+- `services/ingestion/app/` is the runtime package. Tests stay under `services/ingestion/tests/`.
+- Unit tests live under `services/ingestion/tests/unit/`.
+- Docker-backed smoke tests live under `services/ingestion/tests/integration/`.
+- `services/ingestion/tests/conftest.py` is only a pytest path helper for this service's tests. It is not part of the runtime.
+
+## Ownership
+
+- Owner: Janidu
+- Downstream reviewer: Natasha
+- Infrastructure reviewer: Kusal

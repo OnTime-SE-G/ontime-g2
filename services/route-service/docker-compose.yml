@@ -1,0 +1,9 @@
+services:
+  route-service:
+    build: .
+    container_name: route_service
+    ports:
+      - "8002:8002"
+    volumes:
+      - .:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8002 --reload

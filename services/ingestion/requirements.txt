@@ -1,0 +1,8 @@
+# Ingestion Service dependencies
+pydantic>=2.13
+pydantic-settings>=2.14
+python-dotenv>=1.0
+kafka-python>=2.3
+paho-mqtt>=2.1
+fastapi>=0.115
+uvicorn>=0.34
