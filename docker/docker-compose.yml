@@ -261,6 +261,24 @@ services:
     networks:
       - ontime_network
 
+  flink-job-submitter:
+    build:
+      context: ..
+      dockerfile: services/stream-processing/Dockerfile
+    container_name: ontime_flink_job_submitter
+    command: bash -c "sleep 30 && flink run -m flink-jobmanager:8081 -py /opt/flink/usrlib/app/job.py"
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+      - KAFKA_BROKER_URL=broker:29092
+      - PYTHONPATH=/opt/flink/usrlib
+    networks:
+      - ontime_network
+    depends_on:
+      - flink-jobmanager
+      - flink-taskmanager
+
   anomaly-service:
     build:
       context: ../services/anomaly-service
