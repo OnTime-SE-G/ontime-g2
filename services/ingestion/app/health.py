@@ -4,21 +4,42 @@ from fastapi import FastAPI, status
 from fastapi.responses import JSONResponse, PlainTextResponse
 
 from services.ingestion.app.config import settings
-from services.ingestion.app.metrics import metrics
+from services.ingestion.app.metrics import REJECTION_REASONS, metrics
+
+
+def _trip_cache_ready(snapshot: dict) -> bool:
+    if not settings.require_active_trip:
+        return True
+    return snapshot["trip_cache_status"] == "ready"
+
+
+def _dependencies_ready(snapshot: dict) -> bool:
+    return (
+        snapshot["kafka_broker_up"]
+        and snapshot["mqtt_broker_up"]
+        and _trip_cache_ready(snapshot)
+    )
 
 
 def _build_health_payload(snapshot: dict) -> dict:
     kafka_ok = snapshot["kafka_broker_up"]
     mqtt_ok = snapshot["mqtt_broker_up"]
+    dependencies_ok = _dependencies_ready(snapshot)
 
     return {
-        "status": "healthy" if (kafka_ok and mqtt_ok) else "degraded",
+        "status": "healthy" if dependencies_ok else "degraded",
         "service": "ingestion-service",
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "dependencies": {
             "kafka_broker": "up" if kafka_ok else "down",
             "mqtt_broker": "up" if mqtt_ok else "down",
             "trip_cache": snapshot["trip_cache_status"],
+        },
+        "trip_cache": {
+            "ready": _trip_cache_ready(snapshot),
+            "status": snapshot["trip_cache_status"],
+            "active_trip_count": snapshot["active_trip_count"],
+            "last_lifecycle_event_timestamp": snapshot["last_trip_lifecycle_time"],
         },
         "counters": {
             "messages_received": snapshot["messages_received"],
@@ -59,7 +80,7 @@ def create_app():
         payload = _build_health_payload(snapshot)
         status_code = (
             status.HTTP_200_OK
-            if snapshot["kafka_broker_up"] and snapshot["mqtt_broker_up"]
+            if _dependencies_ready(snapshot)
             else status.HTTP_503_SERVICE_UNAVAILABLE
         )
         return JSONResponse(status_code=status_code, content=payload)
@@ -96,18 +117,21 @@ def create_app():
             "",
             "# HELP ingestion_messages_rejected_total Total messages rejected by error type",
             "# TYPE ingestion_messages_rejected_total counter",
-            f'ingestion_messages_rejected_total{{reason="JSON_PARSE"}} {snapshot["messages_rejected_json"]}',
-            f'ingestion_messages_rejected_total{{reason="MISSING_TIMESTAMP"}} {snapshot["messages_rejected_missing_timestamp"]}',
-            f'ingestion_messages_rejected_total{{reason="SCHEMA_VALIDATION"}} {snapshot["messages_rejected_schema"]}',
-            f'ingestion_messages_rejected_total{{reason="GEO_BOUNDS"}} {snapshot["messages_rejected_geo"]}',
-            f'ingestion_messages_rejected_total{{reason="DUPLICATE"}} {snapshot["messages_rejected_duplicate"]}',
-            f'ingestion_messages_rejected_total{{reason="INACTIVE_TRIP"}} {snapshot["messages_rejected_inactive_trip"]}',
-            f'ingestion_messages_rejected_total{{reason="TRIP_CACHE_REBUILDING"}} {snapshot["messages_rejected_trip_cache_rebuilding"]}',
-            f'ingestion_messages_rejected_total{{reason="RATE_LIMIT"}} {snapshot["messages_rejected_rate_limit"]}',
-            f'ingestion_messages_rejected_total{{reason="RATE_LIMIT_EVENT_TIME"}} {snapshot["messages_rejected_rate_limit_event_time"]}',
-            f'ingestion_messages_rejected_total{{reason="SEQUENCE_ERROR"}} {snapshot["messages_rejected_sequence"]}',
-            f'ingestion_messages_rejected_total{{reason="FUTURE_TIMESTAMP"}} {snapshot["messages_rejected_future_timestamp"]}',
-            f'ingestion_messages_rejected_total{{reason="STALE_REPLAY"}} {snapshot["messages_rejected_stale_replay"]}',
+            *[
+                (
+                    f'ingestion_messages_rejected_total{{reason="{reason}"}} '
+                    f'{snapshot["rejections_by_reason"][reason]}'
+                )
+                for reason in REJECTION_REASONS
+            ],
+            "",
+            "# HELP ingestion_trip_cache_ready Active trip cache readiness (1=ready, 0=not ready)",
+            "# TYPE ingestion_trip_cache_ready gauge",
+            f'ingestion_trip_cache_ready {1 if _trip_cache_ready(snapshot) else 0}',
+            "",
+            "# HELP ingestion_trip_cache_active_trips Active trips currently cached",
+            "# TYPE ingestion_trip_cache_active_trips gauge",
+            f'ingestion_trip_cache_active_trips {snapshot["active_trip_count"]}',
             "",
             "# HELP ingestion_uptime_seconds Service uptime in seconds",
             "# TYPE ingestion_uptime_seconds gauge",

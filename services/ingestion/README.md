@@ -1,86 +1,41 @@
 # Ingestion Service
 
-The ingestion service is G2's MQTT-to-Kafka gateway. It accepts GPS telemetry from G1, validates it against the shared `GPSLocationMessage` input contract, enriches accepted active-trip telemetry into `GPSMessage`, applies stateful filtering, and forwards clean data to Kafka for downstream stream processing.
+The ingestion service is G2's MQTT-to-Kafka boundary for live bus telemetry. It
+receives GPS from G1, validates the payload, checks that the bus has an active
+Fleet trip, enriches accepted GPS with `tripId`, and publishes clean telemetry
+to Kafka. Bad GPS goes to the DLQ with typed reasons and useful metadata.
 
-## What Phase 7 Completes
-
-- packages runtime code under `services/ingestion/app/`
-- adds a Docker image entrypoint for the full worker
-- integrates `ingestion-service` into `docker/docker-compose.yml`
-- exposes liveness and readiness probes for operations
-- documents the G1 and G4 integration interfaces clearly
-
-## Runtime Flow
+## End-to-End Flow
 
 ```text
-G1 GPS device / simulator
-  -> MQTT broker (Mosquitto)
-  -> ingestion-service
-     -> schema validation
-     -> geo validation
-     -> duplicate / rate / sequence checks
-     -> valid message -> Kafka raw topic
-     -> invalid message -> Kafka DLQ topic
+Fleet start trip
+  -> Kafka trip.lifecycle
+  -> ingestion active-trip cache
+
+G1 GPS device
+  -> MQTT transport/bus/{busId}/location
+  -> ingestion schema/geo/trip/event-time validation
+  -> Kafka transport-telemetry-raw
+  -> stream processing / live map
+
+Invalid or inactive GPS
+  -> Kafka transport-telemetry-dlq
+
+G1 heartbeat
+  -> MQTT transport/bus/{busId}/heartbeat
+  -> ingestion metrics only
 ```
 
-## Directory Layout
+## Contracts
 
-```text
-services/ingestion/
-  app/
-    config.py
-    health.py
-    main.py
-    metrics.py
-    mqtt_subscriber.py
-    producer.py
-    validator.py
-  tests/
-  Dockerfile
-  requirements.txt
-  README.md
-```
+### MQTT Topics
 
-## Responsibilities
+| Purpose | G1 publish topic | Ingestion subscribe pattern | Retained |
+|---------|------------------|-----------------------------|----------|
+| Live GPS | `transport/bus/{busId}/location` | `transport/bus/+/location` | `false` |
+| Device heartbeat | `transport/bus/{busId}/heartbeat` | `transport/bus/+/heartbeat` | allowed if timestamped |
 
-- subscribe to MQTT topic `transport/bus/+/location`
-- validate JSON and `GPSLocationMessage` schema from G1
-- reject coordinates outside Sri Lanka bounds
-- detect duplicates from the same bus
-- enforce minimum message interval per bus
-- reject out-of-order timestamps per bus
-- publish valid messages to Kafka topic `transport-telemetry-raw`
-- publish invalid messages to Kafka topic `transport-telemetry-dlq`
-- expose `/health`, `/health/live`, `/health/ready`, and `/metrics`
-
-## Interfaces
-
-### G1 -> G2 ingestion interface
-
-| Item | Value |
-|------|-------|
-| Producer group | G1 Device & Edge |
-| Protocol | MQTT 3.1.1 |
-| Transport | Local Mosquitto by default; HiveMQ-compatible config planned |
-| Topic | `transport/bus/{busId}/location` |
-| G1 payload contract | `busId`, `lat`, `lon`, `speed`, `heading`, `timestamp` |
-| Accepted raw Kafka contract | `GPSMessage` after ingestion enriches active `tripId` |
-| Expected publish cadence | every 3 to 5 seconds per active bus |
-| Current dev publisher | `scripts/gps_simulator.py` |
-
-Frozen contract decisions:
-
-- G1 must not send `tripId`; ingestion resolves it from `busId` plus Kafka `trip.lifecycle`.
-- `busId` is the Fleet bus `id`, serialized as a string, for example `"1"`.
-- `timestamp` is required and must be ISO 8601 UTC, for example `"2026-05-02T10:15:30Z"`.
-- `speed` is reported in km/h.
-- `heading` is degrees from `0` to `360`; if the GPS course is invalid or stationary, send `0`.
-- G1 location publishes must use retained=false.
-- Heartbeat may use retained=true only if it is timestamped and treated as device status, not live movement.
-- Inactive GPS is rejected to DLQ with `INACTIVE_TRIP`.
-- Startup cache rebuild must not create false `INACTIVE_TRIP` DLQ entries.
-
-Location payload sent by G1:
+G1 GPS payload:
 
 ```json
 {
@@ -93,31 +48,16 @@ Location payload sent by G1:
 }
 ```
 
-Accepted raw Kafka payload after ingestion enrichment:
+Rules:
 
-```json
-{
-  "busId": "1",
-  "tripId": "TRIP-001",
-  "lat": 6.9271,
-  "lon": 79.8612,
-  "speed": 35.0,
-  "heading": 120.0,
-  "timestamp": "2026-05-02T10:15:30Z"
-}
-```
+- `busId` is the Fleet bus id serialized as a string.
+- G1 does not send `tripId`; ingestion adds it from `trip.lifecycle`.
+- `timestamp` is required ISO 8601 UTC event time.
+- `speed` is km/h.
+- `heading` is degrees from `0` to `360`.
+- live GPS must not be retained, because retained GPS can replay stale movement.
 
-Heartbeat topic:
-
-```text
-transport/bus/{busId}/heartbeat
-```
-
-Heartbeat is separate from live GPS and must not be published to
-`transport-telemetry-raw`. In Increment 1 ingestion records heartbeat metrics
-only; it does not publish heartbeat messages to Kafka.
-
-Heartbeat payload sent by G1:
+Heartbeat payload:
 
 ```json
 {
@@ -132,19 +72,18 @@ Heartbeat payload sent by G1:
 }
 ```
 
-Warnings such as "trip started but no GPS device signal" should be generated by
-Fleet/anomaly monitoring using trip lifecycle plus heartbeat/GPS absence. GPS
-received without an active trip continues to go to DLQ with `INACTIVE_TRIP`.
+Heartbeat is device status only. It is not published to
+`transport-telemetry-raw`.
 
-Planned event-time validation thresholds:
+### Kafka Topics
 
-| Variable | Value | Meaning |
-|----------|-------|---------|
-| `INGESTION_MIN_EVENT_INTERVAL_SECONDS` | `1.0` | minimum event-time gap accepted per bus |
-| `INGESTION_MAX_FUTURE_SKEW_SECONDS` | `30` | maximum allowed future clock skew |
-| `INGESTION_MAX_STALE_AGE_SECONDS` | `86400` | maximum stale replay age in seconds |
+| Topic | Producer | Consumer | Purpose |
+|-------|----------|----------|---------|
+| `trip.lifecycle` | Fleet Management | ingestion, stream processing | active trip start/end events |
+| `transport-telemetry-raw` | ingestion | stream processing | accepted active-trip GPS |
+| `transport-telemetry-dlq` | ingestion | operators/anomaly tooling | rejected GPS with reason metadata |
 
-Trip lifecycle dependency:
+Trip lifecycle start event:
 
 ```json
 {
@@ -156,91 +95,139 @@ Trip lifecycle dependency:
 }
 ```
 
-Fleet must publish the same `busId` value that G1 publishes.
+`TRIP_ENDED` with the same `busId` and `tripId` removes the bus from the active
+trip cache.
 
-### G2 ingestion -> downstream G2 interface
+Accepted raw Kafka GPS after ingestion enrichment:
 
-| Item | Value |
-|------|-------|
-| Consumer | stream-processing / downstream Kafka consumers |
-| Protocol | Kafka |
-| Valid topic | `transport-telemetry-raw` |
-| Invalid topic | `transport-telemetry-dlq` |
-| Keying | valid messages keyed by `busId` |
+```json
+{
+  "busId": "1",
+  "tripId": "TRIP-001",
+  "lat": 6.9271,
+  "lon": 79.8612,
+  "speed": 35.0,
+  "heading": 120.0,
+  "timestamp": "2026-05-02T10:15:30Z"
+}
+```
 
 DLQ envelope includes:
 
-- original payload
-- error reason
-- error type
-- source
-- source topic
-- received timestamp
+- `original_payload`
+- `busId` if parseable from payload or topic
+- `tripId` if parseable from payload
+- `event_timestamp` if parseable from payload
+- `error_type`
+- `error_reason`
+- `source`
+- `source_topic`
+- `received_at`
 
-### G4 -> G2 ingestion interface
+Current GPS rejection reasons:
 
-| Item | Value |
-|------|-------|
-| Consumer group | G4 Platform, Security & Integration |
-| Access method | Docker Compose / container runtime / HTTP scrape |
-| Health summary | `GET /health` |
-| Liveness probe | `GET /health/live` |
-| Readiness probe | `GET /health/ready` |
-| Metrics scrape | `GET /metrics` |
-| Default service port | `8001` |
+`JSON_PARSE`, `MISSING_TIMESTAMP`, `SCHEMA_VALIDATION`, `GEO_BOUNDS`,
+`INACTIVE_TRIP`, `TRIP_CACHE_REBUILDING`, `DUPLICATE`,
+`RATE_LIMIT`, `RATE_LIMIT_EVENT_TIME`, `SEQUENCE_ERROR`,
+`FUTURE_TIMESTAMP`, `STALE_REPLAY`.
 
-G4 uses these interfaces for:
+## HTTP Endpoints
 
-- container health monitoring
-- orchestrator readiness checks
-- Prometheus scraping
-- debugging dependency failures
+| Endpoint | Meaning |
+|----------|---------|
+| `GET /health` | dependency-aware service summary |
+| `GET /health/live` | process liveness |
+| `GET /health/ready` | readiness for Kafka, MQTT, and trip-cache state |
+| `GET /metrics` | Prometheus-style counters and gauges |
 
-## Environment Variables
+Readiness returns `200` only when Kafka is up, MQTT is up, and the active-trip
+cache is ready when `INGESTION_REQUIRE_ACTIVE_TRIP=true`.
+
+## Validation Rules
+
+Ingestion accepts a GPS message only when all checks pass:
+
+1. payload is UTF-8 JSON object
+2. required `timestamp` exists
+3. payload matches `GPSLocationMessage`
+4. coordinates are inside Sri Lanka bounds
+5. cache is ready, or the message is buffered during startup rebuild
+6. bus has an active trip in the local cache
+7. enriched GPS passes future/stale, duplicate, sequence, and event-time interval checks
+
+Event-time defaults:
+
+| Variable | Default | Meaning |
+|----------|---------|---------|
+| `INGESTION_MIN_EVENT_INTERVAL_SECONDS` | `1.0` | minimum event-time gap per bus |
+| `INGESTION_MAX_FUTURE_SKEW_SECONDS` | `30.0` | allowed future clock skew |
+| `INGESTION_MAX_STALE_AGE_SECONDS` | `86400.0` | allowed stale replay age |
+| `INGESTION_DUPLICATE_CACHE_SIZE` | `100` | recent payload hashes per bus |
+
+## Configuration
 
 | Variable | Default | Description |
 |----------|---------|-------------|
 | `MQTT_BROKER_HOST` | `mqtt-broker` | MQTT broker host |
 | `MQTT_BROKER_PORT` | `1883` | MQTT broker port |
-| `MQTT_TOPIC_PATTERN` | `transport/bus/+/location` | MQTT subscription pattern |
-| `MQTT_HEARTBEAT_TOPIC_PATTERN` | `transport/bus/+/heartbeat` | MQTT heartbeat subscription pattern |
-| `MQTT_TLS_ENABLED` | `false` | enable TLS for HiveMQ-style brokers |
+| `MQTT_TOPIC_PATTERN` | `transport/bus/+/location` | GPS subscription pattern |
+| `MQTT_HEARTBEAT_TOPIC_PATTERN` | `transport/bus/+/heartbeat` | heartbeat subscription pattern |
+| `MQTT_TLS_ENABLED` | `false` | enable TLS for secured brokers |
 | `MQTT_USERNAME` | unset | optional MQTT username |
 | `MQTT_PASSWORD` | unset | optional MQTT password |
-| `MQTT_CLIENT_ID` | `ontime-ingestion-service` | MQTT client identifier |
-| `MQTT_CA_CERT_PATH` | unset | optional CA certificate path for MQTT TLS |
+| `MQTT_CLIENT_ID` | `ontime-ingestion-service` | MQTT client id |
+| `MQTT_CA_CERT_PATH` | unset | optional TLS CA certificate path |
 | `KAFKA_BROKER_URL` | `broker:29092` | Kafka bootstrap server |
-| `INGESTION_KAFKA_RAW_TOPIC` | `transport-telemetry-raw` | topic for accepted telemetry |
-| `INGESTION_KAFKA_DLQ_TOPIC` | `transport-telemetry-dlq` | topic for rejected telemetry |
-| `INGESTION_SERVICE_PORT` | `8001` | port used by health and metrics server |
-| `INGESTION_MIN_MESSAGE_INTERVAL_SECONDS` | `3.0` | minimum accepted gap between messages from the same bus |
-| `INGESTION_DUPLICATE_CACHE_SIZE` | `100` | duplicate hash window per bus |
+| `INGESTION_KAFKA_RAW_TOPIC` | `transport-telemetry-raw` | accepted GPS topic |
+| `INGESTION_KAFKA_DLQ_TOPIC` | `transport-telemetry-dlq` | rejected GPS topic |
+| `INGESTION_KAFKA_TRIP_LIFECYCLE_TOPIC` | `trip.lifecycle` | trip lifecycle topic |
+| `INGESTION_TRIP_CACHE_CONSUMER_GROUP` | `ingestion-trip-cache` | lifecycle consumer group |
+| `INGESTION_REQUIRE_ACTIVE_TRIP` | `true` | reject GPS without active trip |
+| `INGESTION_TRIP_CACHE_REBUILD_TIMEOUT_SECONDS` | `60.0` | startup cache rebuild window |
+| `INGESTION_STARTUP_BUFFER_MAX_MESSAGES` | `1000` | GPS buffer during cache rebuild |
+| `INGESTION_SERVICE_PORT` | `8001` | health/metrics port |
 
-## Local Run
+`INGESTION_` aliases are preferred in deployment, but legacy names such as
+`MQTT_BROKER_HOST` and `KAFKA_BROKER_URL` are still accepted.
 
-From the repo root:
+## Code Map
+
+| File | Main methods/classes | What they do |
+|------|----------------------|--------------|
+| `app/main.py` | `main`, `handle_shutdown` | starts producer, trip cache consumer, MQTT subscriber, and health server; shuts them down cleanly |
+| `app/config.py` | `IngestionSettings` | loads env config and defaults |
+| `app/mqtt_subscriber.py` | `MQTTSubscriber.connect/start/stop` | manages MQTT connection and loop |
+| `app/mqtt_subscriber.py` | `on_connect`, `on_disconnect`, `on_message` | subscribes to GPS/heartbeat topics and routes incoming messages |
+| `app/mqtt_subscriber.py` | `_process_payload` | validates GPS, buffers during cache rebuild, enriches with tripId, publishes valid/DLQ |
+| `app/mqtt_subscriber.py` | `_process_heartbeat` | validates heartbeat and records metrics only |
+| `app/mqtt_subscriber.py` | `_enrich_location`, `_reject` | attaches active `tripId`; sends rejected payloads to DLQ |
+| `app/validator.py` | `validate_gps_location_payload` | validates G1 MQTT GPS without `tripId` |
+| `app/validator.py` | `validate_gps_payload` | validates enriched Kafka GPS with required `tripId` |
+| `app/validator.py` | `validate_heartbeat_payload` | validates heartbeat device status |
+| `app/validator.py` | `StatefulValidator.validate` | checks future/stale timestamps, duplicates, order, and event-time interval |
+| `app/trip_lifecycle_cache.py` | `ActiveTripCache.apply_event/get_active_trip` | maintains busId -> active trip in memory |
+| `app/trip_lifecycle_cache.py` | `TripLifecycleConsumer.start/stop` | consumes `trip.lifecycle` in a background thread |
+| `app/producer.py` | `publish_valid` | publishes accepted GPS to `transport-telemetry-raw` keyed by `busId` |
+| `app/producer.py` | `publish_to_dlq` | publishes rejected GPS to `transport-telemetry-dlq` with metadata |
+| `app/metrics.py` | `MetricsCollector` methods | tracks received, accepted, rejected, heartbeat, broker, and trip-cache metrics |
+| `app/health.py` | `create_app`, `start_health_server` | exposes `/health`, `/health/live`, `/health/ready`, and `/metrics` |
+
+## Run
+
+Local Python:
 
 ```bash
 python -m pip install -r services/ingestion/requirements.txt
 python -m services.ingestion.app.main
 ```
 
-## Docker Compose Run
-
-From the repo root:
+Docker Compose:
 
 ```bash
 docker compose -f docker/docker-compose.yml up -d broker mqtt-broker ingestion-service
 ```
 
-Compose listener map:
-
-- Kafka inside Docker network: `broker:29092`
-- Kafka from host machine: `localhost:9092`
-- MQTT from host machine: `localhost:1883`
-- Ingestion health/metrics from host machine: `localhost:8001`
-
-Useful checks:
+Useful host checks:
 
 ```bash
 curl http://localhost:8001/health
@@ -249,45 +236,27 @@ curl http://localhost:8001/health/ready
 curl http://localhost:8001/metrics
 ```
 
-## Phase 7 Validation Checklist
-
-- `docker compose` includes `ingestion-service`
-- image starts with `python -m services.ingestion.app.main`
-- readiness endpoint returns `200` only when Kafka and MQTT are connected
-- liveness endpoint stays available while the service process is alive
-- ingestion tests pass locally
-- docs describe G1 and G4 integration points
-
 ## Tests
 
 ```bash
 python -m pip install -r services/ingestion/requirements-dev.txt
-python -m pytest services/ingestion/tests/unit -v --cov=services/ingestion/app --cov-report=term-missing
-python -m pytest services/ingestion/tests/integration -m integration -v
-pytest services/ingestion/tests -v
+python -m pytest services/ingestion/tests/unit -q
+python -m pytest services/ingestion/tests/integration/test_smoke_pipeline.py -q
 ```
 
-Unit test coverage includes heartbeat parsing without raw GPS Kafka output.
+Smoke coverage proves:
 
-Smoke test coverage includes:
+- Kafka, Mosquitto, and ingestion containers start
+- `TRIP_STARTED` is consumed into the active-trip cache
+- valid MQTT GPS reaches `transport-telemetry-raw` with enriched `tripId`
+- invalid MQTT GPS reaches `transport-telemetry-dlq`
+- `/health/ready` works in the container stack
 
-- containerized Kafka broker
-- containerized Mosquitto broker
-- ingestion service startup and readiness
-- MQTT publish of valid and invalid telemetry
-- assertion that raw data reaches Kafka raw topic
-- assertion that invalid data reaches Kafka DLQ
+## Ownership Notes
 
-## Important Notes
-
-- The service is intentionally narrow in scope. It does not calculate ETA, render maps, or own user-facing APIs.
-- `services/ingestion/app/` is the runtime package. Tests stay under `services/ingestion/tests/`.
-- Unit tests live under `services/ingestion/tests/unit/`.
-- Docker-backed smoke tests live under `services/ingestion/tests/integration/`.
-- `services/ingestion/tests/conftest.py` is only a pytest path helper for this service's tests. It is not part of the runtime.
-
-## Ownership
-
-- Owner: Janidu
-- Downstream reviewer: Natasha
-- Infrastructure reviewer: Kusal
+- Fleet owns trip start/end and publishes `trip.lifecycle`.
+- G1 owns GPS and heartbeat publishing.
+- Ingestion owns validation, active-trip gating, raw Kafka publish, DLQ publish,
+  health, and metrics.
+- Stream processing owns downstream route enrichment, ETA, anomaly, and live map
+  outputs.
