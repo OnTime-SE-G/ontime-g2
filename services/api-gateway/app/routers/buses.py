@@ -31,18 +31,6 @@ async def get_live_buses():
         for bus in buses
     ]
 
-@router.get("/{bus_id}", response_model=BusResponse)
-async def fetch_bus(bus_id: str):
-    """
-    Get information about a specific bus.
-
-    Returns the basic details, status, and assigned route of the bus.
-    """
-    try:
-        return await get_bus(bus_id)
-    except HTTPStatusError as e:
-        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
-
 @router.get("/route/{route_id}", response_model=List[BusResponse])
 async def fetch_buses_by_route(route_id: str):
     """
@@ -52,5 +40,17 @@ async def fetch_buses_by_route(route_id: str):
     """
     try:
         return await get_route_buses(route_id)
+    except HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+
+@router.get("/{bus_id}", response_model=BusResponse)
+async def fetch_bus(bus_id: str):
+    """
+    Get information about a specific bus.
+
+    Returns the basic details, status, and assigned route of the bus.
+    """
+    try:
+        return await get_bus(bus_id)
     except HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)

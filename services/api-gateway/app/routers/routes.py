@@ -4,8 +4,9 @@ from fastapi import APIRouter
 
 from app.services.route_client import (
     get_route, get_routes_list, search_routes,
-    get_route_progress, get_route_stops, get_route_buses
+    get_route_progress, get_route_stops
 )
+from app.services.fleet_client import get_route_buses as get_fleet_route_buses
 from app.adapters.route_adapter import build_transit_route
 from app.schemas import (
     RouteSummary, RouteSearchResponse, RouteProgressResponse,
@@ -98,6 +99,11 @@ async def route_buses(route_id: str):
     """
     List live buses assigned to a route.
 
-    Currently acts as a placeholder or forwards to the route-service bus endpoint.
+    Fetches live vehicle data from the Fleet Management Service.
     """
-    return await get_route_buses(route_id)
+    buses = await get_fleet_route_buses(route_id)
+    return {
+        "route_id": int(route_id),
+        "buses": buses,
+        "message": f"Found {len(buses)} live buses for route {route_id}"
+    }
