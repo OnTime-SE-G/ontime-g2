@@ -29,6 +29,14 @@ class IngestionSettings(BaseSettings):
         validation_alias=AliasChoices("INGESTION_MQTT_TOPIC_PATTERN", "MQTT_TOPIC_PATTERN"),
         description="MQTT topic pattern to subscribe to",
     )
+    mqtt_heartbeat_topic_pattern: str = Field(
+        default="transport/bus/+/heartbeat",
+        validation_alias=AliasChoices(
+            "INGESTION_MQTT_HEARTBEAT_TOPIC_PATTERN",
+            "MQTT_HEARTBEAT_TOPIC_PATTERN",
+        ),
+        description="MQTT topic pattern for GPS device-status heartbeats",
+    )
     mqtt_tls_enabled: bool = Field(
         default=False,
         validation_alias=AliasChoices("INGESTION_MQTT_TLS_ENABLED", "MQTT_TLS_ENABLED"),
