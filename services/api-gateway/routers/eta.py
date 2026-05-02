@@ -1,10 +1,10 @@
 # services/api-gateway/routers/eta.py
-# ETA endpoint — reads bus position from Redis, computes physics heuristic,
+# ETA endpoint — reads bus position from Redis, computes AI or physics ETA,
 # writes to InfluxDB, and returns the prediction (Issue #23).
 
-from typing import Any, Dict
+from typing import Any, Dict, Literal
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 
 from database import get_db
@@ -15,12 +15,20 @@ router = APIRouter(prefix="/api/v1/eta", tags=["eta"])
 
 
 @router.get("/{bus_id}/{stop_id}", response_model=Dict[str, Any])
-def get_eta(bus_id: int, stop_id: int, db: Session = Depends(get_db)):
+def get_eta(
+    bus_id: int,
+    stop_id: int,
+    model: Literal["ai", "physics"] = Query(default="ai", description="ETA model to use"),
+    db: Session = Depends(get_db),
+):
     """Return ETA (seconds) for a bus to reach a stop.
 
     - Looks up stop coordinates from PostgreSQL via ORM.
     - Reads bus real-time position from Redis.
-    - Computes haversine distance and physics-heuristic ETA.
+    - **AI model** (default): Gradient Boosting Regressor trained on distance,
+      speed, hour-of-day, and day-of-week traffic patterns.  Falls back to
+      physics if the prediction is outside a ±80% sanity band.
+    - **Physics model** (`?model=physics`): pure distance ÷ speed heuristic.
     - Persists the prediction to InfluxDB (best-effort).
     """
     bus = get_bus(db, bus_id)
@@ -31,17 +39,15 @@ def get_eta(bus_id: int, stop_id: int, db: Session = Depends(get_db)):
     if stop is None:
         raise HTTPException(status_code=404, detail=f"Stop {stop_id} not found")
 
-    # Stop geometry is a WKB point — extract lat/lon via raw SQL helper or
-    # fall back to a sentinel when geometry is null (seeds may not have coords)
     if stop.location is None:
         raise HTTPException(status_code=422, detail=f"Stop {stop_id} has no location data")
 
-    # geoalchemy2 stores POINT as WKB; convert using shapely
     from geoalchemy2.shape import to_shape
     point = to_shape(stop.location)
     stop_lon, stop_lat = point.x, point.y
 
-    result = compute_bus_eta(str(bus_id), stop_lat, stop_lon)
+    use_ai = model == "ai"
+    result = compute_bus_eta(str(bus_id), stop_lat, stop_lon, use_ai=use_ai)
     if result is None:
         raise HTTPException(
             status_code=503,
@@ -56,5 +62,6 @@ def get_eta(bus_id: int, stop_id: int, db: Session = Depends(get_db)):
         "eta_seconds": round(result.eta_seconds, 1),
         "distance_m": round(result.distance_m, 1),
         "speed_ms": round(result.speed_ms, 2),
+        "model_used": "physics" if (not use_ai or result.clamped) else "ai_gbr",
         "clamped": result.clamped,
     }

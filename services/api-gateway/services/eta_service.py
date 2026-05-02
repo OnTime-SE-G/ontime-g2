@@ -12,6 +12,7 @@ from influxdb_client.client.write_api import SYNCHRONOUS
 
 from cache import get_bus_position
 from models.eta import EtaResult, compute_eta
+from models.ml_eta import predict_eta as ml_predict_eta
 
 # InfluxDB config from environment
 _INFLUX_URL = os.getenv("INFLUXDB_URL", "http://localhost:8086")
@@ -35,8 +36,14 @@ def compute_bus_eta(
     stop_lat: float,
     stop_lon: float,
     default_speed_ms: float = 5.0,
+    use_ai: bool = True,
 ) -> Optional[EtaResult]:
     """Compute ETA from Redis-cached bus position to a stop.
+
+    By default the AI (Gradient Boosting) model is tried first.  If the AI
+    prediction falls outside a sanity band around the physics baseline it
+    automatically falls back to the physics heuristic.  Pass use_ai=False to
+    always use the pure physics model.
 
     Returns None when no cached position is available for the bus.
     """
@@ -49,6 +56,9 @@ def compute_bus_eta(
         stop_lat, stop_lon,
     )
     speed_ms = position.get("speed_ms", default_speed_ms)
+
+    if use_ai:
+        return ml_predict_eta(distance_m, speed_ms)
     return compute_eta(distance_m, speed_ms)
 
 
