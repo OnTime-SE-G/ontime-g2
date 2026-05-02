@@ -4,3 +4,6 @@ httpx
 redis
 influxdb-client
 pydantic
+pytest
+pytest-mock
+pytest-asyncio

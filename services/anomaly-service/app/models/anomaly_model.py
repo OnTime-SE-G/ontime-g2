@@ -17,16 +17,40 @@ def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> fl
     return R * c
 
 def distance_to_polyline(lat: float, lon: float, polyline: List[Tuple[float, float]]) -> float:
-    """Calculate the shortest distance from a point to a polyline."""
-    if not polyline:
+    """Calculate the shortest distance from a point to a polyline using segment projection."""
+    if not polyline or len(polyline) < 1:
         return float('inf')
+    if len(polyline) == 1:
+        return haversine_distance(lat, lon, polyline[0][0], polyline[0][1])
         
     min_dist = float('inf')
-    for p_lat, p_lon in polyline:
-        d = haversine_distance(lat, lon, p_lat, p_lon)
-        if d < min_dist:
-            min_dist = d
+    
+    for i in range(len(polyline) - 1):
+        p1 = polyline[i]
+        p2 = polyline[i+1]
+        
+        seg_len = haversine_distance(p1[0], p1[1], p2[0], p2[1])
+        if seg_len == 0:
+            d = haversine_distance(lat, lon, p1[0], p1[1])
+            min_dist = min(min_dist, d)
+            continue
+            
+        d1 = haversine_distance(lat, lon, p1[0], p1[1])
+        d2 = haversine_distance(lat, lon, p2[0], p2[1])
+        
+        # Projection ratio t using Law of Cosines simplified
+        t = (d1**2 + seg_len**2 - d2**2) / (2 * seg_len**2)
+        t = max(0.0, min(1.0, t))
+        
+        # Closest point on this segment
+        proj_lat = p1[0] + t * (p2[0] - p1[0])
+        proj_lon = p1[1] + t * (p2[1] - p1[1])
+        
+        d_seg = haversine_distance(lat, lon, proj_lat, proj_lon)
+        min_dist = min(min_dist, d_seg)
+        
     return min_dist
+
 
 class AnomalyModel:
     def __init__(self):
