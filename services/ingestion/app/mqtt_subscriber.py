@@ -13,6 +13,7 @@ from services.ingestion.app.validator import (
     StatefulValidator,
     ValidationResult,
     validate_gps_location_payload,
+    validate_heartbeat_payload,
 )
 
 logger = logging.getLogger(__name__)
@@ -69,8 +70,17 @@ class MQTTSubscriber:
     def on_connect(self, client, userdata, connect_flags, reason_code, properties):
         if reason_code == 0:
             logger.info("Connected to MQTT broker successfully.")
-            client.subscribe(settings.mqtt_topic_pattern)
-            logger.info("Subscribed to topic pattern: %s", settings.mqtt_topic_pattern)
+            client.subscribe(
+                [
+                    (settings.mqtt_topic_pattern, 0),
+                    (settings.mqtt_heartbeat_topic_pattern, 0),
+                ]
+            )
+            logger.info(
+                "Subscribed to topic patterns: %s, %s",
+                settings.mqtt_topic_pattern,
+                settings.mqtt_heartbeat_topic_pattern,
+            )
             metrics.mqtt_broker_up = True
         else:
             logger.error("Failed to connect to MQTT broker, return code %s", reason_code)
@@ -94,7 +104,14 @@ class MQTTSubscriber:
         if self.trip_cache.is_ready:
             self.drain_startup_buffer()
 
+        if self._is_heartbeat_topic(msg.topic):
+            self._process_heartbeat(msg.payload, msg.topic)
+            return
+
         self._process_payload(msg.payload, msg.topic)
+
+    def _is_heartbeat_topic(self, topic: str) -> bool:
+        return topic.endswith("/heartbeat")
 
     def drain_startup_buffer(self):
         while self.trip_cache.is_ready and self.startup_buffer:
@@ -133,6 +150,23 @@ class MQTTSubscriber:
             self.producer.publish_valid(stateful_result.message)
         else:
             self._reject(raw_payload, source_topic, stateful_result)
+
+    def _process_heartbeat(self, raw_payload: bytes, source_topic: str):
+        result = validate_heartbeat_payload(raw_payload)
+        if result.success and result.heartbeat:
+            metrics.record_heartbeat(
+                bus_id=result.heartbeat.bus_id,
+                timestamp=result.heartbeat.timestamp,
+            )
+            logger.debug("Recorded heartbeat from %s", result.heartbeat.bus_id)
+            return
+
+        metrics.increment_invalid_heartbeat()
+        logger.warning(
+            "Ignoring invalid heartbeat from %s: %s",
+            source_topic,
+            result.error_reason or "Unknown Error",
+        )
 
     def _buffer_until_trip_cache_ready(self, raw_payload: bytes, source_topic: str):
         if len(self.startup_buffer) == self.startup_buffer.maxlen:
