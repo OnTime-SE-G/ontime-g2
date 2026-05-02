@@ -23,8 +23,13 @@ def _build_health_payload(snapshot: dict) -> dict:
         "counters": {
             "messages_received": snapshot["messages_received"],
             "messages_validated": snapshot["messages_validated"],
+            "heartbeats_received": snapshot["heartbeat_messages_received"],
+            "heartbeats_invalid": snapshot["heartbeat_messages_invalid"],
             "messages_rejected": snapshot["messages_rejected"],
             "active_trip_count": snapshot["active_trip_count"],
+        },
+        "device_status": {
+            "latest_heartbeat_by_bus": snapshot["latest_heartbeat_by_bus"],
         },
     }
 
@@ -70,6 +75,24 @@ def create_app():
             "# HELP ingestion_messages_validated_total Total messages validated and sent to Kafka",
             "# TYPE ingestion_messages_validated_total counter",
             f'ingestion_messages_validated_total {snapshot["messages_validated"]}',
+            "",
+            "# HELP ingestion_heartbeat_messages_received_total Total heartbeat messages received from MQTT",
+            "# TYPE ingestion_heartbeat_messages_received_total counter",
+            (
+                "ingestion_heartbeat_messages_received_total "
+                f'{snapshot["heartbeat_messages_received"]}'
+            ),
+            "",
+            "# HELP ingestion_heartbeat_messages_invalid_total Total invalid heartbeat messages received from MQTT",
+            "# TYPE ingestion_heartbeat_messages_invalid_total counter",
+            f'ingestion_heartbeat_messages_invalid_total {snapshot["heartbeat_messages_invalid"]}',
+            "",
+            "# HELP ingestion_heartbeat_age_seconds Last heartbeat age per bus",
+            "# TYPE ingestion_heartbeat_age_seconds gauge",
+            *[
+                f'ingestion_heartbeat_age_seconds{{bus_id="{bus_id}"}} {age_seconds:.1f}'
+                for bus_id, age_seconds in snapshot["heartbeat_age_seconds_by_bus"].items()
+            ],
             "",
             "# HELP ingestion_messages_rejected_total Total messages rejected by error type",
             "# TYPE ingestion_messages_rejected_total counter",
