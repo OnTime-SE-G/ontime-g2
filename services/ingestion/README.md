@@ -171,6 +171,9 @@ Fleet must publish the same `busId` value that G1 publishes.
 DLQ envelope includes:
 
 - original payload
+- `busId` when parseable from payload or topic
+- `tripId` when parseable from payload
+- event timestamp when parseable from payload
 - error reason
 - error type
 - source
@@ -253,8 +256,11 @@ curl http://localhost:8001/metrics
 
 - `docker compose` includes `ingestion-service`
 - image starts with `python -m services.ingestion.app.main`
-- readiness endpoint returns `200` only when Kafka and MQTT are connected
+- readiness endpoint returns `200` only when Kafka, MQTT, and the required
+  active-trip cache are ready
 - liveness endpoint stays available while the service process is alive
+- `/metrics` exposes each typed GPS rejection reason and trip-cache gauges
+- DLQ messages include safe metadata even when the original payload is invalid
 - ingestion tests pass locally
 - docs describe G1 and G4 integration points
 
