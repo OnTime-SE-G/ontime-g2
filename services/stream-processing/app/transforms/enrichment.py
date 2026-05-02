@@ -52,10 +52,9 @@ class EnrichmentFunction(KeyedProcessFunction):
         logger.info(f"Loaded {len(self.route_geometries)} route geometries.")
 
     def process_element(self, value, ctx: KeyedProcessFunction.Context):
-        """
-        Input can be either a GPSMessage (string) or a TripLifecycleEvent (string).
-        We distinguish them by checking for the 'event' field.
-        """
+        if not value or not value.strip():
+            return
+
         try:
             data = json.loads(value)
             
@@ -82,27 +81,28 @@ class EnrichmentFunction(KeyedProcessFunction):
             speed = data.get("speed", 0.0)
             ts = data.get("timestamp")
             
-            # Deduplication
+            # Late Data and Deduplication Check
+            # We only process messages that are strictly newer than the last one seen for this bus
             last_ts = self.last_ts_state.value()
-            if last_ts == ts:
-                return # Skip duplicate
+            if last_ts:
+                # String comparison works for ISO8601 timestamps
+                if ts <= last_ts:
+                    logger.warning(f"Dropping late or duplicate message for bus {bus_id}: {ts} <= {last_ts}")
+                    return 
             self.last_ts_state.update(ts)
 
             # Sanity Check (Cleaning Phase)
             if not (-90 <= lat <= 90) or not (-180 <= lon <= 180):
                 return # Drop invalid coordinates
-            if speed < 0 or speed > 150: # km/h
-                return # Drop unrealistic speed
+            if speed < 0 or speed > 250: # km/h
+                return # Drop physically impossible speed, let anomaly handle 120-250
 
             # Enrichment: Lookup routeId from tripId
             route_id = self.trip_to_route_state.get(trip_id)
             
             if not route_id:
-                # If we don't have the routeId from a lifecycle event, 
-                # we can't fully enrich, but we still emit it with routeId=null 
-                # or drop it depending on requirements.
-                # Requirement 7.3: Flink enriches GPS with routeId.
-                return 
+                # We emit with routeId=None so Anomaly Service can flag INACTIVE_GPS
+                pass
 
             # Enrichment: Progress & Distance
             remaining_dist = 0.0
@@ -115,11 +115,11 @@ class EnrichmentFunction(KeyedProcessFunction):
             enriched = {
                 **data,
                 "routeId": route_id,
-                "remainingDistance": round(remaining_dist, 2),
+                "remainingDistanceToNextStops": round(remaining_dist, 2),
                 "routeProgressPct": round(progress_pct, 2)
             }
             
             yield json.dumps(enriched)
 
         except Exception as e:
-            logger.error(f"Error in EnrichmentFunction: {e}")
+            logger.error(f"Error in EnrichmentFunction processing '{value}': {e}")

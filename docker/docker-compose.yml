@@ -236,6 +236,7 @@ services:
         FLINK_PROPERTIES=
         jobmanager.rpc.address: flink-jobmanager
       - KAFKA_BROKER_URL=broker:29092
+      - PYTHONPATH=/opt/flink/usrlib
     networks:
       - ontime_network
     depends_on:
@@ -256,8 +257,27 @@ services:
         jobmanager.rpc.address: flink-jobmanager
         taskmanager.numberOfTaskSlots: 2
       - KAFKA_BROKER_URL=broker:29092
+      - PYTHONPATH=/opt/flink/usrlib
     networks:
       - ontime_network
+
+  anomaly-service:
+    build:
+      context: ../services/anomaly-service
+      dockerfile: Dockerfile
+    container_name: ontime_anomaly_service
+    ports:
+      - "8006:8006"
+    environment:
+      - KAFKA_BROKER_URL=broker:29092
+      - ROUTE_SERVICE_URL=http://route-service:8002
+    networks:
+      - ontime_network
+    depends_on:
+      broker:
+        condition: service_healthy
+      route-service:
+        condition: service_started
 
 networks:
   ontime_network:

@@ -17,7 +17,9 @@ class RedisSink:
     def write(self, value: str):
         try:
             data = json.loads(value)
-            bus_id = data["busId"]
+            bus_id = data.get("busId")
+            if not bus_id:
+                return
             
             # 1. Update position snapshot
             self.r.set(f"bus:{bus_id}:position", value)
@@ -45,15 +47,15 @@ class InfluxDBSink:
             data = json.loads(value)
             
             point = Point("gps_readings") \
-                .tag("bus_id", data["busId"]) \
+                .tag("bus_id", data.get("busId", "unknown")) \
                 .tag("route_id", data.get("routeId", "unknown")) \
-                .tag("trip_id", data["tripId"]) \
-                .field("lat", float(data["lat"])) \
-                .field("lon", float(data["lon"])) \
-                .field("speed", float(data["speed"])) \
-                .field("heading", float(data["heading"])) \
+                .tag("trip_id", data.get("tripId", "unknown")) \
+                .field("lat", float(data.get("lat", 0.0))) \
+                .field("lon", float(data.get("lon", 0.0))) \
+                .field("speed", float(data.get("speed", 0.0))) \
+                .field("heading", float(data.get("heading", 0.0))) \
                 .field("progress", float(data.get("routeProgressPct", 0.0))) \
-                .time(data["timestamp"], WritePrecision.NS)
+                .time(data.get("timestamp"), WritePrecision.NS)
             
             self.write_api.write(bucket=settings.influxdb_bucket, record=point)
         except Exception as e:
