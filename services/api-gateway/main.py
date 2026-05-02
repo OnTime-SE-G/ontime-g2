@@ -12,6 +12,8 @@ from urllib.request import urlopen
 from fastapi import FastAPI
 from fastapi.responses import PlainTextResponse
 
+from routers import buses, eta, live, routes as routes_router
+
 app = FastAPI(
     title="OnTime API Gateway",
     version="0.1.0",
@@ -20,6 +22,11 @@ app = FastAPI(
 
 SERVICE_START_TIME = datetime.now(timezone.utc)
 app.state.request_count = 0
+
+app.include_router(routes_router.router)
+app.include_router(buses.router)
+app.include_router(eta.router)
+app.include_router(live.router)
 
 
 def _can_open_tcp(host: str, port: int, timeout: float = 0.4) -> bool:
