@@ -215,10 +215,11 @@ jobs:
       - name: Build images (push on main)
         if: ${{ steps.dockerfiles.outputs.count != '0' }}
         run: |
+          owner=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           while read -r dockerfile; do
             context_dir="$(dirname "$dockerfile")"
             service_name="$(basename "$context_dir")"
-            image="${{ env.REGISTRY }}/${{ github.repository_owner }}"
+            image="${{ env.REGISTRY }}/${owner}"
             image="${image}/${{ env.IMAGE_PREFIX }}-${service_name}:${{ github.sha }}"
 
             if [ "${{ github.event_name }}" = "push" ]; then
@@ -238,10 +239,11 @@ jobs:
       - name: Trivy scan (CRITICAL only)
         if: ${{ steps.dockerfiles.outputs.count != '0' }}
         run: |
+          owner=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           while read -r dockerfile; do
             context_dir="$(dirname "$dockerfile")"
             service_name="$(basename "$context_dir")"
-            image="${{ env.REGISTRY }}/${{ github.repository_owner }}"
+            image="${{ env.REGISTRY }}/${owner}"
             image="${image}/${{ env.IMAGE_PREFIX }}-${service_name}:${{ github.sha }}"
             trivy image --severity CRITICAL --exit-code 1 "$image"
           done < dockerfiles.txt
