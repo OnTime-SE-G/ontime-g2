@@ -4,7 +4,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 
-TripLifecycleEventType = Literal["TRIP_STARTED", "TRIP_ENDED"]
+TripLifecycleEventType = Literal["TRIP_STARTED", "TRIP_ENDED", "INCIDENT_REPORTED"]
 
 
 class TripLifecycleEvent(BaseModel):

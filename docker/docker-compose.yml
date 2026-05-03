@@ -114,21 +114,25 @@ services:
 
   fleet-management-service:
     build:
-      context: ../services/fleet-management-service
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: services/fleet-management-service/Dockerfile
     container_name: ontime_fleet_service
     ports:
       - "8003:8003"
     volumes:
       - ../services/fleet-management-service:/app
+      - ../schemas:/app/schemas
     command: uvicorn app.main:app --host 0.0.0.0 --port 8003 --reload
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/fleet_db
       - ROUTE_SERVICE_URL=http://route-service:8002
+      - KAFKA_BROKER_URL=broker:29092
     networks:
       - ontime_network
     depends_on:
       postgres:
+        condition: service_healthy
+      broker:
         condition: service_healthy
     restart: unless-stopped
 
