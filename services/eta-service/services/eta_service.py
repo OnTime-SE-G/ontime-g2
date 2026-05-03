@@ -1,6 +1,6 @@
-# services/api-gateway/services/eta_service.py
-# ETA service: reads bus position from Redis, computes physics-heuristic ETA,
-# and writes the result to InfluxDB for analytics.
+# services/eta-service/services/eta_service.py
+# Core ETA business logic: reads bus position from Redis, computes AI or
+# physics ETA, writes prediction to InfluxDB.
 
 import math
 import os
@@ -14,7 +14,6 @@ from cache import get_bus_position
 from models.eta import EtaResult, compute_eta
 from models.ml_eta import predict_eta as ml_predict_eta
 
-# InfluxDB config from environment
 _INFLUX_URL = os.getenv("INFLUXDB_URL", "http://localhost:8086")
 _INFLUX_TOKEN = os.getenv("INFLUXDB_TOKEN", "")
 _INFLUX_ORG = os.getenv("INFLUXDB_ORG", "ontime")
@@ -23,7 +22,7 @@ _INFLUX_BUCKET = os.getenv("INFLUXDB_BUCKET", "eta_predictions")
 
 def _haversine_m(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Return great-circle distance in metres between two WGS-84 coordinates."""
-    R = 6_371_000.0  # Earth radius in metres
+    R = 6_371_000.0
     phi1, phi2 = math.radians(lat1), math.radians(lat2)
     dphi = math.radians(lat2 - lat1)
     dlambda = math.radians(lon2 - lon1)
@@ -39,11 +38,6 @@ def compute_bus_eta(
     use_ai: bool = True,
 ) -> Optional[EtaResult]:
     """Compute ETA from Redis-cached bus position to a stop.
-
-    By default the AI (Gradient Boosting) model is tried first.  If the AI
-    prediction falls outside a sanity band around the physics baseline it
-    automatically falls back to the physics heuristic.  Pass use_ai=False to
-    always use the pure physics model.
 
     Returns None when no cached position is available for the bus.
     """
@@ -63,9 +57,9 @@ def compute_bus_eta(
 
 
 def write_eta_to_influx(bus_id: str, stop_id: int, result: EtaResult) -> None:
-    """Persist an ETA prediction to InfluxDB (fire-and-forget, best-effort)."""
+    """Persist an ETA prediction to InfluxDB (best-effort, non-blocking)."""
     if not _INFLUX_TOKEN:
-        return  # skip silently when token is not configured
+        return
 
     try:
         with InfluxDBClient(url=_INFLUX_URL, token=_INFLUX_TOKEN, org=_INFLUX_ORG) as client:
@@ -82,4 +76,4 @@ def write_eta_to_influx(bus_id: str, stop_id: int, result: EtaResult) -> None:
             )
             write_api.write(bucket=_INFLUX_BUCKET, record=point)
     except Exception:
-        pass  # non-critical analytics path — never fail the HTTP request
+        pass

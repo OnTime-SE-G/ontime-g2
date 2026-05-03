@@ -1,0 +1,8 @@
+fastapi[standard]>=0.114.0
+uvicorn>=0.30.6
+redis>=5.0.8
+influxdb-client>=3.0.0
+scikit-learn>=1.4.0
+joblib>=1.3.0
+numpy>=1.24.1
+httpx>=0.27.0

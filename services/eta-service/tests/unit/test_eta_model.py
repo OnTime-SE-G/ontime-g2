@@ -1,10 +1,9 @@
-# services/api-gateway/tests/unit/test_eta_model.py
-# Unit tests for the physics-heuristic ETA model.
+# services/eta-service/tests/unit/test_eta_model.py
+# Unit tests for the physics heuristic ETA model.
 
 import sys
 import os
 
-# Make the api-gateway root importable without installing the package
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
 
 import pytest

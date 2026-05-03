@@ -1,4 +1,4 @@
-# services/api-gateway/models/eta.py
+# services/eta-service/models/eta.py
 # Physics heuristic ETA model — distance ÷ speed.
 # No external deps; pure math stub satisfying Issue #23.
 
@@ -25,7 +25,7 @@ def compute_eta(remaining_distance_m: float, speed_ms: float) -> EtaResult:
                   replaced with _DEFAULT_SPEED_MS (bus may be stopped at traffic).
 
     Returns:
-        EtaResult with eta_seconds ≥ 0.
+        EtaResult with eta_seconds >= 0.
     """
     if remaining_distance_m < 0:
         remaining_distance_m = 0.0
