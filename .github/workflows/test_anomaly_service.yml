@@ -1,0 +1,36 @@
+name: Anomaly Service CI
+
+on:
+  pull_request:
+    paths:
+      - "services/anomaly-service/**"
+      - "services/route-service/app/routers/internal.py"
+      - ".github/workflows/test_anomaly_service.yml"
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: services/anomaly-service
+
+    env:
+      PYTHONPATH: .
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run tests
+        run: python -m pytest tests -v
