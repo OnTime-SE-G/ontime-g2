@@ -76,8 +76,8 @@ services:
 
   api-gateway:
     build:
-      context: ../services/api-gateway
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: services/api-gateway/Dockerfile
     container_name: ontime_api_gateway
     ports:
       - "8000:8000"
