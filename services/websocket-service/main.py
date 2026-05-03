@@ -182,4 +182,4 @@ async def websocket_endpoint(
             await websocket.receive_text()
     except WebSocketDisconnect:
         manager.disconnect(websocket)
-        logger.info("WS DISCONNECTED")
+        logger.info(f"WS DISCONNECTED: routeId={routeId}, busId={busId}")
