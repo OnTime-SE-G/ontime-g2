@@ -4,7 +4,7 @@
 
 from fastapi import FastAPI
 
-from app.routers import system, routes, buses, stops, admin_routes, admin_fleet
+from app.routers import system, routes, buses, stops, admin_routes, admin_fleet, driver, trips, websocket
 
 app = FastAPI(
     title="OnTime API Gateway",
@@ -26,6 +26,9 @@ app.include_router(buses.router)
 app.include_router(stops.router)
 app.include_router(admin_routes.router)
 app.include_router(admin_fleet.router)
+app.include_router(driver.router)
+app.include_router(trips.router)
+app.include_router(websocket.router)
 
 if __name__ == "__main__":
     import uvicorn
