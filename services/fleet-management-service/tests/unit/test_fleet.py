@@ -37,7 +37,7 @@ def test_assign_route(client):
     bus = _create_bus(client)
     bus_id = bus["id"]
     
-    with patch("app.services.route_service.validate_route_exists", return_value=None):
+    with patch("app.routers.fleet.validate_route_exists", return_value=None):
         r = client.patch(f"/api/v1/fleet/buses/{bus_id}/assign-route/101")
         assert r.status_code == 200
         assert r.json()["route_id"] == 101
@@ -46,7 +46,7 @@ def test_unassign_route(client):
     bus = _create_bus(client)
     bus_id = bus["id"]
     
-    with patch("app.services.route_service.validate_route_exists", return_value=None):
+    with patch("app.routers.fleet.validate_route_exists", return_value=None):
         client.patch(f"/api/v1/fleet/buses/{bus_id}/assign-route/101")
     
     r = client.patch(f"/api/v1/fleet/buses/{bus_id}/unassign")
@@ -57,7 +57,7 @@ def test_get_buses_by_route(client):
     bus1 = _create_bus(client, "B1", "P1")
     bus2 = _create_bus(client, "B2", "P2")
     
-    with patch("app.services.route_service.validate_route_exists", return_value=None):
+    with patch("app.routers.fleet.validate_route_exists", return_value=None):
         client.patch(f"/api/v1/fleet/buses/{bus1['id']}/assign-route/202")
     
     r = client.get("/api/v1/fleet/buses/route/202")

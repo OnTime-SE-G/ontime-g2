@@ -28,7 +28,7 @@ def _create_driver(client, name="Alice", license_no="D-001"):
 
 def _create_schedule(client, route_id=1):
     with patch(
-        "app.services.route_service.validate_route_exists", return_value=None
+        "app.routers.trips.validate_route_exists", return_value=None
     ):
         r = client.post(
             "/api/v1/fleet/schedules",
@@ -76,7 +76,7 @@ def test_create_schedule(client):
 def test_create_schedule_validates_route(client):
     """Should return 503/404 when route service says route does not exist."""
     with patch(
-        "app.services.route_service.validate_route_exists",
+        "app.routers.trips.validate_route_exists",
         side_effect=Exception("route not found"),
     ):
         r = client.post(
