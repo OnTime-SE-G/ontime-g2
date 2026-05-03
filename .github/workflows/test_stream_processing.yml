@@ -1,5 +1,8 @@
 name: Stream Processing CI
 
+permissions:
+  contents: read
+
 on:
   pull_request:
     paths:

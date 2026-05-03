@@ -1,5 +1,8 @@
 name: Route Service CI
 
+permissions:
+  contents: read
+
 on:
   push:
     paths:

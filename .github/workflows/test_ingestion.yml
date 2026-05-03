@@ -1,5 +1,8 @@
 name: Ingestion Service CI
 
+permissions:
+  contents: read
+
 on:
   pull_request:
     paths:
