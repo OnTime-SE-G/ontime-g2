@@ -20,8 +20,4 @@ def test_get_trip_state():
         assert response.status_code == 200
         assert response.json()["id"] == "trip1"
 
-def test_websocket_live_feed():
-    # WebSocket testing using TestClient
-    with client.websocket_connect("/v1/live") as websocket:
-        # If this fails, the endpoint is missing
-        pass
+

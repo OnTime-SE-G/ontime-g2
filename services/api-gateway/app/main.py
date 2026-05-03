@@ -4,12 +4,11 @@
 
 from fastapi import FastAPI
 
-from app.routers import system, routes, buses, stops, admin_routes, admin_fleet, driver, trips, websocket
+from app.routers import system, routes, buses, stops, admin_routes, admin_fleet, driver, trips
 
 app = FastAPI(
     title="OnTime API Gateway",
-    version="0.1.0",
-    description="G2 API gateway service for REST and WebSocket endpoints.",
+    description="G2 API gateway service for REST aggregation.",
 )
 
 app.state.request_count = 0
@@ -28,7 +27,6 @@ app.include_router(admin_routes.router)
 app.include_router(admin_fleet.router)
 app.include_router(driver.router)
 app.include_router(trips.router)
-app.include_router(websocket.router)
 
 if __name__ == "__main__":
     import uvicorn
