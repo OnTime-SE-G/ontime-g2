@@ -38,7 +38,12 @@ def get_drivers(db: Session = Depends(get_db)):
 @router.post("/schedules", response_model=ScheduleResponse)
 def create_schedule(schedule: ScheduleCreate, db: Session = Depends(get_db)):
     # Validate route exists in route-service
-    validate_route_exists(schedule.route_id)
+    try:
+        validate_route_exists(schedule.route_id)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Route validation failed") from exc
     
     db_schedule = ScheduleORM(**schedule.model_dump())
     db.add(db_schedule)
