@@ -68,8 +68,8 @@ def test_route_stops():
         assert response.json()["route_name"] == "R1"
 
 def test_route_buses():
-    with patch("app.routers.routes.get_route_buses", new_callable=AsyncMock) as mock_buses:
-        mock_buses.return_value = {"route_id": 1, "buses": [], "message": "OK"}
+    with patch("app.routers.routes.get_fleet_route_buses", new_callable=AsyncMock) as mock_buses:
+        mock_buses.return_value = []
         response = client.get("/api/v1/routes/1/buses")
         assert response.status_code == 200
-        assert response.json()["message"] == "OK"
+        assert "Found 0 live buses" in response.json()["message"]

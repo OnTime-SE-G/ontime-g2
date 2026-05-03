@@ -1,12 +1,13 @@
 import threading
 import time
+from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
 
 import pytest
 from fastapi.testclient import TestClient
 
 import services.ingestion.app.health as health_module
-from services.ingestion.app.metrics import MetricsCollector
+from services.ingestion.app.metrics import REJECTION_REASONS, MetricsCollector
 
 
 class TestMetricsCollectorCore:
@@ -21,23 +22,50 @@ class TestMetricsCollectorCore:
         collector.increment_validated()
         assert collector.get_snapshot()["messages_validated"] == 1
 
-    def test_increment_rejected_types(self):
+    def test_record_heartbeat_status(self):
         collector = MetricsCollector()
-        collector.increment_rejected("JSON_PARSE")
-        collector.increment_rejected("SCHEMA_VALIDATION")
-        collector.increment_rejected("GEO_BOUNDS")
-        collector.increment_rejected("DUPLICATE")
-        collector.increment_rejected("RATE_LIMIT")
-        collector.increment_rejected("SEQUENCE_ERROR")
+        timestamp = datetime.now(timezone.utc)
+
+        collector.record_heartbeat(
+            bus_id="1",
+            timestamp=timestamp,
+        )
 
         snapshot = collector.get_snapshot()
+        assert snapshot["heartbeat_messages_received"] == 1
+        assert snapshot["heartbeat_messages_invalid"] == 0
+        assert snapshot["latest_heartbeat_by_bus"]["1"] == timestamp.isoformat()
+        assert snapshot["heartbeat_age_seconds_by_bus"]["1"] >= 0
+
+    def test_increment_invalid_heartbeat(self):
+        collector = MetricsCollector()
+
+        collector.increment_invalid_heartbeat()
+
+        assert collector.get_snapshot()["heartbeat_messages_invalid"] == 1
+
+    def test_increment_rejected_types(self):
+        collector = MetricsCollector()
+        for reason in REJECTION_REASONS:
+            collector.increment_rejected(reason)
+
+        snapshot = collector.get_snapshot()
+        assert snapshot["rejections_by_reason"] == {
+            reason: 1 for reason in REJECTION_REASONS
+        }
         assert snapshot["messages_rejected_json"] == 1
+        assert snapshot["messages_rejected_missing_timestamp"] == 1
         assert snapshot["messages_rejected_schema"] == 1
         assert snapshot["messages_rejected_geo"] == 1
         assert snapshot["messages_rejected_duplicate"] == 1
+        assert snapshot["messages_rejected_inactive_trip"] == 1
+        assert snapshot["messages_rejected_trip_cache_rebuilding"] == 1
         assert snapshot["messages_rejected_rate_limit"] == 1
+        assert snapshot["messages_rejected_rate_limit_event_time"] == 1
         assert snapshot["messages_rejected_sequence"] == 1
-        assert snapshot["messages_rejected"] == 6
+        assert snapshot["messages_rejected_future_timestamp"] == 1
+        assert snapshot["messages_rejected_stale_replay"] == 1
+        assert snapshot["messages_rejected"] == len(REJECTION_REASONS)
 
     def test_unknown_rejection_type_does_not_increment_totals(self):
         collector = MetricsCollector()
@@ -78,6 +106,19 @@ class TestMetricsCollectorCore:
         assert snapshot["kafka_broker_up"] is True
         assert snapshot["mqtt_broker_up"] is False
 
+    def test_update_trip_cache_status(self):
+        collector = MetricsCollector()
+        collector.update_trip_cache(
+            status="ready",
+            active_trip_count=3,
+            last_lifecycle_timestamp="2026-05-02T10:00:00+00:00",
+        )
+
+        snapshot = collector.get_snapshot()
+        assert snapshot["trip_cache_status"] == "ready"
+        assert snapshot["active_trip_count"] == 3
+        assert snapshot["last_trip_lifecycle_time"] == "2026-05-02T10:00:00+00:00"
+
     def test_snapshot_consistency(self):
         collector = MetricsCollector()
         collector.increment_received()
@@ -95,7 +136,13 @@ class TestMetricsCollectorCore:
         collector.increment_rejected("JSON_PARSE")
         collector.increment_rejected("SCHEMA_VALIDATION")
         collector.increment_rejected("GEO_BOUNDS")
-        assert collector.get_snapshot()["messages_rejected"] == 3
+        collector.increment_rejected("MISSING_TIMESTAMP")
+        collector.increment_rejected("RATE_LIMIT_EVENT_TIME")
+        collector.increment_rejected("FUTURE_TIMESTAMP")
+        collector.increment_rejected("STALE_REPLAY")
+        collector.increment_rejected("INACTIVE_TRIP")
+        collector.increment_rejected("TRIP_CACHE_REBUILDING")
+        assert collector.get_snapshot()["messages_rejected"] == 9
 
 
 @pytest.fixture
@@ -136,6 +183,11 @@ class TestHealthEndpoints:
         client, collector = health_client
         collector.kafka_broker_up = True
         collector.mqtt_broker_up = True
+        collector.update_trip_cache(
+            status="ready",
+            active_trip_count=0,
+            last_lifecycle_timestamp=None,
+        )
         collector.increment_received()
         collector.increment_validated()
 
@@ -146,8 +198,28 @@ class TestHealthEndpoints:
         assert payload["status"] == "healthy"
         assert payload["dependencies"]["kafka_broker"] == "up"
         assert payload["dependencies"]["mqtt_broker"] == "up"
+        assert payload["trip_cache"]["ready"] is True
+        assert payload["trip_cache"]["status"] == "ready"
         assert payload["counters"]["messages_received"] == 1
         assert payload["counters"]["messages_validated"] == 1
+
+    def test_ready_endpoint_returns_503_when_trip_cache_not_ready(self, health_client):
+        client, collector = health_client
+        collector.kafka_broker_up = True
+        collector.mqtt_broker_up = True
+        collector.update_trip_cache(
+            status="rebuilding",
+            active_trip_count=0,
+            last_lifecycle_timestamp=None,
+        )
+
+        response = client.get("/health/ready")
+
+        assert response.status_code == 503
+        payload = response.json()
+        assert payload["status"] == "degraded"
+        assert payload["trip_cache"]["ready"] is False
+        assert payload["trip_cache"]["status"] == "rebuilding"
 
     def test_health_endpoint_returns_summary_payload(self, health_client):
         client, collector = health_client
@@ -164,8 +236,15 @@ class TestHealthEndpoints:
         assert payload["service"] == "ingestion-service"
         assert payload["dependencies"]["kafka_broker"] == "up"
         assert payload["dependencies"]["mqtt_broker"] == "down"
+        assert payload["dependencies"]["trip_cache"] == "unknown"
+        assert payload["trip_cache"]["ready"] is False
+        assert payload["trip_cache"]["last_lifecycle_event_timestamp"] is None
         assert payload["counters"]["messages_received"] == 1
         assert payload["counters"]["messages_rejected"] == 1
+        assert payload["counters"]["heartbeats_received"] == 0
+        assert payload["counters"]["heartbeats_invalid"] == 0
+        assert payload["counters"]["active_trip_count"] == 0
+        assert payload["device_status"]["latest_heartbeat_by_bus"] == {}
 
     def test_live_endpoint_returns_200(self, health_client):
         client, _ = health_client
@@ -179,6 +258,12 @@ class TestHealthEndpoints:
         collector.mqtt_broker_up = True
         collector.increment_received()
         collector.increment_validated()
+        collector.update_trip_cache(
+            status="ready",
+            active_trip_count=2,
+            last_lifecycle_timestamp="2026-05-02T10:00:00+00:00",
+        )
+        collector.record_heartbeat(bus_id="1", timestamp=datetime.now(timezone.utc))
         collector.increment_rejected("RATE_LIMIT")
 
         response = client.get("/metrics")
@@ -188,7 +273,20 @@ class TestHealthEndpoints:
         body = response.text
         assert "ingestion_messages_received_total 1" in body
         assert "ingestion_messages_validated_total 1" in body
+        assert "ingestion_heartbeat_messages_received_total 1" in body
+        assert "ingestion_heartbeat_messages_invalid_total 0" in body
+        assert 'ingestion_heartbeat_age_seconds{bus_id="1"}' in body
+        for reason in REJECTION_REASONS:
+            assert f'ingestion_messages_rejected_total{{reason="{reason}"}}' in body
         assert 'ingestion_messages_rejected_total{reason="RATE_LIMIT"} 1' in body
+        assert 'ingestion_messages_rejected_total{reason="INACTIVE_TRIP"} 0' in body
+        assert 'ingestion_messages_rejected_total{reason="TRIP_CACHE_REBUILDING"} 0' in body
+        assert 'ingestion_messages_rejected_total{reason="RATE_LIMIT_EVENT_TIME"} 0' in body
+        assert 'ingestion_messages_rejected_total{reason="FUTURE_TIMESTAMP"} 0' in body
+        assert 'ingestion_messages_rejected_total{reason="STALE_REPLAY"} 0' in body
+        assert 'ingestion_messages_rejected_total{reason="MISSING_TIMESTAMP"} 0' in body
+        assert "ingestion_trip_cache_ready 1" in body
+        assert "ingestion_trip_cache_active_trips 2" in body
         assert "ingestion_kafka_broker_up 1" in body
         assert "ingestion_mqtt_broker_up 1" in body
 

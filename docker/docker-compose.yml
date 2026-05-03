@@ -10,6 +10,7 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./init:/docker-entrypoint-initdb.d
     networks:
       - ontime_network
     healthcheck:
@@ -102,13 +103,28 @@ services:
       - "8002:8002"
     volumes:
       - ../services/route-service:/app
-
     command: uvicorn app.main:app --host 0.0.0.0 --port 8002 --reload
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ontime_db}
-      POSTGRES_HOST: postgres
-      POSTGRES_PORT: 5432
+    networks:
+      - ontime_network
+    depends_on:
+      postgres:
+        condition: service_healthy
 
+  fleet-management-service:
+    build:
+      context: ../services/fleet-management-service
+      dockerfile: Dockerfile
+    container_name: ontime_fleet_service
+    ports:
+      - "8003:8003"
+    volumes:
+      - ../services/fleet-management-service:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8003 --reload
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/fleet_db
+      - ROUTE_SERVICE_URL=http://route-service:8002
     networks:
       - ontime_network
     depends_on:
@@ -193,7 +209,15 @@ services:
       mqtt-broker:
         condition: service_healthy
     healthcheck:
-      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health/ready', timeout=3)" ]
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request;
+            urllib.request.urlopen('http://127.0.0.1:8001/health/ready',
+            timeout=3)",
+        ]
       interval: 15s
       timeout: 5s
       retries: 5
@@ -217,6 +241,93 @@ services:
     depends_on:
       redis:
         condition: service_healthy
+
+  flink-jobmanager:
+    build:
+      context: ..
+      dockerfile: services/stream-processing/Dockerfile
+    container_name: ontime_flink_jobmanager
+    command: jobmanager
+    ports:
+      - "8081:8081"
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+      - KAFKA_BROKER_URL=broker:29092
+      - PYTHONPATH=/opt/flink/usrlib
+    networks:
+      - ontime_network
+    depends_on:
+      broker:
+        condition: service_healthy
+
+  flink-taskmanager:
+    build:
+      context: ..
+      dockerfile: services/stream-processing/Dockerfile
+    container_name: ontime_flink_taskmanager
+    command: taskmanager
+    depends_on:
+      - flink-jobmanager
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+        taskmanager.numberOfTaskSlots: 2
+      - KAFKA_BROKER_URL=broker:29092
+      - PYTHONPATH=/opt/flink/usrlib
+    networks:
+      - ontime_network
+
+  flink-job-submitter:
+    build:
+      context: ..
+      dockerfile: services/stream-processing/Dockerfile
+    container_name: ontime_flink_job_submitter
+    command: >
+      bash -c '
+        for attempt in $$(seq 1 30); do
+          if flink list -m flink-jobmanager:8081 >/dev/null 2>&1; then
+            echo "Flink JobManager is ready; submitting telemetry job"
+            flink run -m flink-jobmanager:8081 -py /opt/flink/usrlib/app/job.py
+            exit $$?
+          fi
+          echo "Waiting for Flink JobManager ($${attempt}/30)..."
+          sleep 5
+        done
+        echo "Flink JobManager was not ready after 150 seconds"
+        exit 1
+      '
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+      - KAFKA_BROKER_URL=broker:29092
+      - PYTHONPATH=/opt/flink/usrlib
+    networks:
+      - ontime_network
+    depends_on:
+      - flink-jobmanager
+      - flink-taskmanager
+
+  anomaly-service:
+    build:
+      context: ../services/anomaly-service
+      dockerfile: Dockerfile
+    container_name: ontime_anomaly_service
+    ports:
+      - "8006:8006"
+    environment:
+      - KAFKA_BROKER_URL=broker:29092
+      - ROUTE_SERVICE_URL=http://route-service:8002
+    networks:
+      - ontime_network
+    depends_on:
+      broker:
+        condition: service_healthy
+      route-service:
+        condition: service_started
 
 networks:
   ontime_network:

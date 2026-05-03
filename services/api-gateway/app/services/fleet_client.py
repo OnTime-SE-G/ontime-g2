@@ -4,11 +4,13 @@ from app.config import FLEET_SERVICE_URL
 async def get_buses():
     async with httpx.AsyncClient() as client:
         res = await client.get(f"{FLEET_SERVICE_URL}/api/v1/fleet/buses")
+        res.raise_for_status()
         return res.json()
 
 async def get_bus(bus_id: str):
     async with httpx.AsyncClient() as client:
         res = await client.get(f"{FLEET_SERVICE_URL}/api/v1/fleet/buses/{bus_id}")
+        res.raise_for_status()
         return res.json()
 
 async def add_bus(bus_data: dict):
@@ -44,4 +46,5 @@ async def unassign_route(bus_id: str):
 async def get_route_buses(route_id: str):
     async with httpx.AsyncClient() as client:
         res = await client.get(f"{FLEET_SERVICE_URL}/api/v1/fleet/buses/route/{route_id}")
+        res.raise_for_status()
         return res.json()

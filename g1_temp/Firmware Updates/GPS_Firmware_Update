@@ -1,0 +1,107 @@
+#include <SoftwareSerial.h>
+#include <TinyGPS++.h>
+
+// SoftwareSerial pins for GPS
+SoftwareSerial gpsSerial(8, 9);  // RX on D8 (to NEO-M8N TX), TX on D9 (to NEO-M8N RX)
+
+#define GPS_BAUD 9600            // Change to 38400 if your module uses a different default baud
+
+TinyGPSPlus gps;
+
+// UBX checksum calculator
+void ubxChecksum(uint8_t *packet, uint16_t len) {
+  uint8_t ckA = 0, ckB = 0;
+  for (uint16_t i = 2; i < len - 2; i++) {
+    ckA += packet[i];
+    ckB += ckA;
+  }
+  packet[len - 2] = ckA;
+  packet[len - 1] = ckB;
+}
+
+// Send raw UBX packet
+void sendUBX(uint8_t *msg, uint16_t len) {
+  gpsSerial.write(msg, len);
+  gpsSerial.flush();
+  delay(200);  // Longer delay for SoftwareSerial reliability
+}
+
+// Configure GNSS: GPS + Galileo + BeiDou + SBAS
+void configureGNSS() {
+  uint8_t cfgGNSS[] = {
+    0xB5, 0x62, 0x06, 0x3E, 0x2C, 0x00,
+    0x00, 0x00, 0x20, 0x05,
+    0x00, 0x01, 0x00, 0x01, 0x01, 0x01,  // GPS
+    0x01, 0x01, 0x01, 0x01, 0x01, 0x01,  // SBAS
+    0x02, 0x01, 0x01, 0x01, 0x01, 0x01,  // Galileo
+    0x03, 0x01, 0x01, 0x01, 0x01, 0x01,  // BeiDou
+    0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00
+  };
+  ubxChecksum(cfgGNSS, sizeof(cfgGNSS));
+  sendUBX(cfgGNSS, sizeof(cfgGNSS));
+  Serial.println("Sent CFG-GNSS: GPS + Galileo + BeiDou + SBAS enabled");
+}
+
+// Save configuration to flash
+void saveToFlash() {
+  uint8_t saveCfg[] = {
+    0xB5, 0x62, 0x06, 0x09, 0x0D, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0xFF, 0xFF, 0x00, 0x00,
+    0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00
+  };
+  ubxChecksum(saveCfg, sizeof(saveCfg));
+  sendUBX(saveCfg, sizeof(saveCfg));
+  Serial.println("Configuration saved to flash!");
+}
+
+void setup() {
+  Serial.begin(115200);
+  gpsSerial.begin(GPS_BAUD);
+
+  Serial.println("\n=== NEO-M8N Configuration + Satellite Monitor on Arduino Nano ===");
+  Serial.println("Waiting for module to boot...");
+  delay(3000);
+
+  Serial.println("Sending GNSS configuration...");
+  configureGNSS();
+  delay(800);
+
+  Serial.println("Saving to flash...");
+  saveToFlash();
+  delay(1500);
+
+  Serial.println("\nConfiguration complete! Now monitoring satellites.");
+  Serial.println("Place the module outdoors with clear sky view.");
+  Serial.println("--------------------------------------------------");
+}
+
+void loop() {
+  // Read data from GPS and feed to TinyGPS++
+  while (gpsSerial.available() > 0) {
+    char c = gpsSerial.read();
+    gps.encode(c);
+  }
+
+  // Print satellite info every second
+  static unsigned long lastPrint = 0;
+  if (millis() - lastPrint > 1000) {
+    lastPrint = millis();
+
+    Serial.print("Satellites in View: ");
+    Serial.print(gps.satellites.value());     // Total visible satellites
+    Serial.print("  |  HDOP: ");
+    Serial.print(gps.hdop.value() / 100.0, 2); // Horizontal dilution of precision (lower = better)
+    
+    if (gps.location.isValid()) {
+      Serial.print("  |  Fix: YES");
+    } else {
+      Serial.print("  |  Fix: NO");
+    }
+    
+    Serial.println();
+  }
+
+  // Optional: Show raw NMEA for debugging (uncomment if needed)
+  // if (gpsSerial.available()) Serial.write(gpsSerial.read());
+}

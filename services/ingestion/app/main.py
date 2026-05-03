@@ -7,9 +7,12 @@ from services.ingestion.app.health import start_health_server
 from services.ingestion.app.metrics import metrics
 from services.ingestion.app.mqtt_subscriber import MQTTSubscriber
 from services.ingestion.app.producer import TelemetryProducer
+from services.ingestion.app.trip_lifecycle_cache import ActiveTripCache, TripLifecycleConsumer
 
 producer = None
 subscriber = None
+trip_cache = None
+trip_consumer = None
 health_thread = None
 
 
@@ -18,6 +21,9 @@ def handle_shutdown(sig, frame):
     if subscriber:
         print("Stopping MQTT subscriber...")
         subscriber.stop()
+    if trip_consumer:
+        print("Stopping trip lifecycle consumer...")
+        trip_consumer.stop()
     if producer:
         print("Closing Kafka producer...")
         producer.close()
@@ -26,7 +32,7 @@ def handle_shutdown(sig, frame):
 
 
 def main():
-    global producer, subscriber, health_thread
+    global producer, subscriber, trip_cache, trip_consumer, health_thread
 
     signal.signal(signal.SIGINT, handle_shutdown)
     signal.signal(signal.SIGTERM, handle_shutdown)
@@ -39,6 +45,7 @@ def main():
     print(f"  Kafka Broker: {settings.kafka_broker_url}")
     print(f"  Raw Topic:    {settings.kafka_raw_topic}")
     print(f"  DLQ Topic:    {settings.kafka_dlq_topic}")
+    print(f"  Trip Topic:   {settings.kafka_trip_lifecycle_topic}")
     print(f"  Health Port:  {settings.service_port}")
     print("=" * 50)
 
@@ -54,7 +61,10 @@ def main():
     print("Initializing MQTT subscriber...")
     if producer is not None:
         try:
-            subscriber = MQTTSubscriber(producer)
+            trip_cache = ActiveTripCache(initial_status="rebuilding")
+            trip_consumer = TripLifecycleConsumer(trip_cache)
+            trip_consumer.start()
+            subscriber = MQTTSubscriber(producer, trip_cache=trip_cache)
             subscriber.connect()
             print("MQTT subscriber initialized.")
         except Exception as error:

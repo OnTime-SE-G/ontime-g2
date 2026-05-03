@@ -1,0 +1,177 @@
+#define TINY_GSM_MODEM_SIM800
+#include <TinyGsmClient.h>
+#include <PubSubClient.h>
+#include <SoftwareSerial.h>
+
+// Dummy publisher for testing the G1 -> G2 MQTT contract without a GPS module.
+// It sends schema-compatible location messages without tripId. G2 Ingestion
+// resolves tripId from busId + Kafka trip.lifecycle.
+
+// Network config
+const char APN[] = "internet";
+const char APN_USER[] = "";
+const char APN_PASS[] = "";
+
+// MQTT config
+const char MQTT_BROKER[] = "test.mosquitto.org";
+const int MQTT_PORT = 1883;
+const char MQTT_USERNAME[] = "";
+const char MQTT_PASSWORD[] = "";
+
+// Device identity config
+const char BUS_ID[] = "1";
+const char CLIENT_ID[] = "ontime-g1-dummy-bus-1";
+
+char locationTopic[96];
+
+SoftwareSerial gsmSerial(3, 2);
+TinyGsm modem(gsmSerial);
+TinyGsmClient gsmClient(modem);
+PubSubClient mqtt(gsmClient);
+
+float lat = 6.9271;
+float lon = 79.8612;
+float speedKmph = 35.0;
+float headingDeg = 120.0;
+unsigned long messageIndex = 0;
+
+void updateDummyLocation() {
+  lat += random(-5, 6) * 0.0001;
+  lon += random(-5, 6) * 0.0001;
+  speedKmph += random(-5, 6) * 0.5;
+  headingDeg += random(-10, 11);
+
+  speedKmph = constrain(speedKmph, 0.0, 80.0);
+
+  if (headingDeg >= 360.0) {
+    headingDeg -= 360.0;
+  }
+  if (headingDeg < 0.0) {
+    headingDeg += 360.0;
+  }
+}
+
+void makeTimestamp(char *buffer, size_t bufferSize) {
+  unsigned long totalSeconds = messageIndex * 5;
+  unsigned int minutes = (totalSeconds / 60) % 60;
+  unsigned int seconds = totalSeconds % 60;
+
+  snprintf(
+    buffer,
+    bufferSize,
+    "2026-05-02T10:%02u:%02uZ",
+    minutes,
+    seconds
+  );
+}
+
+void connectGSM() {
+  Serial.println("Initialising modem...");
+  modem.restart();
+
+  Serial.print("Modem: ");
+  Serial.println(modem.getModemInfo());
+
+  Serial.print("Waiting for network...");
+  while (!modem.waitForNetwork()) {
+    Serial.print(".");
+    delay(1000);
+  }
+  Serial.println(" OK");
+
+  Serial.print("Connecting to APN: ");
+  Serial.println(APN);
+  while (!modem.gprsConnect(APN, APN_USER, APN_PASS)) {
+    Serial.print(".");
+    delay(1000);
+  }
+
+  Serial.print("GPRS connected | IP: ");
+  Serial.println(modem.localIP());
+}
+
+bool mqttConnectOnce() {
+  if (strlen(MQTT_USERNAME) > 0) {
+    return mqtt.connect(CLIENT_ID, MQTT_USERNAME, MQTT_PASSWORD);
+  }
+
+  return mqtt.connect(CLIENT_ID);
+}
+
+void connectMQTT() {
+  mqtt.setServer(MQTT_BROKER, MQTT_PORT);
+
+  Serial.print("Connecting to MQTT broker...");
+  while (!mqttConnectOnce()) {
+    Serial.print(".");
+    delay(2000);
+  }
+
+  Serial.println(" connected!");
+}
+
+void setup() {
+  Serial.begin(9600);
+  gsmSerial.begin(9600);
+  randomSeed(analogRead(0));
+
+  snprintf(
+    locationTopic,
+    sizeof(locationTopic),
+    "transport/bus/%s/location",
+    BUS_ID
+  );
+
+  Serial.print("OnTime dummy GPS topic: ");
+  Serial.println(locationTopic);
+
+  connectGSM();
+  connectMQTT();
+}
+
+void loop() {
+  if (!mqtt.connected()) {
+    connectMQTT();
+  }
+  mqtt.loop();
+
+  updateDummyLocation();
+
+  char latStr[14], lonStr[14], speedStr[8], headingStr[8], timestampIso[25];
+  dtostrf(lat, 9, 6, latStr);
+  dtostrf(lon, 9, 6, lonStr);
+  dtostrf(speedKmph, 5, 1, speedStr);
+  dtostrf(headingDeg, 5, 1, headingStr);
+  makeTimestamp(timestampIso, sizeof(timestampIso));
+
+  char payload[224];
+  snprintf(
+    payload,
+    sizeof(payload),
+    "{"
+      "\"busId\":\"%s\","
+      "\"lat\":%s,"
+      "\"lon\":%s,"
+      "\"speed\":%s,"
+      "\"heading\":%s,"
+      "\"timestamp\":\"%s\""
+    "}",
+    BUS_ID,
+    latStr,
+    lonStr,
+    speedStr,
+    headingStr,
+    timestampIso
+  );
+
+  if (mqtt.publish(locationTopic, payload, false)) {
+    Serial.print("Published: ");
+    Serial.println(payload);
+  } else {
+    Serial.println("Publish failed. Reconnecting...");
+    connectMQTT();
+  }
+
+  messageIndex += 1;
+  delay(5000);
+}

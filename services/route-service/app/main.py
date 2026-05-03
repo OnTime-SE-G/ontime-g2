@@ -5,7 +5,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.routers import health, routes, admin_routes
+from app.routers import health, routes, admin_routes, internal
 from app.models.base import Base
 from app.database import engine
 from app.schemas import ServiceMetadataResponse
@@ -41,6 +41,7 @@ app = FastAPI(
 app.include_router(health.router)
 app.include_router(routes.router)
 app.include_router(admin_routes.router)
+app.include_router(internal.router)
 
 
 @app.get("/", response_model=ServiceMetadataResponse)

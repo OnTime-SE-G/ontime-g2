@@ -1,20 +1,32 @@
-# Stream Processing Service
+# Stream Processing Service (PyFlink)
 
-Processes live telemetry streams and enriches them for downstream services.
+PyFlink job for event-time stream processing of GPS telemetry.
 
 ## Responsibilities
 
-- Filter/clean GPS noise
-- Enrich records with route context
-- Prepare features for ETA and anomaly services
+- **Clean Telemetry**: Deduplicate, apply watermarks, and filter out-of-bounds coordinates.
+- **Enrich GPS**: Map `trip_id` to `route_id` and calculate route progress percentage.
+- **Live State**: Write latest positions to Redis and publish updates via Redis Pub/Sub.
+- **Historical Data**: Write cleaned telemetry to InfluxDB.
+- **Cleaned Stream**: Publish enriched messages to Kafka topic `transport-telemetry-cleaned`.
 
-## Notes
+## Folder Structure
 
-- Increment 1 can start with lightweight consumers.
-- Flink-based pipelines can be introduced after baseline flow is stable.
+```text
+services/stream-processing/
+├── app/
+│   ├── transforms/    # Data transformation and enrichment logic
+│   ├── utils/         # Helper clients (Redis, InfluxDB, etc.)
+│   ├── config.py      # Service configuration
+│   ├── job.py         # Main PyFlink job entry point
+│   └── schema.py      # Flink schemas for Kafka sources/sinks
+├── tests/             # Unit and integration tests
+├── Dockerfile         # PyFlink-based image
+└── requirements.txt   # Python dependencies
+```
 
 ## Ownership and Review
 
-- Owner: Chamodh
-- Required reviewer: Nathasha
-- Optional reviewer: Nidharshan
+- **Primary Owner**: Natasha
+- **Secondary Responsibility**: Kusal (Infrastructure)
+- **Reviewers**: Chamodh, Nidharshan

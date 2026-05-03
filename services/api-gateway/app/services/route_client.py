@@ -4,16 +4,19 @@ from app.config import ROUTE_SERVICE_URL
 async def get_route(route_id: str):
     async with httpx.AsyncClient() as client:
         res = await client.get(f"{ROUTE_SERVICE_URL}/api/v1/routes/{route_id}")
+        res.raise_for_status()
         return res.json()
 
 async def get_route_stops(route_id: str):
     async with httpx.AsyncClient() as client:
         res = await client.get(f"{ROUTE_SERVICE_URL}/api/v1/routes/{route_id}/stops")
+        res.raise_for_status()
         return res.json()
 
 async def get_routes_list():
     async with httpx.AsyncClient() as client:
         res = await client.get(f"{ROUTE_SERVICE_URL}/api/v1/routes")
+        res.raise_for_status()
         return res.json()
 
 async def search_routes(start_lat: float, start_lon: float, end_lat: float, end_lon: float, radius_m: int = 500):
@@ -25,6 +28,7 @@ async def search_routes(start_lat: float, start_lon: float, end_lat: float, end_
             "end_lon": end_lon,
             "radius_m": radius_m
         })
+        res.raise_for_status()
         return res.json()
 
 async def get_route_progress(route_id: str, lat: float, lon: float, target_stop_order: int):
@@ -34,16 +38,14 @@ async def get_route_progress(route_id: str, lat: float, lon: float, target_stop_
             "lon": lon,
             "target_stop_order": target_stop_order
         })
+        res.raise_for_status()
         return res.json()
 
-async def get_route_buses(route_id: str):
-    async with httpx.AsyncClient() as client:
-        res = await client.get(f"{ROUTE_SERVICE_URL}/api/v1/routes/{route_id}/buses")
-        return res.json()
 
 async def get_all_stops():
     async with httpx.AsyncClient() as client:
         res = await client.get(f"{ROUTE_SERVICE_URL}/api/v1/stops")
+        res.raise_for_status()
         return res.json()
 
 async def get_nearby_stops(lat: float, lon: float, radius_m: int = 500):
@@ -53,11 +55,13 @@ async def get_nearby_stops(lat: float, lon: float, radius_m: int = 500):
             "lon": lon,
             "radius_m": radius_m
         })
+        res.raise_for_status()
         return res.json()
 
 async def get_routes_for_stop(stop_id: str):
     async with httpx.AsyncClient() as client:
         res = await client.get(f"{ROUTE_SERVICE_URL}/api/v1/stops/{stop_id}/routes")
+        res.raise_for_status()
         return res.json()
 
 async def add_route(route_name: str, filename: str, file_bytes: bytes, content_type: str):
