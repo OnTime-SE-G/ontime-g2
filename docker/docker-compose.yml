@@ -205,12 +205,13 @@ services:
       dockerfile: Dockerfile
     container_name: ontime_websocket_service
     ports:
-      - "8005:8005"
+      - "8006:8006"
     volumes:
       - ../services/websocket-service:/app
     environment:
       - REDIS_URL=redis://redis:6379
-      - FLEET_CHANNEL=fleet:updates
+      - FLEET_CHANNEL=fleet.live
+      - ETA_CHANNEL=eta.live
     networks:
       - ontime_network
     depends_on:
