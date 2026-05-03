@@ -105,12 +105,16 @@ class RouteDeleteResponse(BaseModel):
 
 class BusResponse(BaseModel):
     id: str
+    fleet_code: str
+    plate_number: str
     status: str
     route_id: Optional[str] = None
     capacity: Optional[int] = None
 
 class LiveBusResponse(BaseModel):
     id: str
+    fleet_code: str
+    plate_number: str
     status: str
     route_id: Optional[str] = None
     latitude: Optional[float] = None
