@@ -1,46 +1,38 @@
-# services/api-gateway/routers/routes.py
-# REST endpoints for route and stop data (Issue #20 — ORM SELECT layer).
-
+"""HTTP proxy to route-service for route and stop data."""
+import os
 from typing import Any, Dict, List
 
-from fastapi import APIRouter, Depends, HTTPException
-from sqlalchemy.orm import Session
+import httpx
+from fastapi import APIRouter, HTTPException
 
-from database import get_db
-from services.route_service import get_route, get_stops_for_route, list_routes
+ROUTE_SERVICE_URL = os.getenv("ROUTE_SERVICE_URL", "http://localhost:8002")
 
 router = APIRouter(prefix="/api/v1/routes", tags=["routes"])
 
 
-def _route_to_dict(route) -> Dict[str, Any]:
-    return {
-        "id": route.id,
-        "name": route.name,
-    }
-
-
-def _stop_to_dict(stop) -> Dict[str, Any]:
-    return {
-        "id": stop.id,
-        "route_id": stop.route_id,
-        "name": stop.name,
-        "stop_order": stop.stop_order,
-    }
-
-
 @router.get("", response_model=List[Dict[str, Any]])
-def get_routes(db: Session = Depends(get_db)):
-    """List all routes."""
-    return [_route_to_dict(r) for r in list_routes(db)]
+async def get_routes():
+    """List all routes (proxied to route-service)."""
+    async with httpx.AsyncClient() as client:
+        try:
+            resp = await client.get(f"{ROUTE_SERVICE_URL}/routes/", timeout=10.0)
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text)
+        except httpx.RequestError:
+            raise HTTPException(status_code=503, detail="route-service unavailable")
+    return resp.json()
 
 
 @router.get("/{route_id}", response_model=Dict[str, Any])
-def get_route_by_id(route_id: int, db: Session = Depends(get_db)):
-    """Get a single route with its stops."""
-    route = get_route(db, route_id)
-    if route is None:
-        raise HTTPException(status_code=404, detail=f"Route {route_id} not found")
-    return {
-        **_route_to_dict(route),
-        "stops": [_stop_to_dict(s) for s in get_stops_for_route(db, route_id)],
-    }
+async def get_route_by_id(route_id: int):
+    """Get a single route with stops (proxied to route-service)."""
+    async with httpx.AsyncClient() as client:
+        try:
+            resp = await client.get(f"{ROUTE_SERVICE_URL}/routes/{route_id}", timeout=10.0)
+            resp.raise_for_status()
+        except httpx.HTTPStatusError as exc:
+            raise HTTPException(status_code=exc.response.status_code, detail=exc.response.text)
+        except httpx.RequestError:
+            raise HTTPException(status_code=503, detail="route-service unavailable")
+    return resp.json()
