@@ -13,17 +13,17 @@ class StreamSettings(BaseSettings):
     kafka_raw_topic: str = "transport-telemetry-raw"
     kafka_cleaned_topic: str = "transport-telemetry-cleaned"
     kafka_lifecycle_topic: str = "trip.lifecycle"
-    
+
     redis_host: str = "redis"
     redis_port: int = 6379
-    
+
     influxdb_url: str = "http://influxdb:8086"
     influxdb_token: str = "super_secret_admin_token_123"
     influxdb_org: str = "ontime"
     influxdb_bucket: str = "telemetry"
-    
+
     route_service_url: str = "http://route-service:8002"
-    
+
     model_config = SettingsConfigDict(
         env_file=ENV_FILES,
         env_file_encoding="utf-8",

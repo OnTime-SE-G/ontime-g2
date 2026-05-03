@@ -39,12 +39,12 @@ class EnrichmentFunction(KeyedProcessFunction):
         # State to store mapping of tripId to routeId for this bus
         state_desc = MapStateDescriptor("trip_to_route", Types.STRING(), Types.STRING())
         self.trip_to_route_state = runtime_context.get_map_state(state_desc)
-        
+
         # State to store last processed timestamp per bus to deduplicate
         # Note: In a real system, you'd want a more complex deduplication key (bus + timestamp + coords)
         dedup_desc = ValueStateDescriptor("last_timestamp", Types.STRING())
         self.last_ts_state = runtime_context.get_state(dedup_desc)
-        
+
         # Load route geometries at startup
         # In a real system, this should be refreshed periodically or pushed via broadcast
         logger.info("Fetching route geometries for enrichment...")
@@ -57,14 +57,14 @@ class EnrichmentFunction(KeyedProcessFunction):
 
         try:
             data = json.loads(value)
-            
+
             # 1. Handle Trip Lifecycle Events
             if "event" in data:
                 event_type = data["event"]
                 bus_id = data["busId"]
                 trip_id = data["tripId"]
                 route_id = data.get("routeId")
-                
+
                 if event_type == "TRIP_STARTED" and route_id:
                     self.trip_to_route_state.put(trip_id, route_id)
                     logger.info(f"Bus {bus_id} started trip {trip_id} on route {route_id}")
@@ -80,7 +80,7 @@ class EnrichmentFunction(KeyedProcessFunction):
             lon = data.get("lon")
             speed = data.get("speed", 0.0)
             ts = data.get("timestamp")
-            
+
             # Late Data and Deduplication Check
             # We only process messages that are strictly newer than the last one seen for this bus
             last_ts = self.last_ts_state.value()
@@ -88,7 +88,7 @@ class EnrichmentFunction(KeyedProcessFunction):
                 # String comparison works for ISO8601 timestamps
                 if ts <= last_ts:
                     logger.warning(f"Dropping late or duplicate message for bus {bus_id}: {ts} <= {last_ts}")
-                    return 
+                    return
             self.last_ts_state.update(ts)
 
             # Sanity Check (Cleaning Phase)
@@ -99,7 +99,7 @@ class EnrichmentFunction(KeyedProcessFunction):
 
             # Enrichment: Lookup routeId from tripId
             route_id = self.trip_to_route_state.get(trip_id)
-            
+
             if not route_id:
                 # We emit with routeId=None so Anomaly Service can flag INACTIVE_GPS
                 pass
@@ -107,7 +107,7 @@ class EnrichmentFunction(KeyedProcessFunction):
             # Enrichment: Progress & Distance
             remaining_dist = 0.0
             progress_pct = 0.0
-            
+
             if route_id in self.route_geometries:
                 geom = self.route_geometries[route_id]
                 remaining_dist, progress_pct = calculate_route_progress(lat, lon, geom)
@@ -118,7 +118,7 @@ class EnrichmentFunction(KeyedProcessFunction):
                 "remainingDistanceToNextStops": round(remaining_dist, 2),
                 "routeProgressPct": round(progress_pct, 2)
             }
-            
+
             yield json.dumps(enriched)
 
         except Exception as e:

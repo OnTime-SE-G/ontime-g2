@@ -18,7 +18,7 @@ def get_all_route_geometries(db: Session = Depends(get_db)):
     Returns a list of routes with their IDs and GeoJSON geometries.
     """
     routes = db.query(RouteORM).all()
-    
+
     results = []
     for route in routes:
         # Get geometry as GeoJSON
@@ -27,11 +27,11 @@ def get_all_route_geometries(db: Session = Depends(get_db)):
             .filter(RouteORM.id == route.id)
             .statement
         )
-        
+
         results.append({
             "id": route.id,
             "name": route.name,
             "geometry": json.loads(geojson_raw) if geojson_raw else None
         })
-        
+
     return results

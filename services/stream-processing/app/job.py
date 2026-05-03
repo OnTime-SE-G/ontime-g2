@@ -21,7 +21,7 @@ def run_telemetry_job():
     env = StreamExecutionEnvironment.get_execution_environment()
     env.set_runtime_mode(RuntimeExecutionMode.STREAMING)
     env.set_parallelism(1)
-    
+
     # 2. Define Kafka Source for raw telemetry
     telemetry_source = KafkaSource.builder() \
         .set_bootstrap_servers(settings.kafka_broker_url) \
@@ -62,13 +62,13 @@ def run_telemetry_job():
         .process(EnrichmentFunction(), output_type=Types.STRING())
 
     # 6. Sinks
-    
+
     # - Redis Sink (Position Snapshot and Pub/Sub)
     processed_ds.map(RedisSinkFunction(), output_type=Types.STRING()).name("Redis Sink")
-    
+
     # - InfluxDB Sink (Historical Data)
     processed_ds.map(InfluxDBSinkFunction(), output_type=Types.STRING()).name("InfluxDB Sink")
-    
+
     # - Kafka Sink (Cleaned and Enriched stream for downstream services)
     kafka_sink = KafkaSink.builder() \
         .set_bootstrap_servers(settings.kafka_broker_url) \
@@ -80,7 +80,7 @@ def run_telemetry_job():
         ) \
         .set_delivery_guarantee(DeliveryGuarantee.AT_LEAST_ONCE) \
         .build()
-        
+
     processed_ds.sink_to(kafka_sink).name("Kafka Cleaned Sink")
 
     logger.info("Starting Flink stream processing job for Increment 1 Phase T2...")

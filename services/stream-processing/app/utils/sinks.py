@@ -20,10 +20,10 @@ class RedisSink:
             bus_id = data.get("busId")
             if not bus_id:
                 return
-            
+
             # 1. Update position snapshot
             self.r.set(f"bus:{bus_id}:position", value)
-            
+
             # 2. Publish to live feed
             self.r.publish("fleet:live", value)
         except Exception as e:
@@ -36,8 +36,8 @@ class InfluxDBSink:
 
     def open(self):
         self.client = InfluxDBClient(
-            url=settings.influxdb_url, 
-            token=settings.influxdb_token, 
+            url=settings.influxdb_url,
+            token=settings.influxdb_token,
             org=settings.influxdb_org
         )
         self.write_api = self.client.write_api(write_options=SYNCHRONOUS)
@@ -45,7 +45,7 @@ class InfluxDBSink:
     def write(self, value: str):
         try:
             data = json.loads(value)
-            
+
             point = Point("gps_readings") \
                 .tag("bus_id", data.get("busId", "unknown")) \
                 .tag("route_id", data.get("routeId", "unknown")) \
@@ -56,7 +56,7 @@ class InfluxDBSink:
                 .field("heading", float(data.get("heading", 0.0))) \
                 .field("progress", float(data.get("routeProgressPct", 0.0))) \
                 .time(data.get("timestamp"), WritePrecision.NS)
-            
+
             self.write_api.write(bucket=settings.influxdb_bucket, record=point)
         except Exception as e:
             logger.error(f"InfluxDB Sink error: {e}")
