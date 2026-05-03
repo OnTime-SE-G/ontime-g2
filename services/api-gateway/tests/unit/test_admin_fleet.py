@@ -8,14 +8,14 @@ client = TestClient(app)
 
 def test_create_bus():
     with patch("app.routers.admin_fleet.add_bus", new_callable=AsyncMock) as mock_add:
-        mock_add.return_value = {"id": 1, "fleet_code": "B1", "plate_number": "P1", "capacity": 50, "route_id": None}
+        mock_add.return_value = {"id": "1", "fleet_code": "B1", "plate_number": "P1", "capacity": 50, "route_id": None, "status": "active"}
         response = client.post("/api/v1/admin/fleet/buses", json={"fleet_code": "B1", "plate_number": "P1", "capacity": 50})
         assert response.status_code == 200
         assert response.json()["fleet_code"] == "B1"
 
 def test_list_buses():
-    with patch("app.routers.admin_fleet.list_buses", new_callable=AsyncMock) as mock_list:
-        mock_list.return_value = [{"id": 1, "fleet_code": "B1", "plate_number": "P1", "capacity": 50, "route_id": None}]
+    with patch("app.routers.admin_fleet.get_buses", new_callable=AsyncMock) as mock_list:
+        mock_list.return_value = [{"id": "1", "fleet_code": "B1", "plate_number": "P1", "capacity": 50, "route_id": None, "status": "active"}]
         response = client.get("/api/v1/admin/fleet/buses")
         assert response.status_code == 200
         assert len(response.json()) == 1

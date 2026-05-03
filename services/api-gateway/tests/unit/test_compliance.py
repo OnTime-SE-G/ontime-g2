@@ -5,10 +5,12 @@ from app.main import app
 client = TestClient(app)
 
 def test_get_trip_state():
-    with patch("app.routers.driver.get_trip_detail", new_callable=AsyncMock) as mock_get:
+    with patch("app.routers.trips.get_trip_detail", new_callable=AsyncMock) as mock_get:
         mock_get.return_value = {
             "id": "trip1",
+            "schedule_id": 1,
             "status": "EN_ROUTE",
+            "date": "2026-05-03",
             "delay_minutes": 5,
             "actual_start_time": "2026-05-03T10:00:00Z"
         }

@@ -27,14 +27,14 @@ def test_driver_end_trip():
 
 def test_driver_report_delay():
     with patch("app.routers.driver.report_trip_delay", new_callable=AsyncMock) as mock_delay:
-        mock_delay.return_value = {"id": "trip1", "status": "EN_ROUTE", "delay_minutes": 10}
+        mock_delay.return_value = {"id": "trip1", "schedule_id": 1, "date": "2026-05-03", "status": "EN_ROUTE", "delay_minutes": 10}
         response = client.post("/api/v1/driver/trips/trip1/report-delay", json={"delay_minutes": 10})
         assert response.status_code == 200
         assert response.json()["delay_minutes"] == 10
 
 def test_driver_report_incident():
     with patch("app.routers.driver.report_trip_incident", new_callable=AsyncMock) as mock_incident:
-        mock_incident.return_value = {"id": "trip1", "status": "INCIDENT_REPORTED", "last_incident_type": "BREAKDOWN"}
+        mock_incident.return_value = {"id": "trip1", "schedule_id": 1, "date": "2026-05-03", "status": "INCIDENT_REPORTED", "last_incident_type": "BREAKDOWN"}
         response = client.post(
             "/api/v1/driver/trips/trip1/report-incident", 
             json={"incident_type": "BREAKDOWN", "message": "Engine issues"}

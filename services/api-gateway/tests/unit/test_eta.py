@@ -7,7 +7,7 @@ def test_haversine_distance():
     kandy = (7.2906, 80.6337)
     
     distance = ETACalculator.haversine_distance(*colombo, *kandy)
-    assert 110 < distance < 120
+    assert 90 < distance < 100
 
 def test_calculate_eta_minutes():
     # 20km at 20km/h should take 60 mins. 
