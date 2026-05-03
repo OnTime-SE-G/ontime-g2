@@ -5,6 +5,29 @@ from app.config import settings
 
 logger = logging.getLogger(__name__)
 
+
+def _geometry_to_points(route: dict) -> List[Tuple[float, float]]:
+    geometry = route.get("geometry")
+    if not geometry:
+        logger.warning("Skipping route %s because geometry is missing", route.get("id"))
+        return []
+
+    coordinates = geometry.get("coordinates")
+    if not coordinates:
+        logger.warning("Skipping route %s because coordinates are missing", route.get("id"))
+        return []
+
+    points = []
+    for coordinate in coordinates:
+        if not isinstance(coordinate, (list, tuple)) or len(coordinate) < 2:
+            logger.warning("Skipping invalid coordinate for route %s: %s", route.get("id"), coordinate)
+            return []
+        lon, lat = coordinate[0], coordinate[1]
+        points.append((lat, lon))
+
+    return points
+
+
 class RouteClient:
     def __init__(self):
         self.base_url = settings.route_service_url
@@ -23,10 +46,14 @@ class RouteClient:
                     # Convert to expected internal format
                     geometries = {}
                     for route in data:
+                        if route.get("id") is None:
+                            logger.warning("Skipping route geometry without id")
+                            continue
                         route_id = str(route["id"])
-                        coords = route["geometry"]["coordinates"]
                         # GeoJSON is [lon, lat], we want [(lat, lon), ...]
-                        geometries[route_id] = [(c[1], c[0]) for c in coords]
+                        points = _geometry_to_points(route)
+                        if points:
+                            geometries[route_id] = points
                     return geometries
                 else:
                     logger.error(f"Failed to fetch route geometries: {response.status_code}")
