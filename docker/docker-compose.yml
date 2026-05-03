@@ -301,6 +301,9 @@ services:
       - "8006:8006"
     environment:
       - KAFKA_BROKER_URL=broker:29092
+      - KAFKA_CLEANED_TOPIC=transport-telemetry-cleaned
+      - KAFKA_DLQ_TOPIC=transport-telemetry-dlq
+      - KAFKA_ANOMALY_TOPIC=transport-anomaly-alerts
       - ROUTE_SERVICE_URL=http://route-service:8002
     networks:
       - ontime_network
