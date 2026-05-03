@@ -266,7 +266,20 @@ services:
       context: ..
       dockerfile: services/stream-processing/Dockerfile
     container_name: ontime_flink_job_submitter
-    command: bash -c "sleep 30 && flink run -m flink-jobmanager:8081 -py /opt/flink/usrlib/app/job.py"
+    command: >
+      bash -c '
+        for attempt in $$(seq 1 30); do
+          if flink list -m flink-jobmanager:8081 >/dev/null 2>&1; then
+            echo "Flink JobManager is ready; submitting telemetry job"
+            flink run -m flink-jobmanager:8081 -py /opt/flink/usrlib/app/job.py
+            exit $$?
+          fi
+          echo "Waiting for Flink JobManager ($${attempt}/30)..."
+          sleep 5
+        done
+        echo "Flink JobManager was not ready after 150 seconds"
+        exit 1
+      '
     environment:
       - |
         FLINK_PROPERTIES=
