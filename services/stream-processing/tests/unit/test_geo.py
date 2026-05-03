@@ -5,11 +5,11 @@ def test_calculate_route_progress_exact_match():
     # Vertical line from lat 6.0 to 7.0
     route_geom = [(6.0, 80.0), (7.0, 80.0)]
     lat, lon = 6.5, 80.0
-    
+
     remaining_dist, progress_pct = calculate_route_progress(lat, lon, route_geom)
-    
+
     print(f"\n>>> GEO EXACT MATCH: Bus at halfway point -> Progress: {progress_pct:.2f}%, Remaining: {remaining_dist:.2f}m")
-    
+
     # Halfway through
     assert progress_pct == pytest.approx(50.0, rel=0.1)
     # Total distance is ~111km, so half is ~55.5km
