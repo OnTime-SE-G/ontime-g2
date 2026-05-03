@@ -4,7 +4,7 @@ from fastapi import APIRouter, HTTPException, Body
 from httpx import HTTPStatusError
 
 from app.services.fleet_client import (
-    add_bus, update_bus, delete_bus, list_buses, get_bus_detail, list_buses_by_route,
+    add_bus, update_bus, delete_bus, get_buses, get_bus, get_route_buses,
     assign_route, unassign_route,
     create_driver, list_drivers,
     create_schedule, list_schedules,
@@ -57,7 +57,7 @@ async def remove_bus(bus_id: str):
 async def get_all_buses():
     """List all buses in the fleet. Admin only."""
     try:
-        return await list_buses()
+        return await get_buses()
     except HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
 
@@ -66,7 +66,7 @@ async def get_all_buses():
 async def get_bus(bus_id: int):
     """Get details for a single bus. Admin only."""
     try:
-        return await get_bus_detail(bus_id)
+        return await get_bus(bus_id)
     except HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
 
@@ -75,7 +75,7 @@ async def get_bus(bus_id: int):
 async def get_buses_by_route(route_id: int):
     """List all buses assigned to a specific route. Admin only."""
     try:
-        return await list_buses_by_route(route_id)
+        return await get_route_buses(route_id)
     except HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
 

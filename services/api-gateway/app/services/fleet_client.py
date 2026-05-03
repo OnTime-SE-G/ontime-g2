@@ -26,21 +26,21 @@ async def delete_bus(bus_id: str):
         return res.json()
 
 
-async def list_buses():
+async def get_buses():
     async with httpx.AsyncClient() as client:
         res = await client.get(f"{FLEET_SERVICE_URL}/api/v1/fleet/buses")
         res.raise_for_status()
         return res.json()
 
 
-async def get_bus_detail(bus_id: int):
+async def get_bus(bus_id: int):
     async with httpx.AsyncClient() as client:
         res = await client.get(f"{FLEET_SERVICE_URL}/api/v1/fleet/buses/{bus_id}")
         res.raise_for_status()
         return res.json()
 
 
-async def list_buses_by_route(route_id: int):
+async def get_route_buses(route_id: int):
     async with httpx.AsyncClient() as client:
         res = await client.get(f"{FLEET_SERVICE_URL}/api/v1/fleet/buses/route/{route_id}")
         res.raise_for_status()
