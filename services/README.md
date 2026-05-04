@@ -1,5 +1,5 @@
 # Services
-
+.
 This folder contains all microservices owned by G2.
 
 ## Service list
