@@ -1,0 +1,248 @@
+services:
+  postgres:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ontime_db
+    ports:
+      - "15432:5432"
+    volumes:
+      - ../../docker/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ontime_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "16380:6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  broker:
+    image: confluentinc/confluent-local:7.5.0
+    ports:
+      - "19093:9092"
+    environment:
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,CONTROLLER://0.0.0.0:29093,PLAINTEXT_HOST://0.0.0.0:9092
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker:29092,PLAINTEXT_HOST://127.0.0.1:19093
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_NODE_ID: 1
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:29093
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:29092 --list"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  kafka-init:
+    image: confluentinc/confluent-local:7.5.0
+    depends_on:
+      broker:
+        condition: service_healthy
+    command:
+      - /bin/sh
+      - -c
+      - |
+        kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic trip.lifecycle --partitions 1 --replication-factor 1
+        kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic transport-telemetry-raw --partitions 1 --replication-factor 1
+        kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic transport-telemetry-dlq --partitions 1 --replication-factor 1
+        kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic transport-telemetry-cleaned --partitions 1 --replication-factor 1
+        kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic transport-anomaly-alerts --partitions 1 --replication-factor 1
+
+  mqtt-broker:
+    image: eclipse-mosquitto:2
+    ports:
+      - "18885:1883"
+    volumes:
+      - ../../docker/mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf:ro
+    healthcheck:
+      test: ["CMD", "mosquitto_sub", "-t", "$$SYS/#", "-C", "1", "-i", "healthcheck", "-W", "3"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  route-service:
+    build:
+      context: ../../services/route-service
+      dockerfile: Dockerfile
+    ports:
+      - "18012:8002"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/ontime_db
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8002/health', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  fleet-management-service:
+    build:
+      context: ../..
+      dockerfile: services/fleet-management-service/Dockerfile
+    ports:
+      - "18013:8003"
+    environment:
+      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/fleet_db
+      ROUTE_SERVICE_URL: http://route-service:8002
+      KAFKA_BROKER_URL: broker:29092
+      KAFKA_TRIP_LIFECYCLE_TOPIC: trip.lifecycle
+    depends_on:
+      postgres:
+        condition: service_healthy
+      route-service:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8003/health/ready', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  ingestion-service:
+    build:
+      context: ../..
+      dockerfile: services/ingestion/Dockerfile
+    ports:
+      - "18011:8001"
+    environment:
+      MQTT_BROKER_HOST: mqtt-broker
+      MQTT_BROKER_PORT: 1883
+      MQTT_TOPIC_PATTERN: transport/bus/+/location
+      MQTT_HEARTBEAT_TOPIC_PATTERN: transport/bus/+/heartbeat
+      KAFKA_BROKER_URL: broker:29092
+      INGESTION_KAFKA_RAW_TOPIC: transport-telemetry-raw
+      INGESTION_KAFKA_DLQ_TOPIC: transport-telemetry-dlq
+      INGESTION_KAFKA_TRIP_LIFECYCLE_TOPIC: trip.lifecycle
+      INGESTION_SERVICE_PORT: 8001
+      INGESTION_MIN_EVENT_INTERVAL_SECONDS: 1.0
+      INGESTION_DUPLICATE_CACHE_SIZE: 100
+      INGESTION_TRIP_CACHE_REBUILD_TIMEOUT_SECONDS: 2.0
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      mqtt-broker:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health/ready', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  websocket-service:
+    build:
+      context: ../../services/websocket-service
+      dockerfile: Dockerfile
+    ports:
+      - "18014:8004"
+    environment:
+      REDIS_URL: redis://redis:6379
+      FLEET_CHANNEL: fleet:live
+      ETA_CHANNEL: eta:live
+    depends_on:
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8004/health/ready', timeout=3)"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
+
+  flink-jobmanager:
+    build:
+      context: ../..
+      dockerfile: services/stream-processing/Dockerfile
+    command: jobmanager
+    ports:
+      - "18081:8081"
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+      KAFKA_BROKER_URL: broker:29092
+      KAFKA_RAW_TOPIC: transport-telemetry-raw
+      KAFKA_CLEANED_TOPIC: transport-telemetry-cleaned
+      KAFKA_LIFECYCLE_TOPIC: trip.lifecycle
+      ROUTE_SERVICE_URL: http://route-service:8002
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      INFLUXDB_URL: http://influxdb-not-required:8086
+      PYTHONPATH: /opt/flink/usrlib
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      route-service:
+        condition: service_healthy
+
+  flink-taskmanager:
+    build:
+      context: ../..
+      dockerfile: services/stream-processing/Dockerfile
+    command: taskmanager
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+        taskmanager.numberOfTaskSlots: 2
+      KAFKA_BROKER_URL: broker:29092
+      KAFKA_RAW_TOPIC: transport-telemetry-raw
+      KAFKA_CLEANED_TOPIC: transport-telemetry-cleaned
+      KAFKA_LIFECYCLE_TOPIC: trip.lifecycle
+      ROUTE_SERVICE_URL: http://route-service:8002
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      INFLUXDB_URL: http://influxdb-not-required:8086
+      PYTHONPATH: /opt/flink/usrlib
+    depends_on:
+      - flink-jobmanager
+
+  flink-job-submitter:
+    build:
+      context: ../..
+      dockerfile: services/stream-processing/Dockerfile
+    command: >
+      bash -c '
+        for attempt in $$(seq 1 30); do
+          if flink list -m flink-jobmanager:8081 >/dev/null 2>&1; then
+            echo "Flink JobManager is ready; submitting telemetry job"
+            flink run -m flink-jobmanager:8081 -py /opt/flink/usrlib/app/job.py
+            exit $$?
+          fi
+          echo "Waiting for Flink JobManager ($${attempt}/30)..."
+          sleep 5
+        done
+        echo "Flink JobManager was not ready after 150 seconds"
+        exit 1
+      '
+    environment:
+      FLINK_PROPERTIES: |
+        jobmanager.rpc.address: flink-jobmanager
+      KAFKA_BROKER_URL: broker:29092
+      KAFKA_RAW_TOPIC: transport-telemetry-raw
+      KAFKA_CLEANED_TOPIC: transport-telemetry-cleaned
+      KAFKA_LIFECYCLE_TOPIC: trip.lifecycle
+      ROUTE_SERVICE_URL: http://route-service:8002
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      INFLUXDB_URL: http://influxdb-not-required:8086
+      PYTHONPATH: /opt/flink/usrlib
+    depends_on:
+      - flink-jobmanager
+      - flink-taskmanager
