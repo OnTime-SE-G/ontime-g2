@@ -60,7 +60,7 @@ async def start_trip(db: Session, trip_id: str):
     # Publish Kafka event
     event = TripLifecycleEvent(
         event="TRIP_STARTED",
-        bus_id=bus.fleet_code,
+        bus_id=str(bus.id),
         trip_id=trip.id,
         route_id=str(schedule.route_id),
         timestamp=trip.actual_start_time
@@ -89,7 +89,7 @@ async def end_trip(db: Session, trip_id: str):
     # Publish Kafka event
     event = TripLifecycleEvent(
         event="TRIP_ENDED",
-        bus_id=bus.fleet_code,
+        bus_id=str(bus.id),
         trip_id=trip.id,
         route_id=str(schedule.route_id),
         timestamp=trip.actual_end_time
@@ -137,7 +137,7 @@ async def report_incident(db: Session, trip_id: str, incident_type: str, message
     
     event = TripLifecycleEvent(
         event="INCIDENT_REPORTED",
-        bus_id=bus.fleet_code if bus else "UNKNOWN",
+        bus_id= str(bus.id) if bus else "UNKNOWN",
         trip_id=trip.id,
         route_id=str(schedule.route_id) if schedule else "UNKNOWN",
         timestamp=datetime.now(timezone.utc)

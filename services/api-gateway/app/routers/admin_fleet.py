@@ -4,7 +4,8 @@ from fastapi import APIRouter, HTTPException, Body
 from httpx import HTTPStatusError
 
 from app.services.fleet_client import (
-    add_bus, update_bus, delete_bus, get_buses, get_bus, get_route_buses,
+    add_bus, update_bus, delete_bus, get_buses, get_bus as get_bus_from_fleet
+    , get_route_buses,
     assign_route, unassign_route,
     create_driver, list_drivers,
     create_schedule, list_schedules,
@@ -66,7 +67,7 @@ async def get_all_buses():
 async def get_bus(bus_id: int):
     """Get details for a single bus. Admin only."""
     try:
-        return await get_bus(bus_id)
+        return await get_bus_from_fleet(bus_id)
     except HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
 
