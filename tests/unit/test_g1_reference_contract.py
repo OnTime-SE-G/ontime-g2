@@ -22,6 +22,14 @@ def test_g1_reference_sketches_publish_to_ingestion_location_topic():
         assert "mqtt.publish(locationTopic, payload, false)" in source
 
 
+def test_g1_reference_sketches_publish_to_ingestion_heartbeat_topic():
+    for sketch in SKETCHES:
+        source = read_text(sketch)
+
+        assert '"transport/bus/%s/heartbeat"' in source
+        assert "mqtt.publish(heartbeatTopic, heartbeatPayload, true)" in source
+
+
 def test_g1_reference_sketches_emit_g2_location_payload_fields():
     required_fields = [
         '"\\"busId\\":\\"%s\\","',
@@ -30,6 +38,24 @@ def test_g1_reference_sketches_emit_g2_location_payload_fields():
         '"\\"speed\\":%s,"',
         '"\\"heading\\":%s,"',
         '"\\"timestamp\\":\\"%s\\""',
+    ]
+
+    for sketch in SKETCHES:
+        source = read_text(sketch)
+
+        for field in required_fields:
+            assert field in source
+
+
+def test_g1_reference_sketches_emit_g2_heartbeat_payload_fields():
+    required_fields = [
+        '"\\"busId\\":\\"%s\\","',
+        '"\\"deviceId\\":\\"%s\\","',
+        '"\\"timestamp\\":\\"%s\\","',
+        '"\\"gpsFix\\":%s,"',
+        '"\\"satellites\\":%lu,"',
+        '"\\"signalQuality\\":%d,"',
+        '"\\"firmwareVersion\\":\\"%s\\""',
     ]
 
     for sketch in SKETCHES:
@@ -60,3 +86,4 @@ def test_g1_readme_documents_no_trip_id_and_fleet_id_bus_id():
     assert "It does **not** publish `tripId`" in readme
     assert "`busId` is the Fleet bus `id`, serialized as a string" in readme
     assert "Live GPS publishes must use retained=false" in readme
+    assert "Heartbeat publishes may use retained=true" in readme

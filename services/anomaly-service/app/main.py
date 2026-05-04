@@ -20,10 +20,15 @@ ENV_FILES = (
 class Settings(BaseSettings):
     kafka_broker_url: str = "broker:29092"
     kafka_cleaned_topic: str = "transport-telemetry-cleaned"
+    kafka_dlq_topic: str = "transport-telemetry-dlq"
     kafka_anomaly_topic: str = "transport-anomaly-alerts"
+    kafka_dlq_group_id: str = "anomaly-service-dlq-group"
     route_service_url: str = "http://route-service:8002"
     communication_loss_check_interval_seconds: int = 60
     communication_loss_threshold_seconds: int = 180
+    inactive_trip_dlq_threshold_count: int = 3
+    inactive_trip_dlq_window_seconds: int = 60
+    inactive_trip_dlq_cooldown_seconds: int = 300
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILES,
@@ -97,17 +102,63 @@ class AnomalyService:
                 json.dumps(alert).encode('utf-8')
             )
 
+    async def process_cleaned_message(self, raw_value: bytes | str, producer: AIOKafkaProducer):
+        telemetry = self._decode_json(raw_value)
+        route_id = telemetry.get("routeId")
+        geometry = self.route_geometries.get(route_id, [])
+
+        alerts = self.model.detect(telemetry, geometry)
+        await self.publish_alerts(producer, alerts)
+
+    async def process_dlq_message(self, raw_value: bytes | str, producer: AIOKafkaProducer):
+        dlq_event = self._decode_json(raw_value)
+        alerts = self.model.detect_inactive_trip_dlq(
+            dlq_event,
+            threshold_count=settings.inactive_trip_dlq_threshold_count,
+            window_seconds=settings.inactive_trip_dlq_window_seconds,
+            cooldown_seconds=settings.inactive_trip_dlq_cooldown_seconds,
+        )
+        await self.publish_alerts(producer, alerts)
+
+    def _decode_json(self, raw_value: bytes | str) -> dict:
+        if isinstance(raw_value, bytes):
+            raw_value = raw_value.decode('utf-8')
+        decoded = json.loads(raw_value)
+        if not isinstance(decoded, dict):
+            raise ValueError("Kafka message value must decode to a JSON object")
+        return decoded
+
+    async def consume_cleaned_telemetry(self, consumer: AIOKafkaConsumer, producer: AIOKafkaProducer):
+        async for msg in consumer:
+            try:
+                await self.process_cleaned_message(msg.value, producer)
+            except Exception as e:
+                logger.error(f"Cleaned telemetry processing error: {e}")
+
+    async def consume_dlq(self, consumer: AIOKafkaConsumer, producer: AIOKafkaProducer):
+        async for msg in consumer:
+            try:
+                await self.process_dlq_message(msg.value, producer)
+            except Exception as e:
+                logger.error(f"DLQ processing error: {e}")
+
     async def run(self):
         await self.fetch_route_geometries()
 
-        consumer = AIOKafkaConsumer(
+        cleaned_consumer = AIOKafkaConsumer(
             settings.kafka_cleaned_topic,
             bootstrap_servers=settings.kafka_broker_url,
             group_id="anomaly-service-group"
         )
+        dlq_consumer = AIOKafkaConsumer(
+            settings.kafka_dlq_topic,
+            bootstrap_servers=settings.kafka_broker_url,
+            group_id=settings.kafka_dlq_group_id
+        )
         producer = AIOKafkaProducer(bootstrap_servers=settings.kafka_broker_url)
 
-        await consumer.start()
+        await cleaned_consumer.start()
+        await dlq_consumer.start()
         await producer.start()
         logger.info("Anomaly Service running...")
 
@@ -126,22 +177,23 @@ class AnomalyService:
 
         refresh_task = asyncio.create_task(periodic_refresh())
         communication_loss_task = asyncio.create_task(periodic_communication_loss_check())
+        cleaned_consumer_task = asyncio.create_task(
+            self.consume_cleaned_telemetry(cleaned_consumer, producer)
+        )
+        dlq_consumer_task = asyncio.create_task(self.consume_dlq(dlq_consumer, producer))
 
         try:
-            async for msg in consumer:
-                try:
-                    telemetry = json.loads(msg.value.decode('utf-8'))
-                    route_id = telemetry.get("routeId")
-                    geometry = self.route_geometries.get(route_id, [])
-
-                    alerts = self.model.detect(telemetry, geometry)
-                    await self.publish_alerts(producer, alerts)
-                except Exception as e:
-                    logger.error(f"Processing error: {e}")
+            await asyncio.gather(cleaned_consumer_task, dlq_consumer_task)
         finally:
-            refresh_task.cancel()
-            communication_loss_task.cancel()
-            await consumer.stop()
+            for task in (
+                refresh_task,
+                communication_loss_task,
+                cleaned_consumer_task,
+                dlq_consumer_task,
+            ):
+                task.cancel()
+            await cleaned_consumer.stop()
+            await dlq_consumer.stop()
             await producer.stop()
 
 if __name__ == "__main__":

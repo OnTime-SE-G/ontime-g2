@@ -6,6 +6,7 @@
 // Dummy publisher for testing the G1 -> G2 MQTT contract without a GPS module.
 // It sends schema-compatible location messages without tripId. G2 Ingestion
 // resolves tripId from busId + Kafka trip.lifecycle.
+// It also publishes retained heartbeat messages for device-status visibility.
 
 // Network config
 const char APN[] = "internet";
@@ -21,8 +22,13 @@ const char MQTT_PASSWORD[] = "";
 // Device identity config
 const char BUS_ID[] = "1";
 const char CLIENT_ID[] = "ontime-g1-dummy-bus-1";
+const char DEVICE_ID[] = "GPS-DUMMY-1";
+const char FIRMWARE_VERSION[] = "g1-dummy-0.1.0";
+const unsigned long LOCATION_INTERVAL_MS = 5000;
+const unsigned long HEARTBEAT_INTERVAL_MS = 30000;
 
 char locationTopic[96];
+char heartbeatTopic[96];
 
 SoftwareSerial gsmSerial(3, 2);
 TinyGsm modem(gsmSerial);
@@ -34,6 +40,7 @@ float lon = 79.8612;
 float speedKmph = 35.0;
 float headingDeg = 120.0;
 unsigned long messageIndex = 0;
+unsigned long lastHeartbeatAt = 0;
 
 void updateDummyLocation() {
   lat += random(-5, 6) * 0.0001;
@@ -110,6 +117,49 @@ void connectMQTT() {
   Serial.println(" connected!");
 }
 
+void publishHeartbeatIfDue(const char *timestampIso) {
+  unsigned long now = millis();
+  if (lastHeartbeatAt != 0 && now - lastHeartbeatAt < HEARTBEAT_INTERVAL_MS) {
+    return;
+  }
+
+  int signalQuality = modem.getSignalQuality();
+  if (signalQuality < 0) {
+    signalQuality = 0;
+  }
+
+  char heartbeatPayload[256];
+  snprintf(
+    heartbeatPayload,
+    sizeof(heartbeatPayload),
+    "{"
+      "\"busId\":\"%s\","
+      "\"deviceId\":\"%s\","
+      "\"timestamp\":\"%s\","
+      "\"gpsFix\":%s,"
+      "\"satellites\":%lu,"
+      "\"signalQuality\":%d,"
+      "\"firmwareVersion\":\"%s\""
+    "}",
+    BUS_ID,
+    DEVICE_ID,
+    timestampIso,
+    "true",
+    8UL,
+    signalQuality,
+    FIRMWARE_VERSION
+  );
+
+  if (mqtt.publish(heartbeatTopic, heartbeatPayload, true)) {
+    lastHeartbeatAt = now;
+    Serial.print("Heartbeat: ");
+    Serial.println(heartbeatPayload);
+  } else {
+    Serial.println("Heartbeat publish failed. Reconnecting...");
+    connectMQTT();
+  }
+}
+
 void setup() {
   Serial.begin(9600);
   gsmSerial.begin(9600);
@@ -121,9 +171,17 @@ void setup() {
     "transport/bus/%s/location",
     BUS_ID
   );
+  snprintf(
+    heartbeatTopic,
+    sizeof(heartbeatTopic),
+    "transport/bus/%s/heartbeat",
+    BUS_ID
+  );
 
   Serial.print("OnTime dummy GPS topic: ");
   Serial.println(locationTopic);
+  Serial.print("OnTime dummy heartbeat topic: ");
+  Serial.println(heartbeatTopic);
 
   connectGSM();
   connectMQTT();
@@ -172,6 +230,7 @@ void loop() {
     connectMQTT();
   }
 
+  publishHeartbeatIfDue(timestampIso);
   messageIndex += 1;
-  delay(5000);
+  delay(LOCATION_INTERVAL_MS);
 }
