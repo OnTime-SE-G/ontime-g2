@@ -19,8 +19,8 @@ logger = logging.getLogger("ws-service")
 
 # Configuration
 REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379")
-FLEET_CHANNEL = os.getenv("FLEET_CHANNEL", "fleet.live")
-ETA_CHANNEL = os.getenv("ETA_CHANNEL", "eta.live")
+FLEET_CHANNEL = os.getenv("FLEET_CHANNEL", "fleet:live")
+ETA_CHANNEL = os.getenv("ETA_CHANNEL", "eta:live")
 
 manager = ConnectionManager()
 
