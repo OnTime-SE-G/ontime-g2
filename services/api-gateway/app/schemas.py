@@ -105,12 +105,16 @@ class RouteDeleteResponse(BaseModel):
 
 class BusResponse(BaseModel):
     id: str
+    fleet_code: str
+    plate_number: str
     status: str
     route_id: Optional[str] = None
     capacity: Optional[int] = None
 
 class LiveBusResponse(BaseModel):
     id: str
+    fleet_code: str
+    plate_number: str
     status: str
     route_id: Optional[str] = None
     latitude: Optional[float] = None
@@ -124,3 +128,54 @@ class BusAssignmentResponse(BaseModel):
 class BusDeletionResponse(BaseModel):
     message: str
     bus_id: str
+
+
+# --- Timetable & Trip Schemas ---
+
+from datetime import date, time, datetime
+
+class DriverCreate(BaseModel):
+    name: str
+    license_number: str
+    phone: Optional[str] = None
+
+class DriverResponse(BaseModel):
+    id: int
+    name: str
+    license_number: str
+    phone: Optional[str] = None
+
+class ScheduleCreate(BaseModel):
+    route_id: int
+    scheduled_time: time
+    day_of_week: int
+
+class ScheduleResponse(BaseModel):
+    id: int
+    route_id: int
+    scheduled_time: time
+    day_of_week: int
+
+class PlannedTripResponse(BaseModel):
+    id: str
+    schedule_id: int
+    bus_id: Optional[int] = None
+    driver_id: Optional[int] = None
+    date: date
+    status: str
+    actual_start_time: Optional[datetime] = None
+    actual_end_time: Optional[datetime] = None
+    delay_minutes: int = 0
+    last_incident_type: Optional[str] = None
+
+class TripDelayReport(BaseModel):
+    delay_minutes: int
+
+class TripIncidentReport(BaseModel):
+    incident_type: str
+    message: Optional[str] = None
+
+class TripLifecycleResponse(BaseModel):
+    trip_id: str
+    status: str
+    message: str

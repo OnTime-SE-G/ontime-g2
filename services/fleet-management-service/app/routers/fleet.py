@@ -53,7 +53,12 @@ def assign_route(bus_id: int, route_id: int, db: Session = Depends(get_db)):
     if not bus:
         raise HTTPException(status_code=404, detail="Bus not found")
 
-    validate_route_exists(route_id)
+    try:
+        validate_route_exists(route_id)
+    except HTTPException:
+        raise
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail="Route validation failed") from exc
 
     bus.route_id = route_id
     db.commit()
