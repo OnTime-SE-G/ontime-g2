@@ -1,0 +1,40 @@
+name: Live Pipeline E2E Smoke
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "tests/integration/test_live_pipeline_smoke.py"
+      - "tests/integration/docker-compose.live-pipeline.yml"
+      - ".github/workflows/test_live_pipeline_e2e.yml"
+      - "services/fleet-management-service/**"
+      - "services/ingestion/**"
+      - "services/route-service/**"
+      - "services/stream-processing/**"
+      - "services/websocket-service/**"
+      - "schemas/**"
+      - "docker/**"
+
+jobs:
+  live-pipeline-smoke:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install test dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r services/ingestion/requirements-dev.txt
+          pip install redis websocket-client
+
+      - name: Run live pipeline smoke
+        run: |
+          python -m pytest tests/integration/test_live_pipeline_smoke.py -m integration -v
