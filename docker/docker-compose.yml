@@ -222,6 +222,25 @@ services:
       timeout: 5s
       retries: 5
       start_period: 20s
+      
+  websocket-service:
+    build:
+      context: ../services/websocket-service
+      dockerfile: Dockerfile
+    container_name: ontime_websocket_service
+    ports:
+      - "8004:8004"
+    volumes:
+      - ../services/websocket-service:/app
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - FLEET_CHANNEL=fleet:live
+      - ETA_CHANNEL=eta:live
+    networks:
+      - ontime_network
+    depends_on:
+      redis:
+        condition: service_healthy
 
   flink-jobmanager:
     build:
