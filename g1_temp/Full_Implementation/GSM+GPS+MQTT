@@ -9,6 +9,7 @@
 // - GPS device does not send tripId.
 // - G2 Ingestion resolves the active trip using busId + Kafka trip.lifecycle.
 // - Live GPS messages must not be retained, otherwise old positions can replay.
+// - Heartbeat messages report device status and may be retained.
 
 // Network config
 const char APN[] = "internet";
@@ -29,8 +30,13 @@ const char MQTT_PASSWORD[] = "";
 // Device identity config
 const char BUS_ID[] = "1";
 const char CLIENT_ID[] = "ontime-g1-bus-1";
+const char DEVICE_ID[] = "GPS-1";
+const char FIRMWARE_VERSION[] = "g1-0.1.0";
+const unsigned long LOCATION_INTERVAL_MS = 5000;
+const unsigned long HEARTBEAT_INTERVAL_MS = 30000;
 
 char locationTopic[96];
+char heartbeatTopic[96];
 
 SoftwareSerial gsmSerial(3, 2);  // GSM RX=3, TX=2
 SoftwareSerial gpsSerial(5, 4);  // GPS RX=5, TX=4
@@ -47,6 +53,7 @@ float headingDeg = 0.0;
 char timestampIso[25] = "";
 bool gpsFixed = false;
 bool timestampValid = false;
+unsigned long lastHeartbeatAt = 0;
 
 void readGPS() {
   gpsSerial.listen();
@@ -133,6 +140,54 @@ void connectMQTT() {
   Serial.println(" connected!");
 }
 
+void publishHeartbeatIfDue() {
+  unsigned long now = millis();
+  if (lastHeartbeatAt != 0 && now - lastHeartbeatAt < HEARTBEAT_INTERVAL_MS) {
+    return;
+  }
+
+  if (!timestampValid) {
+    Serial.println("Heartbeat skipped: waiting for valid GPS date/time...");
+    return;
+  }
+
+  int signalQuality = modem.getSignalQuality();
+  if (signalQuality < 0) {
+    signalQuality = 0;
+  }
+
+  char heartbeatPayload[256];
+  snprintf(
+    heartbeatPayload,
+    sizeof(heartbeatPayload),
+    "{"
+      "\"busId\":\"%s\","
+      "\"deviceId\":\"%s\","
+      "\"timestamp\":\"%s\","
+      "\"gpsFix\":%s,"
+      "\"satellites\":%lu,"
+      "\"signalQuality\":%d,"
+      "\"firmwareVersion\":\"%s\""
+    "}",
+    BUS_ID,
+    DEVICE_ID,
+    timestampIso,
+    gpsFixed ? "true" : "false",
+    gps.satellites.value(),
+    signalQuality,
+    FIRMWARE_VERSION
+  );
+
+  if (mqtt.publish(heartbeatTopic, heartbeatPayload, true)) {
+    lastHeartbeatAt = now;
+    Serial.print("Heartbeat: ");
+    Serial.println(heartbeatPayload);
+  } else {
+    Serial.println("Heartbeat publish failed. Reconnecting...");
+    connectMQTT();
+  }
+}
+
 void setup() {
   Serial.begin(9600);
   gsmSerial.begin(9600);
@@ -144,9 +199,17 @@ void setup() {
     "transport/bus/%s/location",
     BUS_ID
   );
+  snprintf(
+    heartbeatTopic,
+    sizeof(heartbeatTopic),
+    "transport/bus/%s/heartbeat",
+    BUS_ID
+  );
 
   Serial.print("OnTime GPS topic: ");
   Serial.println(locationTopic);
+  Serial.print("OnTime heartbeat topic: ");
+  Serial.println(heartbeatTopic);
 
   connectGSM();
   connectMQTT();
@@ -160,17 +223,18 @@ void loop() {
     connectMQTT();
   }
   mqtt.loop();
+  publishHeartbeatIfDue();
 
   if (!gpsFixed) {
     Serial.print("Waiting for GPS fix... satellites: ");
     Serial.println(gps.satellites.value());
-    delay(5000);
+    delay(LOCATION_INTERVAL_MS);
     return;
   }
 
   if (!timestampValid) {
     Serial.println("Waiting for valid GPS date/time...");
-    delay(5000);
+    delay(LOCATION_INTERVAL_MS);
     return;
   }
 
@@ -208,5 +272,5 @@ void loop() {
     connectMQTT();
   }
 
-  delay(5000);
+  delay(LOCATION_INTERVAL_MS);
 }

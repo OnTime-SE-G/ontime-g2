@@ -33,11 +33,33 @@ Location payload:
 }
 ```
 
+Heartbeat topic:
+
+```text
+transport/bus/{busId}/heartbeat
+```
+
+Heartbeat payload:
+
+```json
+{
+  "busId": "1",
+  "deviceId": "GPS-1",
+  "timestamp": "2026-05-02T10:15:30Z",
+  "gpsFix": true,
+  "satellites": 8,
+  "signalQuality": 21,
+  "firmwareVersion": "g1-0.1.0"
+}
+```
+
 Important rules:
 
 - `timestamp` is mandatory and must come from GPS event time.
 - `busId` is the Fleet bus `id`, serialized as a string.
 - Live GPS publishes must use retained=false.
+- Heartbeat publishes may use retained=true because they represent latest device
+  status, not live movement.
 - Field names must be `busId`, `lat`, `lon`, `speed`, `heading`, and
   `timestamp`.
 - `tripId` is intentionally not included in the GPS payload.
