@@ -49,7 +49,7 @@ async def get_route_buses(route_id: int):
 
 async def assign_route(bus_id: str, route_id: str):
     async with httpx.AsyncClient() as client:
-        res = await client.post(f"{FLEET_SERVICE_URL}/api/v1/fleet/buses/{bus_id}/assign-route/{route_id}")
+        res = await client.patch(f"{FLEET_SERVICE_URL}/api/v1/fleet/buses/{bus_id}/assign-route/{route_id}")
         res.raise_for_status()
         return res.json()
 
