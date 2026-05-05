@@ -33,8 +33,8 @@ flowchart LR
   APIGW --> ROUTE["Route Service"]
   APIGW --> FLEET["Fleet Management Service"]
   APIGW --> REDIS["Redis"]
-  APIGW -. planned .-> ETA["ETA Service"]
-  APIGW -. planned .-> AUTH["Auth Wrapper Contract"]
+  APIGW -.-> ETA["ETA Service planned"]
+  APIGW -.-> AUTH["Auth Wrapper Contract planned"]
 
   ROUTE --> PG["PostgreSQL / PostGIS"]
   FLEET --> PG
@@ -56,9 +56,9 @@ flowchart LR
   ROUTE -->|"/internal/routes/geometry"| ANOM
   ANOM -->|"transport-anomaly-alerts"| KAFKA
 
-  KAFKA -. planned ETA features .-> ETA
-  ETA -. planned .->|"eta:live"| REDIS
-  ETA -. planned .-> INFLUX
+  KAFKA -.-> ETA
+  ETA -.-> REDIS
+  ETA -.-> INFLUX
 
   REDIS -->|"fleet:live + eta:live"| WS
 ```
