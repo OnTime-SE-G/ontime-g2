@@ -1,7 +1,14 @@
 import json
 import threading
+import sys
+from pathlib import Path
+from types import SimpleNamespace
 
 import pytest
+
+SERVICE_ROOT = Path(__file__).resolve().parents[2]
+if str(SERVICE_ROOT) not in sys.path:
+    sys.path.insert(0, str(SERVICE_ROOT))
 
 from consumer import ETA_LIVE_CHANNEL, EtaFeatureConsumer
 
@@ -49,7 +56,7 @@ def make_payload(**overrides):
 
 def test_process_payload_writes_snapshot_and_live_event():
     redis_client = FakeRedis()
-    consumer = EtaFeatureConsumer(redis_client)
+    consumer = EtaFeatureConsumer(redis_client, default_model="physics")
 
     result = consumer.process_payload(make_payload())
 
@@ -74,11 +81,12 @@ def test_process_payload_writes_snapshot_and_live_event():
     assert live_event["stopId"] == 42
     assert live_event["stopName"] == "Kadawatha Junction"
     assert live_event["model_used"] == "physics"
+    assert result["snapshot"]["modelUsed"] == "physics"
 
 
 def test_process_payload_clamps_zero_speed_for_eta():
     redis_client = FakeRedis()
-    consumer = EtaFeatureConsumer(redis_client)
+    consumer = EtaFeatureConsumer(redis_client, default_model="physics")
 
     result = consumer.process_payload(make_payload(speed=0.0, distanceToNextStop=140.0))
 
@@ -89,7 +97,7 @@ def test_process_payload_clamps_zero_speed_for_eta():
 
 def test_process_message_decodes_json_bytes():
     redis_client = FakeRedis()
-    consumer = EtaFeatureConsumer(redis_client)
+    consumer = EtaFeatureConsumer(redis_client, default_model="physics")
     message = type("KafkaMessage", (), {"value": json.dumps(make_payload()).encode("utf-8")})()
 
     result = consumer.process_message(message)
@@ -100,10 +108,82 @@ def test_process_message_decodes_json_bytes():
 
 def test_missing_required_fields_raise_clear_error():
     redis_client = FakeRedis()
-    consumer = EtaFeatureConsumer(redis_client)
+    consumer = EtaFeatureConsumer(redis_client, default_model="physics")
 
     with pytest.raises(ValueError, match="Missing ETA feature fields"):
         consumer.process_payload({"tripId": "TRIP-2026-001"})
+
+
+def test_decode_message_accepts_mapping_directly():
+    consumer = EtaFeatureConsumer(FakeRedis(), default_model="physics")
+    payload = make_payload()
+
+    decoded = consumer.decode_message(payload)
+
+    assert decoded["tripId"] == payload["tripId"]
+
+
+def test_snapshot_key_uses_trip_id():
+    consumer = EtaFeatureConsumer(FakeRedis(), default_model="physics")
+
+    assert consumer.snapshot_key("TRIP-123") == "eta:trip:TRIP-123:snapshot"
+
+
+def test_create_kafka_consumer_uses_injected_factory():
+    fake_client = FakeRedis()
+    calls = []
+
+    def factory(**kwargs):
+        calls.append(kwargs)
+        return "fake-consumer"
+
+    consumer = EtaFeatureConsumer(fake_client, default_model="physics", consumer_factory=factory)
+
+    assert consumer.create_kafka_consumer() == "fake-consumer"
+    assert calls[0]["bootstrap_servers"] == "broker:29092"
+    assert calls[0]["group_id"] == "eta-service"
+    assert calls[0]["topic_name"] == "transport-eta-features"
+
+
+def test_process_payload_supports_custom_snapshot_ttl():
+    redis_client = FakeRedis()
+    consumer = EtaFeatureConsumer(redis_client, default_model="physics", snapshot_ttl_seconds=42)
+
+    consumer.process_payload(make_payload())
+
+    assert redis_client.calls[0][2] == 42
+
+
+def test_process_payload_uses_xgboost_when_available(monkeypatch):
+    redis_client = FakeRedis()
+    consumer = EtaFeatureConsumer(redis_client, default_model="xgboost")
+
+    fake_result = SimpleNamespace(eta_seconds=77.0, speed_ms=1.95, clamped=False)
+    monkeypatch.setattr(
+        "consumer.EtaFeatureConsumer._predict_eta",
+        lambda self, distance_m, speed_ms, stops_remaining, timestamp, model_name=None: (fake_result, "xgboost"),
+    )
+
+    result = consumer.process_payload(make_payload())
+
+    assert result["model_used"] == "xgboost"
+    assert result["eta_result"].eta_seconds == pytest.approx(77.0)
+    assert result["snapshot"]["modelUsed"] == "xgboost"
+
+
+def test_process_payload_falls_back_to_physics_when_xgboost_fails(monkeypatch):
+    redis_client = FakeRedis()
+    consumer = EtaFeatureConsumer(redis_client, default_model="xgboost")
+
+    monkeypatch.setattr(
+        "consumer.EtaFeatureConsumer._predict_eta",
+        lambda self, distance_m, speed_ms, stops_remaining, timestamp, model_name=None: (SimpleNamespace(eta_seconds=0.0, speed_ms=speed_ms, clamped=False), "physics"),
+    )
+
+    result = consumer.process_payload(make_payload())
+
+    assert result["model_used"] == "physics"
+    assert result["live_event"]["model_used"] == "physics"
 
 
 def test_consume_forever_processes_kafka_messages_and_closes_consumer():

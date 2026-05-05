@@ -8,6 +8,8 @@ Pub/Sub channel.
 from __future__ import annotations
 
 import json
+import datetime as dt_module
+import logging
 import threading
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
@@ -18,6 +20,7 @@ from models.eta import compute_eta
 ETA_SNAPSHOT_KEY_PREFIX = "eta:trip"
 ETA_LIVE_CHANNEL = "eta:live"
 DEFAULT_SNAPSHOT_TTL_SECONDS = 300
+DEFAULT_MODEL_NAME = "xgboost"
 
 
 @dataclass(frozen=True)
@@ -84,6 +87,7 @@ class EtaFeatureConsumer:
         kafka_broker_url: str = "broker:29092",
         topic_name: str = "transport-eta-features",
         consumer_group_id: str = "eta-service",
+        default_model: str = DEFAULT_MODEL_NAME,
         snapshot_ttl_seconds: int = DEFAULT_SNAPSHOT_TTL_SECONDS,
         live_channel: str = ETA_LIVE_CHANNEL,
         snapshot_key_prefix: str = ETA_SNAPSHOT_KEY_PREFIX,
@@ -94,6 +98,7 @@ class EtaFeatureConsumer:
         self.kafka_broker_url = kafka_broker_url
         self.topic_name = topic_name
         self.consumer_group_id = consumer_group_id
+        self.default_model = default_model
         self.snapshot_ttl_seconds = snapshot_ttl_seconds
         self.live_channel = live_channel
         self.snapshot_key_prefix = snapshot_key_prefix
@@ -116,7 +121,13 @@ class EtaFeatureConsumer:
 
         raise TypeError("Unsupported ETA feature message payload")
 
-    def build_snapshot(self, event: EtaFeatureMessage, eta_result: Any) -> dict[str, Any]:
+    def build_snapshot(
+        self,
+        event: EtaFeatureMessage,
+        eta_result: Any,
+        *,
+        model_used: str,
+    ) -> dict[str, Any]:
         return {
             "busId": event.bus_id,
             "routeId": event.route_id,
@@ -130,9 +141,16 @@ class EtaFeatureConsumer:
             "etaSeconds": eta_result.eta_seconds,
             "effectiveSpeedMs": eta_result.speed_ms,
             "speedClamped": eta_result.clamped,
+            "modelUsed": model_used,
         }
 
-    def build_live_event(self, event: EtaFeatureMessage, eta_result: Any) -> dict[str, Any]:
+    def build_live_event(
+        self,
+        event: EtaFeatureMessage,
+        eta_result: Any,
+        *,
+        model_used: str,
+    ) -> dict[str, Any]:
         stop_name = next(
             (
                 stop.get("stopName")
@@ -149,18 +167,64 @@ class EtaFeatureConsumer:
             "stopId": event.next_stop_id,
             "stopName": stop_name,
             "eta_seconds": eta_result.eta_seconds,
-            "model_used": "physics",
+            "model_used": model_used,
             "routeProgressPct": event.route_progress_pct,
             "distanceToNextStop": event.distance_to_next_stop,
             "timestamp": event.timestamp,
         }
 
-    def process_payload(self, payload: Mapping[str, Any]) -> dict[str, Any]:
-        event = EtaFeatureMessage.from_payload(payload)
-        eta_result = self.eta_computer(event.distance_to_next_stop, event.speed_ms)
+    def _parse_timestamp(self, timestamp: str) -> dt_module.datetime | None:
+        try:
+            return dt_module.datetime.fromisoformat(timestamp.replace("Z", "+00:00"))
+        except Exception:
+            return None
 
-        snapshot_payload = self.build_snapshot(event, eta_result)
-        live_event = self.build_live_event(event, eta_result)
+    def _predict_eta(
+        self,
+        distance_m: float,
+        speed_ms: float,
+        *,
+        stops_remaining: int,
+        timestamp: str,
+        model_name: str | None = None,
+    ) -> tuple[Any, str]:
+        selected_model = (model_name or self.default_model).lower().strip()
+        if selected_model == "xgboost":
+            try:
+                from models.ml_eta_xgb import predict_eta_xgb
+
+                result = predict_eta_xgb(
+                    distance_m,
+                    speed_ms,
+                    stops_remaining=stops_remaining,
+                    dt=self._parse_timestamp(timestamp),
+                )
+                return result, "xgboost"
+            except Exception as exc:
+                logging.getLogger(__name__).warning(
+                    "XGBoost ETA unavailable, falling back to physics: %s", exc
+                )
+
+        result = self.eta_computer(distance_m, speed_ms)
+        return result, "physics"
+
+    def process_payload(
+        self,
+        payload: Mapping[str, Any],
+        *,
+        model_name: str | None = None,
+    ) -> dict[str, Any]:
+        event = EtaFeatureMessage.from_payload(payload)
+        eta_result, model_used = self._predict_eta(
+            event.distance_to_next_stop,
+            event.speed_ms,
+            stops_remaining=event.stops_remaining,
+            timestamp=event.timestamp,
+            model_name=model_name,
+        )
+
+        snapshot_payload = self.build_snapshot(event, eta_result, model_used=model_used)
+        live_event = self.build_live_event(event, eta_result, model_used=model_used)
 
         snapshot_json = json.dumps(snapshot_payload, separators=(",", ":"), sort_keys=True)
         live_event_json = json.dumps(live_event, separators=(",", ":"), sort_keys=True)
@@ -177,6 +241,7 @@ class EtaFeatureConsumer:
             "snapshot": snapshot_payload,
             "live_event": live_event,
             "eta_result": eta_result,
+            "model_used": model_used,
         }
 
     def process_message(self, message: Any) -> dict[str, Any]:
