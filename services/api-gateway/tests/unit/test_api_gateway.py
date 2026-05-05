@@ -10,7 +10,7 @@ if str(API_GATEWAY_ROOT) not in sys.path:
     sys.path.insert(0, str(API_GATEWAY_ROOT))
 
 from fastapi.testclient import TestClient
-from main import app
+from app.main import app
 
 
 def test_health_endpoint_returns_expected_shape():

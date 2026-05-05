@@ -45,7 +45,87 @@ OnTime's first release focuses on two core user roles:
 
 ---
 
-## 🏗️ System Architecture
+## Current G2 Increment 1 Architecture
+
+The diagram below is the current G2 service/data-flow contract for Increment 1.
+G1 owns the bus GPS device, G3 owns passenger/driver UI, and G4 owns the
+external platform gateway, auth, deployment, and monitoring layer. G2 owns the
+data services, stream processing, ETA/anomaly logic, and internal APIs.
+
+```mermaid
+flowchart LR
+  G1["G1 bus GPS device / simulator"] -->|"MQTT: transport/bus/{busId}/location"| MQTT["MQTT broker"]
+  G1 -->|"MQTT: transport/bus/{busId}/heartbeat"| MQTT
+
+  G3["G3 passenger + driver UI"] -->|"REST / WebSocket"| G4["G4 Kong gateway + auth"]
+  G4 -->|"proxied G2 APIs"| APIGW["G2 API Gateway"]
+  G4 -->|"health, readiness, metrics"| MON["G4 monitoring / deployment"]
+
+  MQTT --> ING["Ingestion Service"]
+  FLEET["Fleet Management Service"] -->|"Kafka: trip.lifecycle"| KAFKA["Kafka / AutoMQ"]
+  KAFKA -->|"trip.lifecycle"| ING
+  ING -->|"valid active GPS: transport-telemetry-raw"| KAFKA
+  ING -->|"invalid GPS: transport-telemetry-dlq"| KAFKA
+
+  KAFKA -->|"transport-telemetry-raw + trip.lifecycle"| FLINK["Stream Processing / PyFlink"]
+  ROUTE["Route Service"] -->|"GET /internal/routes/geometry"| FLINK
+  FLINK -->|"Kafka: transport-telemetry-cleaned"| KAFKA
+  FLINK -->|"Redis key bus:{busId}:position"| REDIS["Redis"]
+  FLINK -->|"Redis Pub/Sub: fleet:live"| REDIS
+  FLINK -->|"historical gps_readings"| INFLUX["InfluxDB"]
+
+  KAFKA -->|"transport-telemetry-cleaned"| ETA["ETA Service"]
+  ETA -->|"Redis Pub/Sub: eta:live"| REDIS
+  ETA -->|"ETA predictions/history"| INFLUX
+
+  KAFKA -->|"transport-telemetry-cleaned"| ANOM["Anomaly Service"]
+  ROUTE -->|"GET /internal/routes/geometry"| ANOM
+  ANOM -->|"Kafka: transport-anomaly-alerts"| KAFKA
+
+  APIGW -->|"route APIs"| ROUTE
+  APIGW -->|"fleet + driver trip APIs"| FLEET
+  APIGW -->|"ETA APIs"| ETA
+  APIGW -->|"live map snapshot + deltas"| REDIS
+  APIGW -->|"anomaly alerts"| KAFKA
+
+  ROUTE -->|"route_db schema"| PG["PostgreSQL / PostGIS"]
+  FLEET -->|"fleet_db"| PG
+  ETA -->|"eta_db / model metadata"| PG
+  ANOM -->|"anomaly_db / alert state"| PG
+```
+
+### Main Data Contracts
+
+| Boundary | Interface | Producer / Owner | Consumer |
+|----------|-----------|------------------|----------|
+| Bus GPS -> G2 | MQTT `transport/bus/{busId}/location` | G1 | Ingestion |
+| Device health -> G2 | MQTT `transport/bus/{busId}/heartbeat` | G1 | Ingestion metrics |
+| Trip lifecycle | Kafka `trip.lifecycle` | Fleet Management | Ingestion, Flink |
+| Accepted GPS | Kafka `transport-telemetry-raw` | Ingestion | Flink |
+| Rejected GPS | Kafka `transport-telemetry-dlq` | Ingestion | Debug, monitoring, anomaly tooling |
+| Enriched GPS | Kafka `transport-telemetry-cleaned` | Flink | ETA, Anomaly |
+| Live bus updates | Redis Pub/Sub `fleet:live` | Flink | API Gateway WebSocket |
+| Latest bus snapshot | Redis key `bus:{busId}:position` | Flink | API Gateway |
+| ETA updates | Redis Pub/Sub `eta:live` | ETA Service | API Gateway WebSocket |
+| Anomaly alerts | Kafka `transport-anomaly-alerts` | Anomaly Service | API Gateway, admin, monitoring |
+
+### External API Surface
+
+G3 mobile/web clients call G2 through G4's gateway and auth layer. G2's API
+Gateway then calls private G2 services over HTTP or reads live state from Redis.
+
+| Purpose | API shape |
+|---------|-----------|
+| Route list/search/detail | `GET /api/v1/routes`, `/api/v1/routes/search`, `/api/v1/routes/{routeId}`, `/api/v1/routes/{routeId}/stops` |
+| Fleet/bus lookup | `GET /api/v1/fleet/buses`, `/api/v1/fleet/buses/route/{routeId}` |
+| Driver trip lifecycle | `POST /api/v1/driver/start-trip`, `POST /api/v1/driver/end-trip` |
+| ETA reads | `GET /api/v1/eta/routes/{routeId}`, `GET /api/v1/eta/buses/{busId}` |
+| Live map | WebSocket live feed backed by Redis `fleet:live` and `eta:live` |
+| Operations | `/health`, `/health/live`, `/health/ready`, `/metrics` on each G2 service |
+
+---
+
+## Legacy High-Level Sketch
 
 ```
 ┌─────────────┐     MQTT      ┌──────────────┐   AutoMQ   ┌──────────────────┐
@@ -135,7 +215,7 @@ ontime-g2/
 │
 ├── scripts/                     # CLI tools: seeding, simulation
 │   ├── seed_routes.py           # KML parser + PostGIS seeder
-│   ├── gps_simulator.py         # Kafka GPS telemetry publisher
+│   ├── gps_simulator.py         # MQTT GPS telemetry publisher
 │   └── models/                  # Script-specific: ORM models + config
 │       ├── base.py              # SQLAlchemy DeclarativeBase
 │       ├── db_route.py          # RouteORM, StopORM
@@ -169,7 +249,7 @@ git clone https://github.com/your-org/ontime-g2.git
 cd ontime-g2
 
 # 2. Copy environment config
-cp .env.example .env
+cp docker/.env.example docker/.env
 # Edit .env — uncomment the connections you want (local Docker URLs or Cloud connections like Neon PG / InfluxDB Cloud)
 
 # 3. Start infrastructure locally
@@ -188,7 +268,10 @@ python scripts/seed_routes.py
 # 6. Start the API server
 cd services/api-gateway && uvicorn main:app --reload --port 8000
 
-# 7. (Optional) Start GPS simulator
+# 7. Start the ingestion service
+python -m services.ingestion.app.main
+
+# 8. (Optional) Start GPS simulator
 python scripts/gps_simulator.py
 ```
 
@@ -198,6 +281,33 @@ python scripts/gps_simulator.py
 curl http://localhost:8000/health
 # Should return: {"status": "healthy", ...}
 ```
+
+### Ingestion Service 
+
+The ingestion service is now wired into local Docker Compose as `ingestion-service`.
+
+Quick start:
+
+```bash
+docker compose -f docker/docker-compose.yml up -d broker mqtt-broker ingestion-service
+curl http://localhost:8001/health
+curl http://localhost:8001/health/ready
+```
+
+Runtime package layout:
+
+```text
+services/ingestion/
+  app/    # runtime code
+  tests/  # service tests
+```
+
+Cross-group interfaces around ingestion:
+
+- G1 connects to G2 ingestion over MQTT using topic `transport/bus/{busId}/location`.
+- G1 payloads must match the shared `GPSMessage` contract in `schemas/gps.py`.
+- G4 connects to ingestion over HTTP for operations and monitoring using `/health`, `/health/live`, `/health/ready`, and `/metrics`.
+- G4 deploys or supervises the service through Docker Compose now and can later reuse the same readiness and metrics endpoints for Kubernetes and Prometheus.
 
 ---
 
@@ -247,6 +357,9 @@ pytest tests/integration/ -v
 
 # Run load tests
 locust -f tests/load/locustfile.py
+
+# Run ingestion service tests
+python -m pytest services/ingestion/tests -v
 ```
 
 ---

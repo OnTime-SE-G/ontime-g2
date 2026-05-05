@@ -10,6 +10,7 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+      - ./init:/docker-entrypoint-initdb.d
     networks:
       - ontime_network
     healthcheck:
@@ -75,8 +76,8 @@ services:
 
   api-gateway:
     build:
-      context: ../services/api-gateway
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: services/api-gateway/Dockerfile
     container_name: ontime_api_gateway
     ports:
       - "8000:8000"
@@ -93,17 +94,66 @@ services:
       redis:
         condition: service_healthy
 
+  route-service:
+    build:
+      context: ../services/route-service
+      dockerfile: Dockerfile
+    container_name: ontime_route_service
+    ports:
+      - "8002:8002"
+    volumes:
+      - ../services/route-service:/app
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8002 --reload
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ontime_db}
+    networks:
+      - ontime_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  fleet-management-service:
+    build:
+      context: ..
+      dockerfile: services/fleet-management-service/Dockerfile
+    container_name: ontime_fleet_service
+    ports:
+      - "8003:8003"
+    volumes:
+      - ../services/fleet-management-service:/app
+      - ../schemas:/app/schemas
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8003 --reload
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/fleet_db
+      - ROUTE_SERVICE_URL=http://route-service:8002
+      - KAFKA_BROKER_URL=broker:29092
+    networks:
+      - ontime_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      broker:
+        condition: service_healthy
+    restart: unless-stopped
+
   broker:
     image: confluentinc/confluent-local:7.5.0
     container_name: ontime_kafka
     ports:
       - "9092:9092"
     environment:
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:29092,CONTROLLER://0.0.0.0:29093,PLAINTEXT_HOST://0.0.0.0:9092
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://broker:29092,PLAINTEXT_HOST://localhost:9092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_NODE_ID: 1
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@localhost:29093
     networks:
       - ontime_network
     healthcheck:
-      test: [ "CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list" ]
+      test: [ "CMD-SHELL", "kafka-topics --bootstrap-server localhost:29092 --list" ]
       interval: 10s
       timeout: 5s
       retries: 5
@@ -112,7 +162,7 @@ services:
     image: eclipse-mosquitto:2
     container_name: ontime_mqtt
     ports:
-      - "${MQTT_PORT:-1883}:1883"
+      - "${MQTT_BROKER_PORT:-1883}:1883"
       - "9001:9001"
     volumes:
       - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
@@ -121,10 +171,170 @@ services:
     networks:
       - ontime_network
     healthcheck:
-      test: [ "CMD", "mosquitto_sub", "-t", "$$SYS/#", "-C", "1", "-i", "healthcheck", "-W", "3" ]
+      test:
+        [
+          "CMD",
+          "mosquitto_sub",
+          "-t",
+          "$$SYS/#",
+          "-C",
+          "1",
+          "-i",
+          "healthcheck",
+          "-W",
+          "3",
+        ]
       interval: 10s
       timeout: 5s
       retries: 3
+
+  ingestion-service:
+    build:
+      context: ..
+      dockerfile: services/ingestion/Dockerfile
+    container_name: ontime_ingestion
+    ports:
+      - "8001:8001"
+    environment:
+      MQTT_BROKER_HOST: mqtt-broker
+      MQTT_BROKER_PORT: 1883
+      MQTT_TOPIC_PATTERN: transport/bus/+/location
+      KAFKA_BROKER_URL: broker:29092
+      INGESTION_KAFKA_RAW_TOPIC: transport-telemetry-raw
+      INGESTION_KAFKA_DLQ_TOPIC: transport-telemetry-dlq
+      INGESTION_SERVICE_PORT: 8001
+      INGESTION_MIN_MESSAGE_INTERVAL_SECONDS: 3.0
+      INGESTION_DUPLICATE_CACHE_SIZE: 100
+    networks:
+      - ontime_network
+    depends_on:
+      broker:
+        condition: service_healthy
+      mqtt-broker:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request;
+            urllib.request.urlopen('http://127.0.0.1:8001/health/ready',
+            timeout=3)",
+        ]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+      
+  websocket-service:
+    build:
+      context: ../services/websocket-service
+      dockerfile: Dockerfile
+    container_name: ontime_websocket_service
+    ports:
+      - "8004:8004"
+    volumes:
+      - ../services/websocket-service:/app
+    environment:
+      - REDIS_URL=redis://redis:6379
+      - FLEET_CHANNEL=fleet:live
+      - ETA_CHANNEL=eta:live
+    networks:
+      - ontime_network
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  flink-jobmanager:
+    build:
+      context: ..
+      dockerfile: services/stream-processing/Dockerfile
+    container_name: ontime_flink_jobmanager
+    command: jobmanager
+    ports:
+      - "8081:8081"
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+      - KAFKA_BROKER_URL=broker:29092
+      - PYTHONPATH=/opt/flink/usrlib
+    networks:
+      - ontime_network
+    depends_on:
+      broker:
+        condition: service_healthy
+
+  flink-taskmanager:
+    build:
+      context: ..
+      dockerfile: services/stream-processing/Dockerfile
+    container_name: ontime_flink_taskmanager
+    command: taskmanager
+    depends_on:
+      - flink-jobmanager
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+        taskmanager.numberOfTaskSlots: 2
+      - KAFKA_BROKER_URL=broker:29092
+      - PYTHONPATH=/opt/flink/usrlib
+    networks:
+      - ontime_network
+
+  flink-job-submitter:
+    build:
+      context: ..
+      dockerfile: services/stream-processing/Dockerfile
+    container_name: ontime_flink_job_submitter
+    command: >
+      bash -c '
+        for attempt in $$(seq 1 30); do
+          if flink list -m flink-jobmanager:8081 >/dev/null 2>&1; then
+            echo "Flink JobManager is ready; submitting telemetry job"
+            flink run -m flink-jobmanager:8081 -py /opt/flink/usrlib/app/job.py
+            exit $$?
+          fi
+          echo "Waiting for Flink JobManager ($${attempt}/30)..."
+          sleep 5
+        done
+        echo "Flink JobManager was not ready after 150 seconds"
+        exit 1
+      '
+    environment:
+      - |
+        FLINK_PROPERTIES=
+        jobmanager.rpc.address: flink-jobmanager
+      - KAFKA_BROKER_URL=broker:29092
+      - PYTHONPATH=/opt/flink/usrlib
+    networks:
+      - ontime_network
+    depends_on:
+      - flink-jobmanager
+      - flink-taskmanager
+
+  anomaly-service:
+    build:
+      context: ../services/anomaly-service
+      dockerfile: Dockerfile
+    container_name: ontime_anomaly_service
+    ports:
+      - "8006:8006"
+    environment:
+      - KAFKA_BROKER_URL=broker:29092
+      - KAFKA_CLEANED_TOPIC=transport-telemetry-cleaned
+      - KAFKA_DLQ_TOPIC=transport-telemetry-dlq
+      - KAFKA_ANOMALY_TOPIC=transport-anomaly-alerts
+      - ROUTE_SERVICE_URL=http://route-service:8002
+    networks:
+      - ontime_network
+    depends_on:
+      broker:
+        condition: service_healthy
+      route-service:
+        condition: service_started
 
 networks:
   ontime_network:

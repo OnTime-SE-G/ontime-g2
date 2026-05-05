@@ -1,5 +1,5 @@
 # Services
-
+.
 This folder contains all microservices owned by G2.
 
 ## Service list
@@ -12,6 +12,8 @@ This folder contains all microservices owned by G2.
 - `anomaly-service` - anomaly detection APIs (future increment)
 
 Each service should keep its own source code, tests, config, and Dockerfile.
+
+When a service grows beyond a couple of files, prefer a dedicated `app/` package for runtime code. The ingestion service now follows that layout under `services/ingestion/app/`.
 
 ## Ownership and Review
 

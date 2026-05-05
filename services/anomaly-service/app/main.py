@@ -1,0 +1,208 @@
+import asyncio
+import json
+import logging
+import httpx
+from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
+from app.models.anomaly_model import AnomalyModel
+from pydantic_settings import BaseSettings, SettingsConfigDict
+from pathlib import Path
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+ENV_FILES = (
+    str(REPO_ROOT / "docker" / ".env"),
+    str(REPO_ROOT / "docker" / ".env.example"),
+)
+
+class Settings(BaseSettings):
+    kafka_broker_url: str = "broker:29092"
+    kafka_cleaned_topic: str = "transport-telemetry-cleaned"
+    kafka_dlq_topic: str = "transport-telemetry-dlq"
+    kafka_anomaly_topic: str = "transport-anomaly-alerts"
+    kafka_dlq_group_id: str = "anomaly-service-dlq-group"
+    route_service_url: str = "http://route-service:8002"
+    communication_loss_check_interval_seconds: int = 60
+    communication_loss_threshold_seconds: int = 180
+    inactive_trip_dlq_threshold_count: int = 3
+    inactive_trip_dlq_window_seconds: int = 60
+    inactive_trip_dlq_cooldown_seconds: int = 300
+
+    model_config = SettingsConfigDict(
+        env_file=ENV_FILES,
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
+
+settings = Settings()
+
+
+def route_geometry_to_points(route: dict) -> list[tuple[float, float]]:
+    geometry = route.get("geometry")
+    if not geometry:
+        logger.warning("Skipping route %s because geometry is missing", route.get("id"))
+        return []
+
+    coordinates = geometry.get("coordinates")
+    if not coordinates:
+        logger.warning("Skipping route %s because coordinates are missing", route.get("id"))
+        return []
+
+    points = []
+    for coordinate in coordinates:
+        if not isinstance(coordinate, (list, tuple)) or len(coordinate) < 2:
+            logger.warning("Skipping invalid coordinate for route %s: %s", route.get("id"), coordinate)
+            return []
+        lon, lat = coordinate[0], coordinate[1]
+        points.append((lat, lon))
+
+    return points
+
+
+class AnomalyService:
+    def __init__(self):
+        self.model = AnomalyModel()
+        self.route_geometries = {}
+
+    async def fetch_route_geometries(self):
+        logger.info("Fetching route geometries...")
+        for attempt in range(5):
+            try:
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(f"{settings.route_service_url}/internal/routes/geometry", timeout=10.0)
+                    if response.status_code == 200:
+                        data = response.json()
+                        geometries = {}
+                        for route in data:
+                            if route.get("id") is None:
+                                logger.warning("Skipping route geometry without id")
+                                continue
+                            points = route_geometry_to_points(route)
+                            if points:
+                                geometries[str(route["id"])] = points
+
+                        self.route_geometries = geometries
+                        logger.info(f"Loaded {len(self.route_geometries)} routes.")
+                        return
+                    else:
+                        logger.warning(f"Failed to fetch routes (Attempt {attempt+1}/5): {response.status_code}")
+            except Exception as e:
+                logger.warning(f"Error fetching routes (Attempt {attempt+1}/5): {e}")
+            await asyncio.sleep(5)
+        logger.error("Failed to fetch route geometries after 5 attempts.")
+
+    async def publish_alerts(self, producer: AIOKafkaProducer, alerts: list[dict]):
+        for alert in alerts:
+            logger.warning(f"Anomaly detected: {alert['anomalyType']} on {alert['busId']}")
+            await producer.send_and_wait(
+                settings.kafka_anomaly_topic,
+                json.dumps(alert).encode('utf-8')
+            )
+
+    async def process_cleaned_message(self, raw_value: bytes | str, producer: AIOKafkaProducer):
+        telemetry = self._decode_json(raw_value)
+        route_id = telemetry.get("routeId")
+        geometry = self.route_geometries.get(route_id, [])
+
+        alerts = self.model.detect(telemetry, geometry)
+        await self.publish_alerts(producer, alerts)
+
+    async def process_dlq_message(self, raw_value: bytes | str, producer: AIOKafkaProducer):
+        dlq_event = self._decode_json(raw_value)
+        alerts = self.model.detect_inactive_trip_dlq(
+            dlq_event,
+            threshold_count=settings.inactive_trip_dlq_threshold_count,
+            window_seconds=settings.inactive_trip_dlq_window_seconds,
+            cooldown_seconds=settings.inactive_trip_dlq_cooldown_seconds,
+        )
+        await self.publish_alerts(producer, alerts)
+
+    def _decode_json(self, raw_value: bytes | str) -> dict:
+        if isinstance(raw_value, bytes):
+            raw_value = raw_value.decode('utf-8')
+        decoded = json.loads(raw_value)
+        if not isinstance(decoded, dict):
+            raise ValueError("Kafka message value must decode to a JSON object")
+        return decoded
+
+    async def consume_cleaned_telemetry(self, consumer: AIOKafkaConsumer, producer: AIOKafkaProducer):
+        async for msg in consumer:
+            try:
+                await self.process_cleaned_message(msg.value, producer)
+            except Exception as e:
+                logger.error(f"Cleaned telemetry processing error: {e}")
+
+    async def consume_dlq(self, consumer: AIOKafkaConsumer, producer: AIOKafkaProducer):
+        async for msg in consumer:
+            try:
+                await self.process_dlq_message(msg.value, producer)
+            except Exception as e:
+                logger.error(f"DLQ processing error: {e}")
+
+    async def run(self):
+        await self.fetch_route_geometries()
+
+        cleaned_consumer = AIOKafkaConsumer(
+            settings.kafka_cleaned_topic,
+            bootstrap_servers=settings.kafka_broker_url,
+            group_id="anomaly-service-group"
+        )
+        dlq_consumer = AIOKafkaConsumer(
+            settings.kafka_dlq_topic,
+            bootstrap_servers=settings.kafka_broker_url,
+            group_id=settings.kafka_dlq_group_id
+        )
+        producer = AIOKafkaProducer(bootstrap_servers=settings.kafka_broker_url)
+
+        await cleaned_consumer.start()
+        await dlq_consumer.start()
+        await producer.start()
+        logger.info("Anomaly Service running...")
+
+        async def periodic_refresh():
+            while True:
+                await asyncio.sleep(300) # 5 minutes
+                await self.fetch_route_geometries()
+
+        async def periodic_communication_loss_check():
+            while True:
+                await asyncio.sleep(settings.communication_loss_check_interval_seconds)
+                alerts = self.model.detect_communication_loss(
+                    threshold_seconds=settings.communication_loss_threshold_seconds
+                )
+                await self.publish_alerts(producer, alerts)
+
+        refresh_task = asyncio.create_task(periodic_refresh())
+        communication_loss_task = asyncio.create_task(periodic_communication_loss_check())
+        cleaned_consumer_task = asyncio.create_task(
+            self.consume_cleaned_telemetry(cleaned_consumer, producer)
+        )
+        dlq_consumer_task = asyncio.create_task(self.consume_dlq(dlq_consumer, producer))
+
+        try:
+            await asyncio.gather(cleaned_consumer_task, dlq_consumer_task)
+        finally:
+            for task in (
+                refresh_task,
+                communication_loss_task,
+                cleaned_consumer_task,
+                dlq_consumer_task,
+            ):
+                task.cancel()
+            await cleaned_consumer.stop()
+            await dlq_consumer.stop()
+            await producer.stop()
+
+if __name__ == "__main__":
+    import threading
+    from app.health import start_health_server
+
+    # Start health server in background thread
+    health_thread = threading.Thread(target=start_health_server, kwargs={"port": 8006}, daemon=True)
+    health_thread.start()
+
+    service = AnomalyService()
+    asyncio.run(service.run())

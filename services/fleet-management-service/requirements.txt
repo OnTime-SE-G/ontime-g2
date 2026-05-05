@@ -1,0 +1,9 @@
+fastapi[standard]>=0.114.0
+uvicorn>=0.30.6
+pydantic-settings>=2.4.0
+psycopg2-binary>=2.9.9
+SQLAlchemy>=2.0.35
+httpx>=0.28.1
+aiokafka>=0.11.0
+prometheus-fastapi-instrumentator>=7.0.0
+pytest
