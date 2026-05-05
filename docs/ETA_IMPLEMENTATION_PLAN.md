@@ -12,11 +12,13 @@
 > which route a bus is currently on.
 >
 > **Update 2 (2026-05-05):** JPabasara reviewed and raised two points (PR #89):
-> 1. **Kafka topic** — keeping `gps-cleaned` as a new topic (agreed: anomaly service stays untouched, deadline safety).
+> 1. **Kafka topic** — using `transport-eta-features` as the new ETA-specific topic
+>    (agreed: anomaly service stays on the existing cleaned topic, deadline safety).
 > 2. **Separation of concerns** — ETA service must **not** call route-service directly.
->    Flink loads route geometry + all stop positions at startup, computes distances to **every remaining stop**
->    per message, and emits a `stopsAhead` array. ETA service reads everything it needs from the
->    Kafka message / Redis snapshot and never touches route-service.
+>    Flink loads route geometry + all stop positions at startup, projects each bus position onto the
+>    route polyline, computes route-path distance to **every remaining stop**, and emits a `stopsAhead`
+>    array. ETA service reads everything it needs from the Kafka message / Redis snapshot and never
+>    touches route-service.
 
 ---
 
@@ -38,17 +40,17 @@ G1 GPS Device
                               Flink EnrichmentFunction
                    (already has tripId→routeId state from trip.lifecycle topic)
                    (loads route geometry + ALL stop positions from Route Service at startup)
-                   (computes distance from bus to every remaining stop → stopsAhead array)
+                   (computes route-path distance from bus to every remaining stop → stopsAhead array)
                                          ↓
-                           gps-cleaned (NEW Kafka topic)
+                           transport-eta-features (NEW Kafka topic)
                            message carries: tripId, busId, routeId,
                            nextStopId, distanceToNextStop, stopsRemaining,
-                           stopsAhead: [{stopId, distanceFromBus}, ...],
+                           stopsAhead: [{stopId, stopName, stopOrder, distanceAlongRouteMeters}, ...],
                            speed, lat, lon, routeProgressPct
                                          ↓
                       ETA Service (Kafka consumer, background task)
                       keyed by tripId — computes ETA per (tripId, stopId)
-                      reads distanceFromBus for requested stopId from stopsAhead
+                      reads distanceAlongRouteMeters for requested stopId from stopsAhead
                       NO calls to route-service — all data pre-computed by Flink
                       Inc 1 → distance / max(speed, 1.4 m/s)
                       Inc 2 → XGBoost predict(features)
@@ -66,7 +68,8 @@ HTTP on-demand:
 ```
 
 **Key design decisions:**
-- `gps-cleaned` is a **new** Kafka topic — anomaly service stays on `transport-telemetry-cleaned`, completely untouched.
+- `transport-eta-features` is a **new** Kafka topic — anomaly service stays on `transport-telemetry-cleaned`, completely untouched.
+- `transport-telemetry-cleaned` keeps its current payload contract. ETA-specific stop fields are emitted only to `transport-eta-features`.
 - ETA is always `(tripId, stopId)`. The `tripId` uniquely identifies which route a bus is on for a given day.
 - **ETA service never calls route-service.** Flink pre-computes all distance data; ETA service is pure computation.
 
@@ -97,8 +100,8 @@ Extend `services/route-service/app/routers/internal.py`:
 |----|------|-------------|
 | K-1 | `services/route-service/app/routers/internal.py` | Add `GET /internal/routes/{routeId}/stops` endpoint (P-0) |
 | K-2 | `services/stream-processing/app/utils/route_client.py` | Add `fetch_stops_sync(route_id)` — httpx call to `/internal/routes/{routeId}/stops`; cache result in a dict `{routeId: [stops]}` at Flink startup |
-| K-3 | `services/stream-processing/app/transforms/enrichment.py` | In `process_element()`: for each remaining stop (current position onward), compute haversine distance from bus; emit `nextStopId` (int), `distanceToNextStop` (float, m), `stopsRemaining` (int), and `stopsAhead: [{stopId, stopName, distanceFromBus}]` ordered by stop_order |
-| K-4 | `services/stream-processing/app/job.py` + `app/config.py` | Add second `KafkaSink` writing enriched stream to `gps-cleaned` topic; add `KAFKA_GPS_CLEANED_TOPIC` env var (default: `gps-cleaned`) |
+| K-3 | `services/stream-processing/app/transforms/enrichment.py` | In `process_element()`: project the bus position onto the route polyline and compute remaining route-path distance to each upcoming stop; emit `nextStopId` (int), `distanceToNextStop` (float, m), `stopsRemaining` (int), and `stopsAhead: [{stopId, stopName, stopOrder, distanceAlongRouteMeters}]` ordered by stop_order |
+| K-4 | `services/stream-processing/app/job.py` + `app/config.py` | Add second `KafkaSink` writing ETA-specific feature messages to `transport-eta-features`; add `KAFKA_ETA_FEATURES_TOPIC` env var (default: `transport-eta-features`). Keep `transport-telemetry-cleaned` unchanged for existing anomaly/live consumers |
 | K-5 | `services/eta-service/models/eta.py` | Update `compute_eta(distance_m, speed_ms)` — formula: `distance_m / max(speed_ms, 1.4)`; `model_used = "physics"` |
 | K-6 | `services/stream-processing/tests/` | Unit tests for `stopsAhead` computation: mock geometry + stop list, assert distances correct, assert ordering by stop_order |
 
@@ -106,7 +109,7 @@ Extend `services/route-service/app/routers/internal.py`:
 
 | ID | File | Description |
 |----|------|-------------|
-| N-1 | `services/eta-service/consumer.py` (NEW) | Kafka consumer for `gps-cleaned`; on each message: (a) update Redis snapshot `eta:trip:{tripId}:snapshot` with latest `{busId, routeId, speed, nextStopId, distanceToNextStop, stopsRemaining, stopsAhead, routeProgressPct}`; (b) call `compute_eta(distanceToNextStop, speed)` for `nextStopId`; (c) publish to Redis `eta:live` |
+| N-1 | `services/eta-service/consumer.py` (NEW) | Kafka consumer for `transport-eta-features`; on each message: (a) update Redis snapshot `eta:trip:{tripId}:snapshot` with latest `{busId, routeId, speed, nextStopId, distanceToNextStop, stopsRemaining, stopsAhead, routeProgressPct}`; (b) call `compute_eta(distanceToNextStop, speed)` for `nextStopId`; (c) publish to Redis `eta:live` |
 | N-2 | `services/eta-service/main.py` | Start Kafka consumer as asyncio background task via FastAPI `lifespan` |
 | N-3 | `services/eta-service/routers/eta.py` | Add `GET /eta/{tripId}/{stopId}?model=physics` on-demand endpoint; reads snapshot from Redis `eta:trip:{tripId}:snapshot`; finds `stopId` in `stopsAhead` list for distance; **no route-service call** |
 | N-4 | `services/eta-service/requirements.txt` | Add `kafka-python` |
@@ -124,15 +127,15 @@ SET eta:trip:{tripId}:snapshot  EX 300
   "distanceToNextStop": 234.5,
   "stopsRemaining": 3,
   "stopsAhead": [
-    {"stopId": 42, "stopName": "Kadawatha Junction", "distanceFromBus": 234.5},
-    {"stopId": 43, "stopName": "Gampaha",            "distanceFromBus": 1820.0}
+    {"stopId": 42, "stopName": "Kadawatha Junction", "stopOrder": 5, "distanceAlongRouteMeters": 234.5},
+    {"stopId": 43, "stopName": "Gampaha",            "stopOrder": 6, "distanceAlongRouteMeters": 1820.0}
   ],
   "routeProgressPct": 65.3,
   "timestamp": "2026-05-05T01:00:00Z"
 }
 ```
 
-`stopsAhead` is ordered by `stop_order` (ascending) and contains **every remaining stop** for the current trip. The on-demand HTTP endpoint uses this list to serve ETA for any `stopId` — no route-service call required.
+`stopsAhead` is ordered by `stop_order` (ascending) and contains **every remaining stop** for the current trip. Distances are remaining route-path distances, not straight-line distances. The on-demand HTTP endpoint uses this list to serve ETA for any `stopId` — no route-service call required.
 
 ### Redis `eta:live` Pub/Sub message shape (agreed contract — other groups read this)
 
@@ -150,6 +153,7 @@ SET eta:trip:{tripId}:snapshot  EX 300
   "distanceToNextStop": 234.5,
   "timestamp": "2026-05-05T01:00:00Z"
 }
+```
 
 ---
 
@@ -168,9 +172,9 @@ SET eta:trip:{tripId}:snapshot  EX 300
 
 | ID | File | Description |
 |----|------|-------------|
-| N-6 | `services/eta-service/consumer.py` | Wire XGBoost into consumer; use `stops_remaining` from `gps-cleaned` message as feature; default model = XGBoost in Inc 2; fallback to physics on any error |
+| N-6 | `services/eta-service/consumer.py` | Wire XGBoost into consumer; use `stopsRemaining` from `transport-eta-features` message as feature; default model = XGBoost in Inc 2; fallback to physics on any error |
 | N-7 | `services/eta-service/routers/eta.py` | `?model=xgboost\|physics` param; add clear docstring with example request/response for other groups to copy |
-| N-8 | `services/eta-service/tests/` | End-to-end: mock `gps-cleaned` Kafka message → verify XGBoost ETA appears on `eta:live` Redis channel |
+| N-8 | `services/eta-service/tests/` | End-to-end: mock `transport-eta-features` Kafka message → verify XGBoost ETA appears on `eta:live` Redis channel |
 
 ---
 
@@ -201,10 +205,11 @@ Response 404: { "detail": "Stop 42 not found" }
 ### WebSocket — Live ETA push
 
 The WebSocket service already broadcasts everything from `eta:live` to all connected clients.
-Other groups connect as before (no change needed):
+Other groups connect as before. Internal WebSocket service path:
 ```
-WS /ws
+WS /v1/live
 ```
+Kong may expose this externally as `/ws` if the API Gateway route is configured that way.
 
 ETA update messages will arrive in the format shown in the `eta:live` contract above.
 
@@ -217,8 +222,8 @@ ETA update messages will arrive in the format shown in the `eta:live` contract a
 | `services/route-service/app/routers/internal.py` | Kusal | Add `/internal/routes/{routeId}/stops` |
 | `services/stream-processing/app/utils/route_client.py` | Kusal | Add `fetch_stops_sync()` |
 | `services/stream-processing/app/transforms/enrichment.py` | Kusal | Add `stopsAhead` array + stop-distance enrichment fields |
-| `services/stream-processing/app/job.py` | Kusal | Add `gps-cleaned` Kafka sink |
-| `services/stream-processing/app/config.py` | Kusal | Add `KAFKA_GPS_CLEANED_TOPIC` env var |
+| `services/stream-processing/app/job.py` | Kusal | Add `transport-eta-features` Kafka sink while keeping `transport-telemetry-cleaned` unchanged |
+| `services/stream-processing/app/config.py` | Kusal | Add `KAFKA_ETA_FEATURES_TOPIC` env var |
 | `services/stream-processing/tests/` | Kusal | Flink enrichment unit tests |
 | `services/eta-service/models/eta.py` | Kusal | Update physics formula |
 | `services/eta-service/models/training/generate_data.py` | Kusal | NEW — synthetic data |
@@ -238,7 +243,7 @@ ETA update messages will arrive in the format shown in the `eta:live` contract a
 **Inc 1:**
 - [ ] `pytest services/stream-processing/tests/` — all pass
 - [ ] `pytest services/eta-service/tests/` — ≥20 tests pass
-- [ ] GPS simulator → `gps-cleaned` topic messages contain `tripId`, `nextStopId`, `distanceToNextStop`, `stopsRemaining`, `stopsAhead: [{stopId, stopName, distanceFromBus}]`
+- [ ] GPS simulator → `transport-eta-features` topic messages contain `tripId`, `nextStopId`, `distanceToNextStop`, `stopsRemaining`, `stopsAhead: [{stopId, stopName, stopOrder, distanceAlongRouteMeters}]`
 - [ ] `GET /api/v1/eta/TRIP-2026-001/1` → returns valid `eta_seconds`
 - [ ] WebSocket → `eta_update` events include `tripId` field
 
@@ -252,7 +257,8 @@ ETA update messages will arrive in the format shown in the `eta:live` contract a
 ## Scope Boundaries
 
 - `transport-telemetry-cleaned` and all its consumers (anomaly service) are **not touched**
+- ETA-specific stop-distance fields are emitted through `transport-eta-features`, not by changing the existing cleaned telemetry contract
 - WebSocket service requires **no code changes** — it already subscribes to `eta:live`
 - Existing GBR model (PR #66) is **archived** in Inc 2 and replaced by XGBoost
 - XGBoost training uses **synthetic data only** — no real historical data available within the time constraint
-- **ETA service never calls route-service** — Flink pre-computes distances to all remaining stops and embeds them in `stopsAhead`; the ETA service is pure computation
+- **ETA service never calls route-service** — Flink pre-computes route-path distances to all remaining stops and embeds them in `stopsAhead`; the ETA service is pure computation
