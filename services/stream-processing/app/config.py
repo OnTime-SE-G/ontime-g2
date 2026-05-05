@@ -12,6 +12,7 @@ class StreamSettings(BaseSettings):
     kafka_broker_url: str = "broker:29092"
     kafka_raw_topic: str = "transport-telemetry-raw"
     kafka_cleaned_topic: str = "transport-telemetry-cleaned"
+    kafka_gps_cleaned_topic: str = "gps-cleaned"
     kafka_lifecycle_topic: str = "trip.lifecycle"
 
     redis_host: str = "redis"
