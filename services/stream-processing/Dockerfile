@@ -1,12 +1,20 @@
 FROM flink:1.17.1-scala_2.12
 
-# Install python3 and pip
-RUN apt-get update -y && \
-    apt-get install -y python3 python3-pip python3-dev && \
+# Install Python for PyFlink. GitHub runners sometimes block or throttle Ubuntu
+# HTTP mirrors, so use HTTPS sources and apt retries for fresh CI builds.
+RUN sed -i \
+      -e 's|http://archive.ubuntu.com/ubuntu|https://archive.ubuntu.com/ubuntu|g' \
+      -e 's|http://security.ubuntu.com/ubuntu|https://security.ubuntu.com/ubuntu|g' \
+      /etc/apt/sources.list && \
+    apt-get -o Acquire::Retries=5 update -y && \
+    DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends \
+      python3 \
+      python3-pip \
+      python3-dev && \
     rm -rf /var/lib/apt/lists/*
 
 # Create alias for python
-RUN ln -s /usr/bin/python3 /usr/bin/python
+RUN ln -sf /usr/bin/python3 /usr/bin/python
 
 # Set working directory
 WORKDIR /opt/flink/usrlib
