@@ -2,9 +2,9 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 from typing import List
 
-from ..database import get_db
-from ..models.orm import BusORM
-from ..models.schemas import BusResponse
+from database import get_db
+from models.orm import BusORM
+from models.schemas import BusResponse
 
 router = APIRouter(prefix="/buses", tags=["buses"])
 
