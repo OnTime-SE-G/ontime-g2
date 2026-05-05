@@ -392,8 +392,12 @@ def wait_for_cleaned_message_with_republish(bus_id: str, trip_id: str, route_id:
         consumer.close()
 
 
-def wait_for_redis_position(bus_id: str, trip_id: str, timeout_seconds: int = 90) -> dict:
-    log_step(f"Waiting for Redis live position bus:{bus_id}:position")
+def wait_for_redis_position(bus_id: str, trip_id: str, route_id: int, timeout_seconds: int = 90) -> dict:
+    expected_route_id = str(route_id)
+    log_step(
+        f"Waiting for Redis live position bus:{bus_id}:position "
+        f"with trip id={trip_id}, route id={expected_route_id}"
+    )
     client = redis_module.Redis(host=REDIS_HOST, port=REDIS_PORT, decode_responses=True)
     key = f"bus:{bus_id}:position"
     deadline = time.time() + timeout_seconds
@@ -402,15 +406,26 @@ def wait_for_redis_position(bus_id: str, trip_id: str, timeout_seconds: int = 90
         last_value = client.get(key)
         if last_value:
             payload = json.loads(last_value)
-            if payload.get("busId") == bus_id and payload.get("tripId") == trip_id:
-                log_step(f"Redis live position is available for bus id={bus_id}")
+            if (
+                payload.get("busId") == bus_id
+                and payload.get("tripId") == trip_id
+                and payload.get("routeId") == expected_route_id
+            ):
+                log_step(
+                    f"Redis live position is enriched for bus id={bus_id}, "
+                    f"route id={expected_route_id}"
+                )
                 return payload
         time.sleep(1)
     raise AssertionError(f"Timed out waiting for Redis key {key}; last value={last_value}")
 
 
-def wait_for_websocket_snapshot(bus_id: str, trip_id: str, timeout_seconds: int = 60) -> dict:
-    log_step(f"Waiting for WebSocket snapshot for bus id={bus_id}")
+def wait_for_websocket_snapshot(bus_id: str, trip_id: str, route_id: int, timeout_seconds: int = 60) -> dict:
+    expected_route_id = str(route_id)
+    log_step(
+        f"Waiting for WebSocket snapshot for bus id={bus_id}, "
+        f"trip id={trip_id}, route id={expected_route_id}"
+    )
     deadline = time.time() + timeout_seconds
     last_error = "no websocket message"
     while time.time() < deadline:
@@ -421,8 +436,15 @@ def wait_for_websocket_snapshot(bus_id: str, trip_id: str, timeout_seconds: int 
                 timeout=5,
             )
             payload = json.loads(ws.recv())
-            if payload.get("busId") == bus_id and payload.get("tripId") == trip_id:
-                log_step(f"WebSocket snapshot received for bus id={bus_id}")
+            if (
+                payload.get("busId") == bus_id
+                and payload.get("tripId") == trip_id
+                and payload.get("routeId") == expected_route_id
+            ):
+                log_step(
+                    f"WebSocket snapshot received for bus id={bus_id}, "
+                    f"route id={expected_route_id}"
+                )
                 return payload
             last_error = f"unexpected payload: {payload}"
         except Exception as error:  # pragma: no cover - startup timing only
@@ -482,10 +504,10 @@ def test_fleet_mqtt_ingestion_flink_redis_websocket_smoke():
         assert "routeProgressPct" in cleaned_message.value
         assert "remainingDistanceToNextStops" in cleaned_message.value
 
-        redis_payload = wait_for_redis_position(bus_id, trip_id)
+        redis_payload = wait_for_redis_position(bus_id, trip_id, route_id)
         assert redis_payload["routeId"] == str(route_id)
 
-        websocket_payload = wait_for_websocket_snapshot(bus_id, trip_id)
+        websocket_payload = wait_for_websocket_snapshot(bus_id, trip_id, route_id)
         assert websocket_payload["routeId"] == str(route_id)
         log_step("Live pipeline smoke test completed successfully")
     except Exception as error:
