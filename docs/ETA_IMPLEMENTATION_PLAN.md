@@ -3,6 +3,14 @@
 **Authors:** Kusal (Lead), Nidarshan (Member)  
 **Status:** Awaiting Team Approval
 
+> **Update (2026-05-05):** Chamodh flagged that ETA must be trip-scoped, not bus-scoped.
+> The main branch now has a full trip lifecycle feature (Fleet service, `trip.lifecycle` Kafka topic,
+> `ActiveTripCache` in Ingestion, `TripLifecycleEvent` schema). The Flink `EnrichmentFunction`
+> already maps `tripId → routeId` in state and emits `tripId` on every cleaned GPS message.
+> Therefore all ETA identifiers are `(tripId, stopId)` — not `(busId, stopId)`.
+> A bus may serve multiple routes on different days; only a `tripId` uniquely identifies
+> which route a bus is currently on.
+
 ---
 
 ## Background
@@ -21,24 +29,31 @@ G1 GPS Device
   → MQTT → Ingestion Service → transport-telemetry-raw (Kafka)
                                          ↓
                               Flink EnrichmentFunction
-                         (adds nextStopId, distanceToNextStop, stopsRemaining)
+                   (already has tripId→routeId state from trip.lifecycle topic)
+                   (adds nextStopId, distanceToNextStop, stopsRemaining)
                                          ↓
-                             gps-cleaned (NEW Kafka topic)
+                           gps-cleaned (NEW Kafka topic)
+                           message carries: tripId, busId, routeId,
+                           nextStopId, distanceToNextStop, stopsRemaining,
+                           speed, lat, lon, routeProgressPct
                                          ↓
                       ETA Service (Kafka consumer, background task)
+                      keyed by tripId — computes ETA per (tripId, stopId)
                       Inc 1 → distance / max(speed, 1.4 m/s)
                       Inc 2 → XGBoost predict(features)
                                          ↓
                         Redis Pub/Sub channel: eta:live
                                          ↓
-                     WebSocket Service → Frontend / Other groups
+                     WebSocket Service → broadcasts to all clients
 
 HTTP on-demand:
-  GET /api/v1/eta/{busId}/{stopId}?model=physics|xgboost
+  GET /api/v1/eta/{tripId}/{stopId}?model=physics|xgboost
   → API Gateway → ETA Service → response
 ```
 
-**Key design decision:** `gps-cleaned` is a **new** Kafka topic and does **not** replace `transport-telemetry-cleaned` — the anomaly service and existing consumers are left unchanged.
+**Key design decisions:**
+- `gps-cleaned` is a **new** Kafka topic and does **not** replace `transport-telemetry-cleaned` — the anomaly service and existing consumers are left unchanged.
+- ETA is always `(tripId, stopId)`. The ETA service caches the latest GPS snapshot per `tripId` so the on-demand HTTP endpoint does not need to call Fleet service.
 
 ---
 
@@ -76,18 +91,36 @@ Extend `services/route-service/app/routers/internal.py`:
 
 | ID | File | Description |
 |----|------|-------------|
-| N-1 | `services/eta-service/consumer.py` (NEW) | Kafka consumer for `gps-cleaned`; on each message calls `compute_eta(distanceToNextStop, speed)`; publishes result to Redis `eta:live` |
+| N-1 | `services/eta-service/consumer.py` (NEW) | Kafka consumer for `gps-cleaned`; on each message: (a) update Redis snapshot `eta:trip:{tripId}:snapshot` with latest `{busId, routeId, distanceToNextStop, speed, nextStopId, stopsRemaining}`; (b) call `compute_eta(distanceToNextStop, speed)`; (c) publish to Redis `eta:live` |
 | N-2 | `services/eta-service/main.py` | Start Kafka consumer as asyncio background task via FastAPI `lifespan` |
-| N-3 | `services/eta-service/routers/eta.py` | Add `GET /eta/{busId}/{stopId}?model=physics` on-demand endpoint; reads bus position from Redis `bus:{busId}:position`; fetches stop coords from route-service |
+| N-3 | `services/eta-service/routers/eta.py` | Add `GET /eta/{tripId}/{stopId}?model=physics` on-demand endpoint; reads snapshot from Redis `eta:trip:{tripId}:snapshot`; fetches stop coords from route-service to compute distance; returns ETA |
 | N-4 | `services/eta-service/requirements.txt` | Add `kafka-python` |
 | N-5 | `services/eta-service/tests/unit/` | Tests: physics edge cases (zero speed, zero distance, min-speed clamp), Kafka consumer mock, HTTP endpoint mock (≥10 tests) |
 
-### Redis `eta:live` message shape (agreed contract)
+### Redis snapshot key (internal — ETA service only)
+
+```
+SET eta:trip:{tripId}:snapshot  EX 300
+{
+  "busId": "BUS-001",
+  "routeId": "1",
+  "distanceToNextStop": 234.5,
+  "speed": 1.95,
+  "nextStopId": 42,
+  "stopsRemaining": 3,
+  "routeProgressPct": 65.3,
+  "timestamp": "2026-05-05T01:00:00Z"
+}
+```
+
+### Redis `eta:live` Pub/Sub message shape (agreed contract — other groups read this)
 
 ```json
 {
   "event": "eta_update",
+  "tripId": "TRIP-2026-001",
   "busId": "BUS-001",
+  "routeId": "1",
   "stopId": 42,
   "stopName": "Kadawatha Junction",
   "eta_seconds": 120.5,
@@ -126,10 +159,11 @@ Extend `services/route-service/app/routers/internal.py`:
 ### HTTP — On-demand ETA
 
 ```
-GET /api/v1/eta/{busId}/{stopId}?model=physics
+GET /api/v1/eta/{tripId}/{stopId}?model=physics
 
 Response 200:
 {
+  "tripId":      "TRIP-2026-001",
   "busId":       "BUS-001",
   "stopId":      42,
   "eta_seconds": 120.5,
@@ -140,31 +174,19 @@ Response 200:
   "timestamp":   "2026-05-05T01:00:00Z"
 }
 
-Response 503: { "detail": "No real-time position for bus BUS-001" }
+Response 503: { "detail": "No real-time snapshot for trip TRIP-2026-001" }
 Response 404: { "detail": "Stop 42 not found" }
 ```
 
 ### WebSocket — Live ETA push
 
-Connect to the existing endpoint (no change needed for other groups):
+The WebSocket service already broadcasts everything from `eta:live` to all connected clients.
+Other groups connect as before (no change needed):
 ```
-WS /v1/live?routeId=1
+WS /ws
 ```
 
-ETA update messages will arrive automatically:
-```json
-{
-  "event":             "eta_update",
-  "busId":             "BUS-001",
-  "stopId":            42,
-  "stopName":          "Kadawatha Junction",
-  "eta_seconds":       120.5,
-  "model_used":        "physics",
-  "routeProgressPct":  65.3,
-  "distanceToNextStop": 234.5,
-  "timestamp":         "2026-05-05T01:00:00Z"
-}
-```
+ETA update messages will arrive in the format shown in the `eta:live` contract above.
 
 ---
 
@@ -183,9 +205,9 @@ ETA update messages will arrive automatically:
 | `services/eta-service/models/training/train_xgb.py` | Kusal | NEW — XGBoost training |
 | `services/eta-service/models/ml_eta_xgb.py` | Kusal | NEW — XGBoost predictor |
 | `services/eta-service/tests/unit/test_ml_eta_xgb.py` | Kusal | XGBoost model tests |
-| `services/eta-service/consumer.py` | Nidarshan | NEW — Kafka consumer + Redis publisher |
+| `services/eta-service/consumer.py` | Nidarshan | NEW — Kafka consumer + Redis snapshot + publisher |
 | `services/eta-service/main.py` | Nidarshan | Add consumer background task |
-| `services/eta-service/routers/eta.py` | Nidarshan | Add `GET /eta/{busId}/{stopId}` |
+| `services/eta-service/routers/eta.py` | Nidarshan | Add `GET /eta/{tripId}/{stopId}` |
 | `services/eta-service/requirements.txt` | Nidarshan | Add `kafka-python` |
 | `services/eta-service/tests/unit/` | Nidarshan | Consumer + HTTP endpoint tests |
 
@@ -196,13 +218,13 @@ ETA update messages will arrive automatically:
 **Inc 1:**
 - [ ] `pytest services/stream-processing/tests/` — all pass
 - [ ] `pytest services/eta-service/tests/` — ≥20 tests pass
-- [ ] GPS simulator → `gps-cleaned` topic messages contain `nextStopId`, `distanceToNextStop`, `stopsRemaining`
-- [ ] `GET /api/v1/eta/BUS-001/1` → returns valid `eta_seconds`
-- [ ] WebSocket `/v1/live?routeId=1` → `eta_update` events visible live
+- [ ] GPS simulator → `gps-cleaned` topic messages contain `tripId`, `nextStopId`, `distanceToNextStop`, `stopsRemaining`
+- [ ] `GET /api/v1/eta/TRIP-2026-001/1` → returns valid `eta_seconds`
+- [ ] WebSocket → `eta_update` events include `tripId` field
 
 **Inc 2:**
 - [ ] `python3 train_xgb.py` → RMSE < 60 s, `eta_model_xgb.joblib` saved
-- [ ] `GET /api/v1/eta/BUS-001/1?model=xgboost` → `"model_used": "xgboost"`
+- [ ] `GET /api/v1/eta/TRIP-2026-001/1?model=xgboost` → `"model_used": "xgboost"`
 - [ ] Rush-hour ETA > off-peak ETA (sanity check)
 
 ---
