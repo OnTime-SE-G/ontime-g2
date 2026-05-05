@@ -1,4 +1,4 @@
-name: Build and Publish to DigitalOcean
+name: Build and Publish to GHCR
 
 on:
   push:
@@ -6,14 +6,16 @@ on:
   workflow_dispatch:
 
 env:
-  # Replace <your-registry-name> with your actual DigitalOcean registry name
-  REGISTRY: registry.digitalocean.com/ontime-registry
-  IMAGE_NAME_PREFIX: ontime
+  REGISTRY: ghcr.io
+  IMAGE_NAME_PREFIX: ${{ github.repository }}
 
 jobs:
   build-and-push:
     runs-on: ubuntu-latest
-    
+    permissions:
+      contents: read
+      packages: write
+
     strategy:
       fail-fast: false
       matrix:
@@ -44,20 +46,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      # Log in to DigitalOcean Container Registry
-      - name: Log in to DigitalOcean Container Registry
+      - name: Log in to the Container registry
         uses: docker/login-action@v3
         with:
-          registry: registry.digitalocean.com
-          # You can use any string for username; the password (token) is what matters
-          username: do
-          password: ${{ secrets.DO_ACCESS_TOKEN }}
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Extract metadata (tags, labels) for Docker
         id: meta
         uses: docker/metadata-action@v5
         with:
-          images: ${{ env.REGISTRY }}/${{ matrix.service }}
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME_PREFIX }}/${{ matrix.service }}
           tags: |
             type=ref,event=branch
             type=sha,format=short
