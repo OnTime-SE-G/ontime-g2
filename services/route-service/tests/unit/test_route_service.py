@@ -14,6 +14,7 @@ _orig_create_engine = sqlalchemy.create_engine
 sqlalchemy.create_engine = MagicMock(return_value=MagicMock())
 
 from main import app  # noqa: E402
+from database import get_db  # noqa: E402
 
 sqlalchemy.create_engine = _orig_create_engine
 
@@ -43,9 +44,12 @@ def _mock_bus(id_=1, fleet_code="B001", plate="ABC-1234", capacity=50, status="A
 @pytest.fixture
 def mock_db():
     db = MagicMock()
-    with patch("routers.routes.get_db", return_value=iter([db])), \
-         patch("routers.buses.get_db", return_value=iter([db])):
-        yield db
+    # app.dependency_overrides is the correct FastAPI way to mock Depends() —
+    # patch() on the module name does not work because Depends() captures the
+    # original function object at import time.
+    app.dependency_overrides[get_db] = lambda: db
+    yield db
+    app.dependency_overrides.clear()
 
 
 def test_health():
