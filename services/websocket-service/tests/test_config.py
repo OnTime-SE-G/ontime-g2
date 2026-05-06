@@ -9,7 +9,16 @@ if str(SERVICE_ROOT) not in sys.path:
 from config import WebSocketSettings
 
 
-def test_websocket_config_loads_defaults():
+def test_websocket_config_loads_defaults(monkeypatch):
+    monkeypatch.delenv("WEBSOCKET_SERVICE_PORT", raising=False)
+    monkeypatch.delenv("SERVICE_PORT", raising=False)
+    monkeypatch.delenv("WEBSOCKET_REDIS_URL", raising=False)
+    monkeypatch.delenv("REDIS_URL", raising=False)
+    monkeypatch.delenv("WEBSOCKET_FLEET_CHANNEL", raising=False)
+    monkeypatch.delenv("FLEET_CHANNEL", raising=False)
+    monkeypatch.delenv("WEBSOCKET_ETA_CHANNEL", raising=False)
+    monkeypatch.delenv("ETA_CHANNEL", raising=False)
+
     settings = WebSocketSettings()
 
     assert settings.service_port == 8004
