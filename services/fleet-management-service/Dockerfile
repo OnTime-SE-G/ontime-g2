@@ -26,5 +26,5 @@ COPY services/fleet-management-service /app
 # Expose port
 EXPOSE 8003
 
-# Start FastAPI
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8003"]
+# Start FastAPI with runtime-configurable port
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${FLEET_SERVICE_PORT:-8003}"]
