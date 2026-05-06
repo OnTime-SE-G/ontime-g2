@@ -3,42 +3,12 @@ import json
 import logging
 import httpx
 from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
+from app.config import settings
 from app.models.anomaly_model import AnomalyModel
-from pydantic_settings import BaseSettings, SettingsConfigDict
-from pathlib import Path
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
-REPO_ROOT = Path(__file__).resolve().parents[3]
-ENV_FILES = (
-    str(REPO_ROOT / "docker" / ".env"),
-    str(REPO_ROOT / "docker" / ".env.example"),
-)
-
-class Settings(BaseSettings):
-    kafka_broker_url: str = "broker:29092"
-    kafka_cleaned_topic: str = "transport-telemetry-cleaned"
-    kafka_dlq_topic: str = "transport-telemetry-dlq"
-    kafka_anomaly_topic: str = "transport-anomaly-alerts"
-    kafka_dlq_group_id: str = "anomaly-service-dlq-group"
-    route_service_url: str = "http://route-service:8002"
-    communication_loss_check_interval_seconds: int = 60
-    communication_loss_threshold_seconds: int = 180
-    inactive_trip_dlq_threshold_count: int = 3
-    inactive_trip_dlq_window_seconds: int = 60
-    inactive_trip_dlq_cooldown_seconds: int = 300
-
-    model_config = SettingsConfigDict(
-        env_file=ENV_FILES,
-        env_file_encoding="utf-8",
-        case_sensitive=False,
-        extra="ignore",
-    )
-
-settings = Settings()
-
 
 def route_geometry_to_points(route: dict) -> list[tuple[float, float]]:
     geometry = route.get("geometry")
@@ -72,7 +42,10 @@ class AnomalyService:
         for attempt in range(5):
             try:
                 async with httpx.AsyncClient() as client:
-                    response = await client.get(f"{settings.route_service_url}/internal/routes/geometry", timeout=10.0)
+                    response = await client.get(
+                        f"{settings.route_service_url}/internal/routes/geometry",
+                        timeout=settings.route_fetch_timeout_seconds,
+                    )
                     if response.status_code == 200:
                         data = response.json()
                         geometries = {}
@@ -148,7 +121,7 @@ class AnomalyService:
         cleaned_consumer = AIOKafkaConsumer(
             settings.kafka_cleaned_topic,
             bootstrap_servers=settings.kafka_broker_url,
-            group_id="anomaly-service-group"
+            group_id=settings.kafka_cleaned_group_id
         )
         dlq_consumer = AIOKafkaConsumer(
             settings.kafka_dlq_topic,
@@ -164,7 +137,7 @@ class AnomalyService:
 
         async def periodic_refresh():
             while True:
-                await asyncio.sleep(300) # 5 minutes
+                await asyncio.sleep(settings.route_refresh_interval_seconds)
                 await self.fetch_route_geometries()
 
         async def periodic_communication_loss_check():
@@ -201,7 +174,11 @@ if __name__ == "__main__":
     from app.health import start_health_server
 
     # Start health server in background thread
-    health_thread = threading.Thread(target=start_health_server, kwargs={"port": 8006}, daemon=True)
+    health_thread = threading.Thread(
+        target=start_health_server,
+        kwargs={"port": settings.service_port},
+        daemon=True,
+    )
     health_thread.start()
 
     service = AnomalyService()
