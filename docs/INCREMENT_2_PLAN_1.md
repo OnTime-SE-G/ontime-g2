@@ -29,7 +29,81 @@ Before diving into individual responsibilities, the team MUST adhere to the foll
 
 ---
 
-## 2. System Responsibilities Matrix
+## 2. Data Contracts & Schema Freeze
+
+To prevent any integration mismatches between team members, the following Kafka topics and JSON schemas are strictly frozen. All Pydantic models must match these exactly.
+
+### Topic 1: `transport-telemetry-raw` (From Ingestion to Flink)
+The raw output from the MQTT devices after passing schema validation.
+```json
+{
+  "bus_id": "BUS-123",
+  "trip_id": "TRIP-456",
+  "lat": 6.9271,
+  "lon": 79.8612,
+  "speed": 45.2,
+  "heading": 90.0,
+  "timestamp": "2026-05-06T10:00:00Z"
+}
+```
+
+### Topic 2: `trip.lifecycle` (From Fleet Service to Flink)
+Published whenever a driver starts or ends a trip.
+```json
+{
+  "bus_id": "BUS-123",
+  "trip_id": "TRIP-456",
+  "route_id": "R-100",
+  "status": "ACTIVE",      // or "INACTIVE"
+  "timestamp": "2026-05-06T10:00:00Z"
+}
+```
+
+### Topic 3: `transport-telemetry-cleaned` (From Flink to ETA/Anomaly)
+**Crucial Enrichment Contract**: Flink adds four new fields based on its stateful map-matching.
+```json
+{
+  "bus_id": "BUS-123",
+  "trip_id": "TRIP-456",
+  "lat": 6.9271,
+  "lon": 79.8612,
+  "speed": 45.2,
+  "heading": 90.0,
+  "timestamp": "2026-05-06T10:00:05Z",
+  // --- FLINK ENRICHED FIELDS BELOW ---
+  "route_id": "R-100",           // Fetched from Fleet active trip cache
+  "trip_status": "ACTIVE",       // Appended from trip.lifecycle state
+  "on_route": true,              // Map-matching Boolean
+  "remaining_distance_m": 1250.5 // Computed from PostGIS polyline
+}
+```
+
+### Topic 4: `transport-anomaly-alerts` (From Anomaly Service to Gateway)
+Triggered by rules or Isolation Forest ML.
+```json
+{
+  "bus_id": "BUS-123",
+  "timestamp": "2026-05-06T10:00:05Z",
+  "anomaly_type": "ROUTE_DEVIATION",  // or "UNAUTHORIZED_MOVEMENT", "ERRATIC_DRIVING"
+  "severity": "HIGH",
+  "description": "Bus is 200m off route R-100"
+}
+```
+
+### Topic 5: `eta:live` (Redis PubSub - From ETA to WebSockets)
+```json
+{
+  "bus_id": "BUS-123",
+  "route_id": "R-100",
+  "timestamp": "2026-05-06T10:00:05Z",
+  "eta_seconds": 120,
+  "model_version": "sarima-v1.0"
+}
+```
+
+---
+
+## 3. System Responsibilities Matrix
 
 ```mermaid
 graph TD
