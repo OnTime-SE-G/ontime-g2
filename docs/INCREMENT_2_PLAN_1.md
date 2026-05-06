@@ -74,7 +74,10 @@ Published whenever a driver starts or ends a trip.
   "route_id": "R-100",           // Fetched from Fleet active trip cache
   "trip_status": "ACTIVE",       // Appended from trip.lifecycle state
   "on_route": true,              // Map-matching Boolean
-  "remaining_distance_m": 1250.5 // Computed from PostGIS polyline
+  "next_stops": [                // Array of upcoming stops on the route
+    { "stop_id": "S-05", "remaining_distance_m": 450.0 },
+    { "stop_id": "S-06", "remaining_distance_m": 1200.5 }
+  ]
 }
 ```
 
@@ -96,8 +99,11 @@ Triggered by rules or Isolation Forest ML.
   "bus_id": "BUS-123",
   "route_id": "R-100",
   "timestamp": "2026-05-06T10:00:05Z",
-  "eta_seconds": 120,
-  "model_version": "sarima-v1.0"
+  "model_version": "sarima-v1.0",
+  "stop_etas": [
+    { "stop_id": "S-05", "eta_seconds": 45 },
+    { "stop_id": "S-06", "eta_seconds": 120 }
+  ]
 }
 ```
 
@@ -181,9 +187,9 @@ To ensure zero overlap and 100% project completion (including all tests and ML m
   - Save the trained model artifact (e.g., `.pkl` or ONNX format).
 - **Phase K3 — Real-Time Inference:**
   - Load the SARIMA model into the ETA service at startup.
-  - Feed the single enriched ping into the model.
-  - Format the prediction and publish it to the Redis PubSub channel `eta:live`.
-  - Save the prediction to Postgres (`eta_db`) for historical analytics.
+  - Feed the single enriched ping into the model. The model iterates over the `next_stops` array, computing an ETA for *each* stop based on its specific `remaining_distance_m`.
+  - Format the predictions into a `stop_etas` array and publish it to the Redis PubSub channel `eta:live`.
+  - Save the predictions to Postgres (`eta_db`) for historical analytics.
 - **Phase K4 — Testing & Metrics:**
   - Expose Prometheus `/metrics` (predictions made, model latency).
   - Write unit tests simulating edge cases (e.g., bus stopped at a light vs traffic jam) to ensure the SARIMA model responds correctly.
@@ -192,10 +198,10 @@ To ensure zero overlap and 100% project completion (including all tests and ML m
 **Goal:** Provide context to the raw data and deploy the Isolation Forest behavioral model.
 
 - **Phase N1 — Flink State Enrichment:**
-  - Inside the Flink job, add logic to make a one-time REST API call to Route and Fleet services at startup to fetch PostGIS geometries and active trips.
+  - Inside the Flink job, add logic to make a one-time REST API call to Route and Fleet services at startup to fetch PostGIS geometries, stop coordinates, and active trips.
   - Implement a Kafka Consumer for the `trip.lifecycle` topic to keep the active trip cache updated in real-time.
-  - Map-match incoming valid pings to the route. Calculate `remainingDistance`.
-  - Implement the "Classify, Don't Drop" rule: append `on_route` (boolean) and `trip_status` (string).
+  - Map-match incoming valid pings to the route polyline. Calculate the distance along the polyline to all upcoming bus stops.
+  - Implement the "Classify, Don't Drop" rule: append `on_route` (boolean), `trip_status` (string), and the `next_stops` dictionary.
   - Sink this enriched JSON to `transport-telemetry-cleaned`.
   - **Crucial:** Create an InfluxDB Sink in Flink to dump all valid pings into InfluxDB for offline ML training.
 - **Phase N2 — Anomaly Service Architecture:**
