@@ -10,6 +10,7 @@ from app.models.anomaly_model import AnomalyModel
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
 def route_geometry_to_points(route: dict) -> list[tuple[float, float]]:
     geometry = route.get("geometry")
     if not geometry:

@@ -1,9 +1,7 @@
-aiokafka==0.8.1
-kafka-python-ng
-httpx==0.27.0
+aiokafka>=0.11.0
+httpx>=0.27.0
 pydantic-settings==2.2.1
 fastapi
 uvicorn
 pytest
 pytest-asyncio
-httpx
