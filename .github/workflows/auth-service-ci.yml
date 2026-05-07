@@ -1,0 +1,55 @@
+name: Auth Service CI
+
+on:
+  push:
+    paths:
+      - "services/auth-service/**"
+  pull_request:
+    paths:
+      - "services/auth-service/**"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16-alpine
+        ports:
+          - 5432:5432
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: auth_test_db
+        options: >-
+          --health-cmd="pg_isready -U postgres -d auth_test_db"
+          --health-interval=5s
+          --health-timeout=5s
+          --health-retries=5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/auth_test_db
+      KEYCLOAK_URL: http://localhost:8080
+      KEYCLOAK_REALM: ontime
+      KEYCLOAK_CLIENT_ID: ontime-auth-service
+      KEYCLOAK_CLIENT_SECRET: fake-secret
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        working-directory: services/auth-service
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+
+      - name: Run tests with coverage
+        working-directory: services/auth-service
+        run: |
+          pytest -v tests --cov=app --cov-report=term-missing

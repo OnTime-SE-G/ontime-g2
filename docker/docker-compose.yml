@@ -94,6 +94,29 @@ services:
       redis:
         condition: service_healthy
 
+  auth-service:
+    build:
+      context: ../services/auth-service
+      dockerfile: Dockerfile
+    container_name: ontime_auth_service
+    ports:
+      - "8005:8005"
+    volumes:
+      - ../services/auth-service:/app
+    environment:
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/auth_db
+      - KEYCLOAK_URL=${KEYCLOAK_URL:-http://keycloak:8080}
+      - KEYCLOAK_REALM=${KEYCLOAK_REALM:-ontime}
+      - KEYCLOAK_CLIENT_ID=${KEYCLOAK_CLIENT_ID:-ontime-auth-service}
+      - KEYCLOAK_CLIENT_SECRET=${KEYCLOAK_CLIENT_SECRET}
+      - KEYCLOAK_ADMIN_USERNAME=${KEYCLOAK_ADMIN_USERNAME}
+      - KEYCLOAK_ADMIN_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD}
+    networks:
+      - ontime_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
   route-service:
     build:
       context: ../services/route-service
