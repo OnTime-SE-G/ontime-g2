@@ -4,11 +4,16 @@ from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-REPO_ROOT = Path(__file__).resolve().parents[2]
-ENV_FILES = (
-    str(REPO_ROOT / "docker" / ".env"),
-    str(REPO_ROOT / "docker" / ".env.example"),
-)
+try:
+    REPO_ROOT = Path(__file__).resolve().parents[2]
+    ENV_FILES = (
+        str(REPO_ROOT / "docker" / ".env"),
+        str(REPO_ROOT / "docker" / ".env.example"),
+    )
+except (IndexError, ValueError):
+    # Fallback for Docker or unusual structures
+    REPO_ROOT = Path(__file__).resolve().parents[1]
+    ENV_FILES = ()
 
 
 class WebSocketSettings(BaseSettings):
