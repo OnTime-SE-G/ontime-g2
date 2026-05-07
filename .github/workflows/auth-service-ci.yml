@@ -51,5 +51,7 @@ jobs:
 
       - name: Run tests with coverage
         working-directory: services/auth-service
+        env:
+          PYTHONPATH: .
         run: |
           pytest -v tests --cov=app --cov-report=term-missing
