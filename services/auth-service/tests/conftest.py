@@ -6,6 +6,12 @@ from sqlalchemy.pool import StaticPool
 
 from app.main import app
 from app.database import Base, get_db
+from unittest.mock import patch, AsyncMock
+
+# Global patch for kafka_service to prevent lifespan hanging and real Kafka calls
+patch("app.services.kafka_producer.kafka_service.start", new_callable=AsyncMock).start()
+patch("app.services.kafka_producer.kafka_service.stop", new_callable=AsyncMock).start()
+patch("app.services.kafka_producer.kafka_service.publish_event", new_callable=AsyncMock).start()
 
 # Use in-memory SQLite for tests
 SQLALCHEMY_DATABASE_URL = "sqlite://"
