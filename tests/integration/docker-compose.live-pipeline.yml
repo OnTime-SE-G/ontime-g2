@@ -54,6 +54,7 @@ services:
       - -c
       - |
         kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic trip.lifecycle --partitions 1 --replication-factor 1
+        kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic user-events --partitions 1 --replication-factor 1
         kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic transport-telemetry-raw --partitions 1 --replication-factor 1
         kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic transport-telemetry-dlq --partitions 1 --replication-factor 1
         kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic transport-telemetry-cleaned --partitions 1 --replication-factor 1

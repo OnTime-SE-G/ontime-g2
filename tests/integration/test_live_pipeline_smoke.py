@@ -222,19 +222,41 @@ def create_and_start_trip(route_id: int, unique_suffix: str) -> tuple[str, str]:
     bus_id = str(bus_response.json()["id"])
     log_step(f"Created bus id={bus_id}")
 
-    log_step("Creating smoke driver")
-    driver_response = httpx.post(
-        f"{FLEET_URL}/api/v1/fleet/drivers",
-        json={
-            "name": f"Smoke Driver {unique_suffix}",
-            "license_number": f"LIC-{unique_suffix}",
-            "phone": "0770000000",
-        },
-        timeout=30.0,
+    log_step("Creating smoke driver via Kafka event")
+    driver_id = f"SMOKE-DRV-{unique_suffix}"
+    driver_name = f"Smoke Driver {unique_suffix}"
+    
+    from kafka import KafkaProducer
+    producer = KafkaProducer(
+        bootstrap_servers=KAFKA_BOOTSTRAP,
+        value_serializer=lambda v: json.dumps(v).encode('utf-8')
     )
-    driver_response.raise_for_status()
-    driver_id = int(driver_response.json()["id"])
-    log_step(f"Created driver id={driver_id}")
+    event_payload = {
+        "event": "USER_CREATED",
+        "data": {
+            "id": driver_id,
+            "name": driver_name,
+            "role": "DRIVER"
+        }
+    }
+    future = producer.send("user-events", event_payload)
+    future.get(timeout=10)
+    producer.close()
+    log_step(f"Published USER_CREATED event for {driver_id}")
+
+    # Wait for the shadow cache to sync
+    log_step("Waiting for fleet shadow cache to sync driver")
+    deadline = time.time() + 30
+    while time.time() < deadline:
+        res = httpx.get(f"{FLEET_URL}/api/v1/fleet/drivers", timeout=5.0)
+        if res.status_code == 200:
+            drivers = res.json()
+            if any(d["id"] == driver_id for d in drivers):
+                log_step(f"Driver {driver_id} found in shadow cache")
+                break
+        time.sleep(1)
+    else:
+        raise AssertionError(f"Driver {driver_id} did not sync to shadow cache in time")
 
     today = date.today()
     log_step(f"Creating schedule for {today.isoformat()}")
