@@ -27,41 +27,41 @@ graph TD
     classDef ws fill:#e1d5e7,stroke:#9673a6,stroke-width:2px;
     classDef db fill:#b1ddf0,stroke:#10739e,stroke-width:2px;
 
-    G1["G1 IoT Device"]:::g1 -->|MQTT Protocol| Broker["G4 MQTT Broker<br>(Rate Limits per connection)"]:::mqtt
+    G1["G1 IoT Device"]:::g1 -->|MQTT Stream| Broker["G4 MQTT Broker<br>(Rate Limits)"]:::mqtt
     
-    Broker -->|Subscribe| Ingest["Ingestion Service<br>Ultra-Dumb Pipe"]:::ingest
-    Ingest -->|Schema Failures| DLQ["telemetry-dlq"]:::kafka
-    Ingest -->|Passes JSON Parse| Raw["transport-telemetry-raw"]:::kafka
+    Broker -->|Subscribe| Ingest["Ingestion Service<br>(Dumb Pipe)"]:::ingest
+    Ingest -->|Invalid Schema| DLQ[("Kafka Topic<br>telemetry-dlq")]:::kafka
+    Ingest -->|Valid JSON| Raw[("Kafka Topic<br>transport-telemetry-raw")]:::kafka
     
-    FleetService["Fleet Management Service"]:::service -->|Start/Stop Trip| Lifecycle["trip.lifecycle"]:::kafka
-    RouteService["Route Service"]:::service -.->|REST API Startup Cache| Flink
-    FleetService -.->|REST API Startup Cache| Flink
+    FleetService["Fleet Management Service"]:::service -->|Trip Events| Lifecycle[("Kafka Topic<br>trip.lifecycle")]:::kafka
+    RouteService["Route Service"]:::service -.->|Startup Cache| Flink
+    FleetService -.->|Startup Cache| Flink
     
     Raw --> Flink["Apache Flink<br>(The Source of Truth)"]:::flink
     Lifecycle --> Flink
     
-    Flink -->|Impossible Physics| Invalid["telemetry-invalid<br>(Logs/Observability)"]:::kafka
-    Flink -->|Historical Data| InfluxDB[("InfluxDB<br>(ML Training Data)")]:::db
-    Flink -->|Live Map Fast-Path| RedisLive[("Redis KV / PubSub<br>(fleet:live)")]:::redis
-    Flink -->|Enriched Data| Cleaned["transport-telemetry-cleaned"]:::kafka
+    Flink -->|Physics Violated| Invalid[("Kafka Topic<br>telemetry-invalid")]:::kafka
+    Flink -->|History Sink| InfluxDB[("InfluxDB<br>(ML Training)")]:::db
+    Flink -->|Live Map| RedisLive[("Redis PubSub<br>(fleet:live)")]:::redis
+    Flink -->|Enriched JSON| Cleaned[("Kafka Topic<br>transport-telemetry-cleaned")]:::kafka
     
     Cleaned --> ETA["ETA Service<br>(SARIMA Inference)"]:::service
-    Cleaned --> Anomaly["Anomaly Service<br>(In-Memory Rolling Window<br>+ Isolation Forest)"]:::service
+    Cleaned --> Anomaly["Anomaly Service<br>(Rolling Window + Isolation Forest)"]:::service
     
-    InfluxDB -.->|Offline Training Data| ETA
-    InfluxDB -.->|Offline Training Data| Anomaly
+    InfluxDB -.->|Offline Models| ETA
+    InfluxDB -.->|Offline Models| Anomaly
     
     DLQ --> Elastic[("Elasticsearch<br>(Log Aggregation)")]:::db
     Invalid --> Elastic
     
     ETA -->|Predictions| RedisETA[("Redis PubSub<br>(eta:live)")]:::redis
-    ETA -->|Persistent Records| ETADb[("PostgreSQL<br>(eta_db)")]:::db
+    ETA -->|Persistent| ETADb[("PostgreSQL<br>(eta_db)")]:::db
     
     Anomaly -->|Live Alerts| RedisAnomaly[("Redis PubSub<br>(anomaly:live)")]:::redis
-    Anomaly -->|Historical Alerts| AnomalyDb[("PostgreSQL<br>(anomaly_db)")]:::db
+    Anomaly -->|Persistent| AnomalyDb[("PostgreSQL<br>(anomaly_db)")]:::db
     
-    %% Direct to Kong API Gateway Bypass
-    RedisLive -->|Subscribes| Kong["G4 Kong API Gateway<br>(WebSocket Routing)"]:::ws
+    %% Kong API Gateway Bypass
+    RedisLive -->|Subscribes| Kong["G4 Kong API Gateway"]:::ws
     RedisETA -->|Subscribes| Kong
     RedisAnomaly -->|Subscribes| Kong
     
