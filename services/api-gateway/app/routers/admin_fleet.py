@@ -7,7 +7,7 @@ from app.services.fleet_client import (
     add_bus, update_bus, delete_bus, get_buses, get_bus as get_bus_from_fleet
     , get_route_buses,
     assign_route, unassign_route,
-    create_driver, list_drivers,
+    list_drivers,
     create_schedule, list_schedules,
     generate_planned_trips, get_today_trips, get_trip_detail, assign_trip_resources,
     report_trip_delay, report_trip_incident

@@ -23,15 +23,15 @@ def test_list_buses():
 # ── Driver Management ─────────────────────────────────────────────────────────
 
 def test_add_driver():
-    with patch("app.routers.admin_fleet.create_driver", new_callable=AsyncMock) as mock_create:
-        mock_create.return_value = {"id": 1, "name": "Alice", "license_number": "L1", "phone": "123"}
-        response = client.post("/api/v1/admin/fleet/drivers", json={"name": "Alice", "license_number": "L1"})
+    with patch("app.routers.admin_fleet.register_user", new_callable=AsyncMock) as mock_create:
+        mock_create.return_value = {"id": "uuid-1", "username": "alice", "email": "alice@test.com", "first_name": "Alice", "license_number": "L1", "phone": "123"}
+        response = client.post("/api/v1/admin/fleet/drivers", json={"username": "alice", "email": "alice@test.com", "password": "pass", "license_number": "L1"})
         assert response.status_code == 200
-        assert response.json()["name"] == "Alice"
+        assert response.json()["username"] == "alice"
 
 def test_list_drivers():
     with patch("app.routers.admin_fleet.list_drivers", new_callable=AsyncMock) as mock_list:
-        mock_list.return_value = [{"id": 1, "name": "Alice", "license_number": "L1", "phone": "123"}]
+        mock_list.return_value = [{"id": "uuid-1", "name": "Alice", "license_number": "L1", "phone": "123"}]
         response = client.get("/api/v1/admin/fleet/drivers")
         assert response.status_code == 200
         assert len(response.json()) == 1
@@ -56,7 +56,7 @@ def test_generate_planned_trips():
 
 def test_assign_trip_resources():
     with patch("app.routers.admin_fleet.assign_trip_resources", new_callable=AsyncMock) as mock_assign:
-        mock_assign.return_value = {"id": "trip1", "bus_id": 1, "driver_id": 1, "status": "WAITING_AT_DEPOT", "date": "2026-05-03", "schedule_id": 1}
-        response = client.patch("/api/v1/admin/fleet/planned-trips/trip1/assign", params={"bus_id": 1, "driver_id": 1})
+        mock_assign.return_value = {"id": "trip1", "bus_id": 1, "driver_id": "uuid-1", "status": "WAITING_AT_DEPOT", "date": "2026-05-03", "schedule_id": 1}
+        response = client.patch("/api/v1/admin/fleet/planned-trips/trip1/assign", params={"bus_id": 1, "driver_id": "uuid-1"})
         assert response.status_code == 200
         assert response.json()["bus_id"] == 1
