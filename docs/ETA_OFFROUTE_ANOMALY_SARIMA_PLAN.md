@@ -113,8 +113,8 @@ and ignore unknown fields — no breaking change.
 
 | File | Change |
 |------|--------|
-| `services/anomaly-service/app/models/anomaly_model.py` | `off_route_streak` dict + streak logic |
-| `services/anomaly-service/app/main.py` | `persistent_off_route_threshold: int = 3` setting |
+| `services/anomaly-service/app/models/anomaly_model.py` | `off_route_streak_start_time` dict + time window logic |
+| `services/anomaly-service/app/config.py` | `OFF_ROUTE_STREAK_WINDOW_SEC: int = 5` loaded as Env Var |
 | `services/anomaly-service/tests/` | Streak unit tests |
 
 ### Logic
@@ -123,20 +123,22 @@ and ignore unknown fields — no breaking change.
 detect(telemetry, geometry):
   # use precomputed flag if Flink provides it; else compute locally (backward-compat)
   is_off = telemetry.get("offRoute") ?? (distance_to_polyline(...) > 50)
+  current_time = telemetry.get("timestamp")
 
   if is_off:
-    streak[bus_id] += 1
-    if streak[bus_id] == 1:
+    if bus_id not in streak_start:
+      streak_start[bus_id] = current_time
       emit OFF_ROUTE alert         # existing single-hit alert (unchanged)
-    if streak[bus_id] >= threshold:
+    
+    elapsed = current_time - streak_start[bus_id]
+    if elapsed >= OFF_ROUTE_STREAK_WINDOW_SEC:
       emit PERSISTENT_OFF_ROUTE alert
   else:
-    streak[bus_id] = 0             # reset on any on-route reading
+    streak_start.pop(bus_id, None) # reset on any on-route reading
 ```
 
-**Why threshold = 3?**  
-GPS fixes arrive ~1/s. Three consecutive off-route readings = ≥3 s continuously outside the
-50 m corridor. GPS noise does not persist for 3 consecutive fixes at this frequency.
+**Why a 5-second time window?**  
+A fixed time window is more robust than a strict count of pings (which assumes a perfect 1Hz frequency). 5 seconds of continuous off-route readings guarantees the bus genuinely deviated and avoids firing on fleeting GPS noise. Constant is stored in `app/config.py`.
 
 ### New alert type
 
@@ -191,9 +193,11 @@ ETA_DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-p
 
 ### `eta_records` table schema
 
+To efficiently manage high-frequency telemetry storage without heavy cron `DELETE` jobs, the table uses PostgreSQL partitioning by month. This is defined via a lightweight Alembic setup specifically inside `services/eta-service/`.
+
 ```sql
 CREATE TABLE eta_records (
-  id            SERIAL PRIMARY KEY,
+  id            SERIAL,
   trip_id       TEXT        NOT NULL,
   bus_id        TEXT        NOT NULL,
   route_id      TEXT,
@@ -205,8 +209,13 @@ CREATE TABLE eta_records (
   clamped       BOOLEAN     NOT NULL DEFAULT false,
   off_route     BOOLEAN     NOT NULL DEFAULT false,
   timestamp     TIMESTAMPTZ NOT NULL,  -- from GPS message
-  recorded_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
-);
+  recorded_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (id, timestamp)
+) PARTITION BY RANGE (timestamp);
+
+-- Example partition creation (managed by automation/Alembic)
+CREATE TABLE eta_records_y2026m05 PARTITION OF eta_records 
+    FOR VALUES FROM ('2026-05-01') TO ('2026-06-01');
 
 CREATE INDEX eta_records_route_stop_idx ON eta_records (route_id, stop_id, timestamp);
 CREATE INDEX eta_records_trip_idx       ON eta_records (trip_id, timestamp);
@@ -267,6 +276,8 @@ therefore better suited when the input is a temporal sequence rather than a feat
 
 ### `train_sarima.py` workflow
 
+All constants like minimum training threshold are loaded as environment variables via `app/config.py` (e.g., `SARIMA_MIN_THRESHOLD_HOURS=48`). We keep the 48-hour requirement to ensure 2 full seasonal cycles and avoid skew from single-day anomalies like public holidays.
+
 ```
 1. SELECT trip_id, stop_id, route_id, eta_seconds, timestamp
    FROM eta_records
@@ -275,7 +286,7 @@ therefore better suited when the input is a temporal sequence rather than a feat
 
 2. Group by (route_id, stop_id)
 
-3. For each group with ≥ 48 samples (2 full seasonal cycles of S=24):
+3. For each group with ≥ 48 hours of data (SARIMA_MIN_THRESHOLD_HOURS):
    a. Resample to hourly mean ETA
    b. Fit SARIMA(1,1,1)(1,1,1,24)
    c. Save: sarima_artifacts/{route_id}_{stop_id}.joblib
@@ -349,18 +360,10 @@ Response 200 (no artifact — graceful fallback):
 
 ---
 
-## Open Questions for Review
+## Resolved Questions (from CR1 Review)
 
-1. **`eta_records` retention policy** — With 1 GPS fix/s per bus across many trips, the table grows
-   quickly. Should we add `DELETE WHERE recorded_at < NOW() - INTERVAL '90 days'` as a cron job,
-   or rely on Postgres partitioning by month? Preference?
-
-2. **SARIMA minimum sample threshold (48)** — Is 48 h of data (2 seasonal cycles) a reasonable
-   minimum before the model activates, or should it be lower (e.g., 24 h for one cycle)?
-
-3. **Off-route streak threshold (3)** — GPS fixes arrive ~1 s apart in our simulator. Should the
-   threshold be a count (3 readings) or a time window (e.g., 5 s of consecutive off-route)?
-
-4. **`eta_db` schema ownership** — Using `create_all()` at startup is simple but means rollbacks
-   require manual `DROP TABLE`. Should we add a lightweight Alembic setup inside
-   `services/eta-service/` instead (consistent with how route-service uses the root Alembic)?
+1. **`eta_records` retention policy**: We will use **Postgres table partitioning by month**. This is vastly more efficient for high-frequency telemetry than a cron `DELETE` job.
+2. **SARIMA minimum sample threshold**: Kept at **48 hours (2 cycles)** to avoid skewed models from single-day anomalies (e.g., public holidays). Configured via Env Var.
+3. **Off-route streak threshold**: A **time-based 5-second sliding window** is used instead of a fixed ping count. Configured via Env Var.
+4. **`eta_db` schema ownership**: Will use a **lightweight Alembic** configuration placed directly inside `services/eta-service/`.
+5. **Hardcoded Numbers**: All constants (thresholds, windows, retention logic) must be moved to `app/config.py` and loaded dynamically via Environment Variables.

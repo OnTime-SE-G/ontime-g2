@@ -46,18 +46,24 @@ graph TD
     Flink -->|Enriched Data| Cleaned["transport-telemetry-cleaned"]:::kafka
     
     Cleaned --> ETA["ETA Service<br>(SARIMA Inference)"]:::service
-    Cleaned --> Anomaly["Anomaly Service<br>(Isolation Forest / Rules)"]:::service
+    Cleaned --> Anomaly["Anomaly Service<br>(In-Memory Rolling Window<br>+ Isolation Forest)"]:::service
+    
+    InfluxDB -.->|Offline Training Data| ETA
+    InfluxDB -.->|Offline Training Data| Anomaly
     
     DLQ --> Elastic[("Elasticsearch<br>(Log Aggregation)")]:::db
     Invalid --> Elastic
     
     ETA -->|Predictions| RedisETA[("Redis PubSub<br>(eta:live)")]:::redis
-    Anomaly -->|Alerts| Alerts["transport-anomaly-alerts"]:::kafka
+    ETA -->|Persistent Records| ETADb[("PostgreSQL<br>(eta_db)")]:::db
     
-    %% Direct to Kong Bypass as per Chamodh
-    RedisLive -->|Direct PubSub| Kong["G4 Kong API Gateway<br>(WebSocket Server)"]:::ws
-    RedisETA -->|Direct PubSub| Kong
-    Alerts -->|Kafka Plugin?| Kong
+    Anomaly -->|Live Alerts| RedisAnomaly[("Redis PubSub<br>(anomaly:live)")]:::redis
+    Anomaly -->|Historical Alerts| AnomalyDb[("PostgreSQL<br>(anomaly_db)")]:::db
+    
+    %% Direct to Kong API Gateway Bypass
+    RedisLive -->|Subscribes| Kong["G4 Kong API Gateway<br>(WebSocket Routing)"]:::ws
+    RedisETA -->|Subscribes| Kong
+    RedisAnomaly -->|Subscribes| Kong
     
     Kong -->|WebSockets| Dashboard["Live Dashboards"]:::g1
 ```
@@ -76,6 +82,20 @@ A fundamental shift in this architecture is how we handle "bad" behavior.
 3. **Anomaly Service's Job:** Sees `on_route = false` and immediately fires a "Route Deviation Anomaly" alert to the WebSockets.
 
 This prevents silent data loss and ensures our ML and anomaly models have full visibility into unauthorized bus movements.
+
+### 3.1 Anomaly Service: Feature Extraction for Unsupervised ML
+
+The Anomaly Service uses an **Isolation Forest** to detect erratic driving patterns. Because an Isolation Forest does not natively understand "time" (it expects a single feature vector like `[X, Y, Z]`), we cannot simply feed it raw coordinates and timestamps from a sliding window of GPS pings.
+
+**The Feature Extraction Workflow:**
+1. **Sliding Window:** The service maintains a sliding window of the last 10-20 GPS pings.
+2. **Summary Vector:** When a new ping arrives, it calculates a summary vector representing the behavior within that window. Example metrics include:
+   - `max_acceleration`: Did they floor the gas pedal?
+   - `min_acceleration`: Did they slam on the brakes?
+   - `speed_variance`: Is their speed fluctuating wildly?
+   - `heading_variance`: Are they swerving?
+3. **Inference:** Instead of feeding raw pings, the service feeds this single summary vector (e.g., `[4.2, -5.1, 12.5, 45.0]`) into the Isolation Forest.
+4. **Detection:** The model, which was trained offline on millions of normal 10-second summary vectors, evaluates if the current vector looks "normal". If the driver is slamming the brakes and swerving, the vector lands far outside the normal cluster, the model outputs `-1`, and an `ERRATIC_DRIVING` alert is instantly fired.
 
 ---
 

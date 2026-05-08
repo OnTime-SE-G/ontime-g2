@@ -126,26 +126,34 @@ graph TD
     AnomalyML["Anomaly Service Models<br>(Natasha)"]:::natasha
     
     DBs["Fleet & Route Services / DBs<br>(Chamodh)"]:::chamodh
-    AnomalyDB["Anomaly DB Integration<br>(Chamodh)"]:::chamodh
+    PostgresDBs["ETA & Anomaly DBs (PostgreSQL)<br>(Chamodh)"]:::chamodh
+    InfluxDB[("InfluxDB<br>(Offline Training)")]:::natasha
     
     ETA["ETA Service Inference<br>(Kusal)"]:::kusal
     
-    RedisBypass["Flink to Redis Fast-Path<br>(Nidharshan)"]:::nidharshan
-    Gateway["API Gateway & WebSockets<br>(Nidharshan)"]:::nidharshan
+    Redis["Redis PubSub<br>(fleet, eta, anomaly)<br>(Nidharshan)"]:::nidharshan
+    WSService["WebSocket Service<br>(Nidharshan)"]:::nidharshan
+    Kong["G4 Kong Gateway<br>(Routing Bypass)"]:::nidharshan
 
     Ingestion --> FlinkCore
     FlinkCore --> FlinkEnrich
     DBs -.-> FlinkEnrich
     
     FlinkEnrich --> AnomalyML
-    AnomalyML --> AnomalyDB
+    AnomalyML --> PostgresDBs
     
     FlinkEnrich --> ETA
+    ETA --> PostgresDBs
     
-    FlinkEnrich --> RedisBypass
-    RedisBypass --> Gateway
-    ETA --> Gateway
-    AnomalyML --> Gateway
+    InfluxDB -.->|Offline Training| ETA
+    InfluxDB -.->|Offline Training| AnomalyML
+    
+    FlinkEnrich --> Redis
+    ETA --> Redis
+    AnomalyML --> Redis
+    
+    Redis --> WSService
+    WSService --> Kong
 ```
 
 ---
@@ -209,9 +217,10 @@ To ensure zero overlap and 100% project completion (including all tests and ML m
   - Create a Kafka consumer for `transport-telemetry-cleaned`.
   - Implement rule-based checks: Trigger instant alerts if `trip_status == INACTIVE` but speed > 0, or if `on_route == false`.
 - **Phase N3 — Isolation Forest ML Model:**
-  - Train an **Isolation Forest** offline using `scikit-learn` on InfluxDB data to detect erratic driving patterns (e.g., unusual acceleration/deceleration sequences on a valid route).
-  - Maintain a sliding window of the last 10 pings per bus in the Anomaly Service memory.
-  - Feed the sliding window into the Isolation Forest model. If anomalous, publish to `transport-anomaly-alerts` (Kafka).
+  - Train an **Isolation Forest** offline using `scikit-learn` on InfluxDB data. **Feature Extraction:** Extract summary vectors (e.g., `max_acceleration`, `min_acceleration`, `speed_variance`, `heading_variance`) from millions of normal 10-second windows to map out "normal" driving behavior.
+  - Maintain a sliding window of the last N pings per bus in the Anomaly Service memory (N loaded from `app/config.py`).
+  - **Real-Time Inference:** Every time a new ping arrives, calculate the summary vector for the current window and feed this vector into the Isolation Forest model.
+  - If anomalous (model outputs `-1`, e.g., driver slamming brakes and swerving lands outside normal cluster), immediately fire an `ERRATIC_DRIVING` alert and publish to `transport-anomaly-alerts` (Kafka).
 - **Phase N4 — Testing & Tuning:**
   - Tune the Isolation Forest contamination parameter to avoid false positives.
   - Write unit tests proving off-route events trigger rules, and erratic speeds trigger the ML model.
@@ -233,22 +242,22 @@ To ensure zero overlap and 100% project completion (including all tests and ML m
 - **Phase C4 — Observability DBs:**
   - Configure the Log sink (Telegraf or simple Python script) to dump `telemetry-dlq` and `telemetry-invalid` into an Elasticsearch container (or Postgres JSONB table) for debugging.
 
-### 3.5 Nidharshan — Flink-to-Redis, WebSockets & API Gateway
-**Goal:** Build the zero-latency delivery mechanism for the passenger and admin dashboards.
+### 3.5 Nidharshan — Flink-to-Redis, WebSockets & Kong Gateway Routing
+**Goal:** Build the zero-latency delivery mechanism for the passenger dashboards while completely bypassing a custom API gateway.
 
 - **Phase Nd1 — Flink-to-Redis Bypass:**
   - Work inside PyFlink to create a Redis Sink.
   - For every cleaned ping, overwrite the Redis Key `bus:{busId}:position` (so we always have the latest state).
   - Simultaneously publish the payload to the Redis PubSub channel `fleet:live`.
-- **Phase Nd2 — WebSocket Kong Configuration (G2 Gateway Bypass):**
-  - If Chamodh confirmed the G2 API Gateway is bypassed for live feeds, work with G4 to configure the **Kong API Gateway** to act as the WebSocket server.
-  - Write the necessary Kong Lua plugins (or use existing Redis plugins) so Kong directly subscribes to Redis PubSub (`fleet:live`, `eta:live`) and pushes to connected WebSockets.
-  - *Note:* If Kong cannot natively subscribe to Redis PubSub, fallback to building the WebSocket endpoint in the G2 API Gateway.
-- **Phase Nd3 — REST API Aggregation:**
-  - Build standard GET endpoints in the API Gateway to proxy requests to Kusal's ETA service (for initial ETA load) and Chamodh's Fleet service (for bus lists).
-  - Implement CORS and ensure headers passed from G4 Kong are handled securely.
+- **Phase Nd2 — Dedicated WebSocket Service:**
+  - Build a lightweight `services/websocket-service/` using FastAPI or Socket.io.
+  - This service strictly subscribes to the three Redis PubSub channels (`fleet:live`, `eta:live`, `anomaly:live`) and pushes those JSON payloads to connected WebSocket clients.
+- **Phase Nd3 — Kong Gateway Routing (API Gateway Bypass):**
+  - **Neglect the G2 custom API Gateway.** Because Kong is incredibly capable, it will handle all our HTTP and WS routing.
+  - Configure Kong routes to forward `/ws` traffic to the new `websocket-service`.
+  - Configure Kong to proxy REST traffic directly to the individual microservices (e.g., `/api/eta` -> `eta-service`, `/api/fleet` -> `fleet-service`).
 - **Phase Nd4 — Load Testing:**
-  - Write a script to simulate 500+ WebSocket clients connecting to the API Gateway simultaneously. Ensure the Gateway does not crash and Redis handles the PubSub fan-out seamlessly.
+  - Write a script to simulate 500+ WebSocket clients connecting through Kong to the WebSocket service simultaneously. Ensure Redis handles the PubSub fan-out seamlessly.
 
 ---
 
@@ -260,5 +269,6 @@ To officially "finish off our thing" and deliver the complete Increment:
 - [ ] SARIMA model successfully predicting ETAs in real-time.
 - [ ] Isolation Forest model successfully catching erratic behavioral anomalies.
 - [ ] Flink correctly executing the "Classify, Don't Drop" logic (Source of Truth).
-- [ ] API Gateway smoothly streaming 3 separate PubSub channels over one WebSocket connection.
+- [ ] WebSocket Service smoothly streaming 3 separate PubSub channels over one connection.
+- [ ] Kong Gateway correctly routing traffic, completely replacing the custom G2 API Gateway.
 - [ ] 100% pass rate on Integration and Unit tests across all services.
