@@ -87,9 +87,10 @@ jobs:
 
       - name: Install doctl
         if: ${{ env.KUBE_CONFIG_B64 != '' }}
-        uses: digitalocean/action-doctl@v2
-        with:
-          token: ${{ secrets.DO_ACCESS_TOKEN }}
+        run: |
+          curl -sL https://github.com/digitalocean/doctl/releases/download/v1.104.0/doctl-1.104.0-linux-amd64.tar.gz | tar xz
+          sudo mv doctl /usr/local/bin/doctl
+          doctl auth init --access-token ${{ secrets.DO_ACCESS_TOKEN }}
 
       - name: Configure kubeconfig
         if: ${{ env.KUBE_CONFIG_B64 != '' }}
