@@ -85,6 +85,12 @@ jobs:
         with:
           version: "v1.29.0"
 
+      - name: Install doctl
+        if: ${{ env.KUBE_CONFIG_B64 != '' }}
+        uses: digitalocean/action-doctl@v2
+        with:
+          token: ${{ secrets.DO_ACCESS_TOKEN }}
+
       - name: Configure kubeconfig
         if: ${{ env.KUBE_CONFIG_B64 != '' }}
         run: |
