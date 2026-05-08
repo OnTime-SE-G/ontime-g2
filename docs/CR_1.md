@@ -65,7 +65,7 @@ graph TD
     RedisETA -->|Subscribes| Kong
     RedisAnomaly -->|Subscribes| Kong
     
-    Kong -->|WebSockets| Dashboard["G3 Frontend"]:::g1
+    Kong -->|WebSockets/REST APIs| Dashboard["G3 Frontend"]:::g1
 ```
 
 ---
