@@ -113,47 +113,54 @@ Triggered by rules or Isolation Forest ML.
 
 ```mermaid
 graph TD
-    classDef janidu fill:#d5e8d4,stroke:#82b366,stroke-width:2px;
-    classDef natasha fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px;
-    classDef chamodh fill:#ffe6cc,stroke:#d79b00,stroke-width:2px;
-    classDef kusal fill:#f8cecc,stroke:#b85450,stroke-width:2px;
-    classDef nidharshan fill:#e1d5e7,stroke:#9673a6,stroke-width:2px;
+    classDef ingest fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px;
+    classDef stream fill:#ffe6cc,stroke:#d79b00,stroke-width:2px;
+    classDef ml fill:#e1d5e7,stroke:#9673a6,stroke-width:2px;
+    classDef db fill:#d5e8d4,stroke:#82b366,stroke-width:2px;
+    classDef pubsub fill:#f8cecc,stroke:#b85450,stroke-width:2px;
+    classDef gateway fill:#f5f5f5,stroke:#666666,stroke-width:2px;
 
-    Ingestion["Ingestion Service<br>(Janidu)"]:::janidu
-    FlinkCore["Flink Deduplication / Physics<br>(Janidu)"]:::janidu
+    %% Data Sources & Ingestion
+    Ingestion["Ingestion Service"]:::ingest
     
-    FlinkEnrich["Flink PostGIS / Enrichment<br>(Natasha)"]:::natasha
-    AnomalyML["Anomaly Service Models<br>(Natasha)"]:::natasha
+    %% Stream Processing
+    FlinkCore["Flink Deduplication / Physics"]:::stream
+    FlinkEnrich["Flink PostGIS / Enrichment"]:::stream
     
-    DBs["Fleet & Route Services / DBs<br>(Chamodh)"]:::chamodh
-    PostgresDBs["ETA & Anomaly DBs (PostgreSQL)<br>(Chamodh)"]:::chamodh
-    InfluxDB[("InfluxDB<br>(Offline Training)")]:::natasha
+    %% Storage
+    DBs[("Fleet & Route DBs")]:::db
+    PostgresDBs[("ETA & Anomaly DBs (PostgreSQL)")]:::db
+    InfluxDB[("InfluxDB (Offline Training)")]:::db
     
-    ETA["ETA Service Inference<br>(Kusal)"]:::kusal
+    %% ML / Analytics
+    ETA["ETA Service Inference"]:::ml
+    AnomalyML["Anomaly Service (Isolation Forest)"]:::ml
     
-    Redis["Redis PubSub<br>(fleet, eta, anomaly)<br>(Nidharshan)"]:::nidharshan
-    WSService["WebSocket Service<br>(Nidharshan)"]:::nidharshan
-    Kong["G4 Kong Gateway<br>(Routing Bypass)"]:::nidharshan
+    %% Delivery
+    Redis[("Redis PubSub (fleet, eta, anomaly)")]:::pubsub
+    WSService["WebSocket Service"]:::pubsub
+    Kong["G4 Kong Gateway (Routing Bypass)"]:::gateway
 
+    %% Logical Flow
     Ingestion --> FlinkCore
     FlinkCore --> FlinkEnrich
-    DBs -.-> FlinkEnrich
+    DBs -.->|Startup Cache| FlinkEnrich
     
-    FlinkEnrich --> AnomalyML
-    AnomalyML --> PostgresDBs
+    FlinkEnrich -->|Enriched Data| ETA
+    FlinkEnrich -->|Enriched Data| AnomalyML
     
-    FlinkEnrich --> ETA
-    ETA --> PostgresDBs
+    InfluxDB -.->|Model Training| ETA
+    InfluxDB -.->|Model Training| AnomalyML
     
-    InfluxDB -.->|Offline Training| ETA
-    InfluxDB -.->|Offline Training| AnomalyML
+    ETA -->|Persistent| PostgresDBs
+    AnomalyML -->|Persistent| PostgresDBs
     
-    FlinkEnrich --> Redis
-    ETA --> Redis
-    AnomalyML --> Redis
+    FlinkEnrich -->|Live State| Redis
+    ETA -->|Live ETA| Redis
+    AnomalyML -->|Live Alerts| Redis
     
-    Redis --> WSService
-    WSService --> Kong
+    Redis -->|PubSub| WSService
+    WSService -->|WS Stream| Kong
 ```
 
 ---
