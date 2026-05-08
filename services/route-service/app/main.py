@@ -31,11 +31,36 @@ async def lifespan(app: FastAPI):
     print("Shutting down Route Service")
 
 
+from fastapi.middleware.cors import CORSMiddleware
+
 app = FastAPI(
     title="Route Service",
     version="1.0.0",
     description="Provides route, stop, and geospatial data.",
     lifespan=lifespan
+)
+
+origins = [
+    "http://on-time.live",
+    "https://on-time.live",
+    "http://admin.on-time.live",
+    "https://admin.on-time.live",
+    "http://driver.on-time.live",
+    "https://driver.on-time.live",
+    "http://grafana.on-time.live",
+    "https://grafana.on-time.live",
+    "http://localhost",
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "http://localhost:3002",
+]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.include_router(health.router)

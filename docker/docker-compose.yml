@@ -106,11 +106,12 @@ services:
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/auth_db
       - KEYCLOAK_URL=${KEYCLOAK_URL:-http://keycloak:8080}
-      - KEYCLOAK_REALM=${KEYCLOAK_REALM:-ontime}
-      - KEYCLOAK_CLIENT_ID=${KEYCLOAK_CLIENT_ID:-ontime-auth-service}
-      - KEYCLOAK_CLIENT_SECRET=${KEYCLOAK_CLIENT_SECRET}
+      - KEYCLOAK_REALM=${KEYCLOAK_REALM:-transit-system}
+      - KEYCLOAK_CLIENT_ID=${KEYCLOAK_CLIENT_ID:-scheduler-web}
+      - KEYCLOAK_CLIENT_SECRET=${KEYCLOAK_CLIENT_SECRET:-jQNjTtDUOhmLlprc9QCKAYMeJxuu6OMs}
       - KEYCLOAK_ADMIN_USERNAME=${KEYCLOAK_ADMIN_USERNAME}
       - KEYCLOAK_ADMIN_PASSWORD=${KEYCLOAK_ADMIN_PASSWORD}
+      - KAFKA_BROKER_URL=broker:29092
     networks:
       - ontime_network
     depends_on:

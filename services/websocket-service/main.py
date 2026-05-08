@@ -74,10 +74,25 @@ async def lifespan(app: FastAPI):
 
 app = FastAPI(title="OnTime WebSocket Service", lifespan=lifespan)
 
+origins = [
+    "http://on-time.live",
+    "https://on-time.live",
+    "http://admin.on-time.live",
+    "https://admin.on-time.live",
+    "http://driver.on-time.live",
+    "https://driver.on-time.live",
+    "http://grafana.on-time.live",
+    "https://grafana.on-time.live",
+    "http://localhost",
+    "http://localhost:3000",
+    "http://localhost:3001",
+    "http://localhost:3002",
+]
+
 # Add CORS
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

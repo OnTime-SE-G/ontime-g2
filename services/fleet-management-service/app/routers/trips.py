@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.db_fleet import DriverORM, ScheduleORM, PlannedTripORM
 from app.schemas.fleet import (
-    DriverCreate, DriverResponse, 
+    DriverResponse,
     ScheduleCreate, ScheduleResponse,
     PlannedTripResponse, PlannedTripCreate,
     TripLifecycleResponse, TripDelayReport, TripIncidentReport
@@ -21,13 +21,7 @@ router = APIRouter(
 
 # --- Drivers ---
 
-@router.post("/drivers", response_model=DriverResponse)
-def create_driver(driver: DriverCreate, db: Session = Depends(get_db)):
-    db_driver = DriverORM(**driver.model_dump())
-    db.add(db_driver)
-    db.commit()
-    db.refresh(db_driver)
-    return db_driver
+
 
 @router.get("/drivers", response_model=List[DriverResponse])
 def get_drivers(db: Session = Depends(get_db)):
@@ -74,7 +68,7 @@ def get_trip_detail(trip_id: str, db: Session = Depends(get_db)):
     return trip
 
 @router.patch("/planned-trips/{trip_id}/assign")
-def assign_resources(trip_id: str, bus_id: int, driver_id: int, db: Session = Depends(get_db)):
+def assign_resources(trip_id: str, bus_id: int, driver_id: str, db: Session = Depends(get_db)):
     trip = db.query(PlannedTripORM).filter(PlannedTripORM.id == trip_id).first()
     if not trip:
         raise HTTPException(status_code=404, detail="Trip not found")

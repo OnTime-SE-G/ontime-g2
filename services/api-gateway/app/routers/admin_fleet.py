@@ -12,6 +12,7 @@ from app.services.fleet_client import (
     generate_planned_trips, get_today_trips, get_trip_detail, assign_trip_resources,
     report_trip_delay, report_trip_incident
 )
+from app.services.auth_client import register_user
 from app.schemas import (
     BusResponse, BusAssignmentResponse, BusDeletionResponse,
     DriverCreate, DriverResponse,
@@ -109,7 +110,9 @@ async def add_driver(driver: DriverCreate):
     Admin only. Accepts driver name, license number, and optional phone.
     """
     try:
-        return await create_driver(driver.model_dump())
+        data = driver.model_dump()
+        data["role"] = "DRIVER"
+        return await register_user(data)
     except HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
 
@@ -208,7 +211,7 @@ async def get_trip(trip_id: str):
 
 
 @router.patch("/planned-trips/{trip_id}/assign", response_model=PlannedTripResponse)
-async def assign_resources(trip_id: str, bus_id: int, driver_id: int):
+async def assign_resources(trip_id: str, bus_id: int, driver_id: str):
     """
     Assign a bus and driver to a planned trip.
 

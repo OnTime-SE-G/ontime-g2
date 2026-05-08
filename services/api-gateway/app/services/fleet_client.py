@@ -61,11 +61,7 @@ async def unassign_route(bus_id: str):
         return res.json()
 
 
-async def create_driver(driver_data: dict):
-    async with httpx.AsyncClient() as client:
-        res = await client.post(f"{FLEET_SERVICE_URL}/api/v1/fleet/drivers", json=driver_data)
-        res.raise_for_status()
-        return res.json()
+
 
 
 async def list_drivers():
@@ -113,7 +109,7 @@ async def get_trip_detail(trip_id: str):
         return res.json()
 
 
-async def assign_trip_resources(trip_id: str, bus_id: int, driver_id: int):
+async def assign_trip_resources(trip_id: str, bus_id: int, driver_id: str):
     async with httpx.AsyncClient() as client:
         res = await client.patch(
             f"{FLEET_SERVICE_URL}/api/v1/fleet/planned-trips/{trip_id}/assign",

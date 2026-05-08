@@ -20,16 +20,12 @@ class FleetBusResponse(BaseModel):
 
 class DriverBase(BaseModel):
     name: str
-    license_number: str
-    phone: str | None = None
-
-
-class DriverCreate(DriverBase):
-    pass
-
 
 class DriverResponse(DriverBase):
-    id: int
+    id: str
+
+
+
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -52,7 +48,7 @@ class PlannedTripResponse(BaseModel):
     id: str
     schedule_id: int
     bus_id: int | None
-    driver_id: int | None
+    driver_id: str | None
     date: date
     status: str
     
@@ -69,7 +65,7 @@ class PlannedTripCreate(BaseModel):
     schedule_id: int
     date: date
     bus_id: int | None = None
-    driver_id: int | None = None
+    driver_id: str | None = None
 
 
 class TripDelayReport(BaseModel):

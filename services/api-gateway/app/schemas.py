@@ -135,14 +135,22 @@ class BusDeletionResponse(BaseModel):
 from datetime import date, time, datetime
 
 class DriverCreate(BaseModel):
-    name: str
+    email: str
+    username: str
+    password: str
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
     license_number: str
     phone: Optional[str] = None
 
 class DriverResponse(BaseModel):
-    id: int
-    name: str
-    license_number: str
+    id: str
+    name: Optional[str] = None
+    email: Optional[str] = None
+    username: Optional[str] = None
+    first_name: Optional[str] = None
+    last_name: Optional[str] = None
+    license_number: Optional[str] = None
     phone: Optional[str] = None
 
 class ScheduleCreate(BaseModel):
@@ -160,7 +168,7 @@ class PlannedTripResponse(BaseModel):
     id: str
     schedule_id: int
     bus_id: Optional[int] = None
-    driver_id: Optional[int] = None
+    driver_id: Optional[str] = None
     date: date
     status: str
     actual_start_time: Optional[datetime] = None

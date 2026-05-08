@@ -28,10 +28,8 @@ class FleetBusORM(Base):
 class DriverORM(Base):
     __tablename__ = "drivers"
 
-    id: Mapped[int] = mapped_column(primary_key=True)
+    id: Mapped[str] = mapped_column(String(50), primary_key=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
-    license_number: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
-    phone: Mapped[str] = mapped_column(String(20), nullable=True)
 
     # Relationships
     planned_trips: Mapped[list["PlannedTripORM"]] = relationship(back_populates="driver")
@@ -64,7 +62,7 @@ class PlannedTripORM(Base):
     id: Mapped[str] = mapped_column(String(50), primary_key=True)  # This is the trip_id
     schedule_id: Mapped[int] = mapped_column(ForeignKey("schedules.id"), nullable=False)
     bus_id: Mapped[int] = mapped_column(ForeignKey("buses.id"), nullable=True)
-    driver_id: Mapped[int] = mapped_column(ForeignKey("drivers.id"), nullable=True)
+    driver_id: Mapped[str] = mapped_column(ForeignKey("drivers.id"), nullable=True)
     date: Mapped[date] = mapped_column(Date, nullable=False)
     status: Mapped[TripStatus] = mapped_column(Enum(TripStatus), default=TripStatus.WAITING_AT_DEPOT)
 

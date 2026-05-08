@@ -60,12 +60,25 @@ class KeycloakManager:
                 "lastName": user_data.last_name,
                 "credentials": [{"value": user_data.password, "type": "password", "temporary": False}]
             }, exist_ok=False)
+
+            if hasattr(user_data, 'role') and user_data.role:
+                self.assign_user_role(new_user_id, user_data.role)
+
             return new_user_id
         except KeycloakError as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"User creation failed: {str(e)}"
             )
+
+    def assign_user_role(self, user_id, role_name):
+        try:
+            role = self.keycloak_admin.get_realm_role(role_name)
+            self.keycloak_admin.assign_realm_roles(user_id=user_id, roles=[role])
+        except KeycloakError as e:
+            print(f"Failed to assign role {role_name} to user {user_id}: {e}")
+            # Optionally raise HTTP exception, or just log it
+
 
     def logout(self, refresh_token):
         try:
