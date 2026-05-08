@@ -29,7 +29,7 @@ graph TD
 
     G1["G1 IoT Device"]:::g1 -->|MQTT Stream| Broker["G4 MQTT Broker<br>(Rate Limits)"]:::mqtt
     
-    Broker -->|Subscribe| Ingest["Ingestion Service<br>(Dumb Pipe)"]:::ingest
+    Broker -->|Subscribe| Ingest["Ingestion Service<br>(MQTT to Kafka Bridge)"]:::ingest
     Ingest -->|Invalid Schema| DLQ[("Kafka Topic<br>telemetry-dlq")]:::kafka
     Ingest -->|Valid JSON| Raw[("Kafka Topic<br>transport-telemetry-raw")]:::kafka
     
@@ -37,7 +37,7 @@ graph TD
     RouteService["Route Service"]:::service -.->|Startup Cache| Flink
     FleetService -.->|Startup Cache| Flink
     
-    Raw --> Flink["Apache Flink<br>(The Source of Truth)"]:::flink
+    Raw --> Flink["Apache Flink<br>(Stream Processing)"]:::flink
     Lifecycle --> Flink
     
     Flink -->|Physics Violated| Invalid[("Kafka Topic<br>telemetry-invalid")]:::kafka
