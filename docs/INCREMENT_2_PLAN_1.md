@@ -129,17 +129,17 @@ graph TD
     
     %% Storage
     DBs[("Fleet & Route DBs")]:::db
-    PostgresDBs[("ETA & Anomaly DBs (PostgreSQL)")]:::db
-    InfluxDB[("InfluxDB (Offline Training)")]:::db
+    PostgresDBs[("ETA & Anomaly DBs<br>(PostgreSQL)")]:::db
+    InfluxDB[("InfluxDB<br>(Offline Training)")]:::db
     
     %% ML / Analytics
     ETA["ETA Service Inference"]:::ml
-    AnomalyML["Anomaly Service (Isolation Forest)"]:::ml
+    AnomalyML["Anomaly Service<br>(Isolation Forest)"]:::ml
     
     %% Delivery
-    Redis[("Redis PubSub (fleet, eta, anomaly)")]:::pubsub
+    Redis[("Redis PubSub<br>(fleet, eta, anomaly)")]:::pubsub
     WSService["WebSocket Service"]:::pubsub
-    Kong["G4 Kong Gateway (Routing Bypass)"]:::gateway
+    Kong["G4 Kong API Gateway"]:::gateway
 
     %% Logical Flow
     Ingestion --> FlinkCore
