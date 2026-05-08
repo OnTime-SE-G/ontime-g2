@@ -148,7 +148,7 @@ services:
       - ../schemas:/app/schemas
     command: uvicorn app.main:app --host 0.0.0.0 --port 8003 --reload
     environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/fleet_db
+      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ontime_db}
       - ROUTE_SERVICE_URL=http://route-service:8002
       - KAFKA_BROKER_URL=broker:29092
     networks:
@@ -156,8 +156,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      broker:
-        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
     restart: unless-stopped
 
   broker:
@@ -181,6 +181,24 @@ services:
       interval: 10s
       timeout: 5s
       retries: 5
+
+  kafka-init:
+    image: confluentinc/confluent-local:7.5.0
+    container_name: ontime_kafka_init
+    networks:
+      - ontime_network
+    depends_on:
+      broker:
+        condition: service_healthy
+    command:
+      - /bin/sh
+      - -c
+      - |
+        kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic trip.lifecycle --partitions 1 --replication-factor 1
+        kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic transport-telemetry-raw --partitions 1 --replication-factor 1
+        kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic transport-telemetry-dlq --partitions 1 --replication-factor 1
+        kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic transport-telemetry-cleaned --partitions 1 --replication-factor 1
+        kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic transport-anomaly-alerts --partitions 1 --replication-factor 1
 
   mqtt-broker:
     image: eclipse-mosquitto:2
@@ -232,8 +250,8 @@ services:
     networks:
       - ontime_network
     depends_on:
-      broker:
-        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
       mqtt-broker:
         condition: service_healthy
     healthcheck:
@@ -287,8 +305,8 @@ services:
     networks:
       - ontime_network
     depends_on:
-      broker:
-        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
 
   flink-taskmanager:
     build:
@@ -297,7 +315,8 @@ services:
     container_name: ontime_flink_taskmanager
     command: taskmanager
     depends_on:
-      - flink-jobmanager
+      flink-jobmanager:
+        condition: service_started
     environment:
       - |
         FLINK_PROPERTIES=
@@ -336,8 +355,12 @@ services:
     networks:
       - ontime_network
     depends_on:
-      - flink-jobmanager
-      - flink-taskmanager
+      kafka-init:
+        condition: service_completed_successfully
+      flink-jobmanager:
+        condition: service_started
+      flink-taskmanager:
+        condition: service_started
 
   anomaly-service:
     build:
@@ -355,8 +378,8 @@ services:
     networks:
       - ontime_network
     depends_on:
-      broker:
-        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
       route-service:
         condition: service_started
 

@@ -3,6 +3,7 @@
 # Serves health, metrics, and API endpoints for the frontend.
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.routers import system, routes, buses, stops, admin_routes, admin_fleet, driver, trips, auth, users
 
