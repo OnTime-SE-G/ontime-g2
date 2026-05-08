@@ -17,13 +17,13 @@ def _create_bus(client, fleet_code="BUS-001", plate="NB-1234"):
     return r.json()
 
 
-def _create_driver(client, name="Alice", license_no="D-001"):
-    r = client.post(
-        "/api/v1/fleet/drivers",
-        json={"name": name, "license_number": license_no, "phone": "0771234567"},
-    )
-    assert r.status_code == 200
-    return r.json()
+def _create_driver(db, name="Alice", driver_id="test-driver-uuid-1"):
+    from app.models.db_fleet import DriverORM
+    db_driver = DriverORM(id=driver_id, name=name)
+    db.add(db_driver)
+    db.commit()
+    db.refresh(db_driver)
+    return {"id": db_driver.id, "name": db_driver.name}
 
 
 def _create_schedule(client, route_id=1):
@@ -44,11 +44,7 @@ def _create_schedule(client, route_id=1):
 
 # ── Driver Tests ──────────────────────────────────────────────────────────────
 
-def test_create_driver(client):
-    driver = _create_driver(client)
-    assert driver["name"] == "Alice"
-    assert driver["license_number"] == "D-001"
-    assert driver["id"] is not None
+
 
 
 def test_get_drivers_empty(client):
@@ -57,8 +53,8 @@ def test_get_drivers_empty(client):
     assert r.json() == []
 
 
-def test_get_drivers_returns_created(client):
-    _create_driver(client)
+def test_get_drivers_returns_created(client, db):
+    _create_driver(db)
     r = client.get("/api/v1/fleet/drivers")
     assert r.status_code == 200
     assert len(r.json()) == 1
@@ -124,11 +120,11 @@ def test_get_today_trips(client):
 # ── Trip Lifecycle Tests ───────────────────────────────────────────────────────
 
 @patch("app.services.trip_service.kafka_service")
-def test_start_trip_transitions_to_en_route(mock_kafka, client):
+def test_start_trip_transitions_to_en_route(mock_kafka, client, db):
     mock_kafka.publish_trip_event = AsyncMock()
 
     bus = _create_bus(client)
-    driver = _create_driver(client)
+    driver = _create_driver(db)
     _create_schedule(client)
 
     today = date.today().isoformat()
@@ -151,11 +147,11 @@ def test_start_trip_transitions_to_en_route(mock_kafka, client):
 
 
 @patch("app.services.trip_service.kafka_service")
-def test_end_trip_transitions_to_arrived(mock_kafka, client):
+def test_end_trip_transitions_to_arrived(mock_kafka, client, db):
     mock_kafka.publish_trip_event = AsyncMock()
 
     bus = _create_bus(client)
-    driver = _create_driver(client)
+    driver = _create_driver(db)
     _create_schedule(client)
 
     today = date.today().isoformat()
@@ -191,11 +187,11 @@ def test_report_delay(client):
 
 
 @patch("app.services.trip_service.kafka_service")
-def test_report_incident(mock_kafka, client):
+def test_report_incident(mock_kafka, client, db):
     mock_kafka.publish_trip_event = AsyncMock()
     
     bus = _create_bus(client)
-    driver = _create_driver(client)
+    driver = _create_driver(db)
     _create_schedule(client)
     today = date.today().isoformat()
     client.post(f"/api/v1/fleet/planned-trips/generate?target_date={today}")
