@@ -71,3 +71,47 @@ jobs:
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
+
+  deploy:
+    runs-on: ubuntu-latest
+    needs: [build-and-push]
+    if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+    env:
+      KUBE_CONFIG_B64: ${{ vars.KUBE_CONFIG_B64 }}
+    steps:
+      - name: Set up kubectl
+        if: ${{ env.KUBE_CONFIG_B64 != '' }}
+        uses: azure/setup-kubectl@v4
+        with:
+          version: "v1.29.0"
+
+      - name: Configure kubeconfig
+        if: ${{ env.KUBE_CONFIG_B64 != '' }}
+        run: |
+          mkdir -p ~/.kube
+          echo "$KUBE_CONFIG_B64" | base64 -d > ~/.kube/config
+
+      - name: Deploy to Kubernetes
+        if: ${{ env.KUBE_CONFIG_B64 != '' }}
+        run: |
+          owner=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
+          repo=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
+          sha="${{ github.sha }}"
+          kubectl set image deployment/transit-platform-g2-api-gateway \
+            api-gateway="ghcr.io/${repo}/api-gateway:sha-${sha:0:7}" \
+            -n transit-platform
+          kubectl set image deployment/transit-platform-g2-websocket-service \
+            websocket-service="ghcr.io/${repo}/websocket-service:sha-${sha:0:7}" \
+            -n transit-platform
+          kubectl set image deployment/transit-platform-g2-fleet-management-service \
+            fleet-management-service="ghcr.io/${repo}/fleet-management-service:sha-${sha:0:7}" \
+            -n transit-platform
+          kubectl set image deployment/transit-platform-g2-route-service \
+            route-service="ghcr.io/${repo}/route-service:sha-${sha:0:7}" \
+            -n transit-platform
+          kubectl rollout status deployment/transit-platform-g2-api-gateway \
+            -n transit-platform --timeout=120s
+
+      - name: Skip deploy (missing kubeconfig)
+        if: ${{ env.KUBE_CONFIG_B64 == '' }}
+        run: echo "Deploy skipped — add KUBE_CONFIG_B64 as a repository variable to enable."
