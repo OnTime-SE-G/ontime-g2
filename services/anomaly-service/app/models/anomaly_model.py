@@ -58,6 +58,22 @@ class AnomalyModel:
         self.version = "rules-v1"
         self.bus_states = {}  # { busId: { last_timestamp, last_telemetry, stationary_start_time } }
         self.inactive_trip_states = {}  # { busId: { timestamps, last_alert_timestamp } }
+        # Isolation Forest model for behavioral anomaly detection (optional).
+        self.isolation_model = None
+        self.isolation_model_path = None
+        try:
+            # load an optional model artifact if present
+            import joblib
+            import os
+
+            candidate = os.path.join(os.path.dirname(__file__), "training", "isolation_forest.joblib")
+            if os.path.exists(candidate):
+                self.isolation_model = joblib.load(candidate)
+                self.isolation_model_path = candidate
+                logger.info("Loaded isolation forest model from %s", candidate)
+        except Exception:
+            # model not available in this environment; continue with rule-based checks
+            logger.debug("No isolation forest model loaded (optional)")
 
     def detect(self, telemetry: Dict[str, Any], route_geometry: List[Tuple[float, float]]) -> List[Dict[str, Any]]:
         alerts = []
@@ -101,7 +117,104 @@ class AnomalyModel:
         state["communication_loss_alerted"] = False
         self.bus_states[bus_id] = state
 
+        # Behavioral anomaly detection via summary-vector -> IsolationForest
+        try:
+            # build a small sliding window from per-bus state if available
+            window = []
+            last = state.get("last_telemetry")
+            if last:
+                # include last telemetry plus current to form a minimal window
+                window = [last, telemetry]
+            summary = self.compute_summary_vector(window)
+            pred = self.predict_behavioral_anomaly(summary)
+            if pred is not None and pred == -1:
+                alerts.append(self._create_alert(bus_id, "ERRATIC_DRIVING", "Behavioral anomaly detected", telemetry))
+        except Exception:
+            logger.debug("Behavioral anomaly prediction skipped due to missing model or invalid window")
+
         return alerts
+
+    def compute_summary_vector(self, window: List[Dict[str, Any]]) -> Dict[str, float]:
+        """Compute summary statistics for a sliding window of telemetry dicts.
+
+        Returns a dict with keys used by the isolation forest: max_acceleration,
+        min_acceleration, speed_variance, heading_variance, average_speed.
+        """
+        if not window or len(window) < 2:
+            return {
+                "max_acceleration": 0.0,
+                "min_acceleration": 0.0,
+                "speed_variance": 0.0,
+                "heading_variance": 0.0,
+                "average_speed": 0.0,
+            }
+
+        speeds = []
+        headings = []
+        accs = []
+
+        def to_ts(x):
+            ts = x.get("timestamp")
+            try:
+                if isinstance(ts, str) and ts.endswith("Z"):
+                    ts = ts[:-1] + "+00:00"
+                return datetime.fromisoformat(ts).timestamp()
+            except Exception:
+                return None
+
+        prev = None
+        for entry in window:
+            sp = entry.get("speed") or entry.get("speed_ms") or 0.0
+            hd = entry.get("heading") or 0.0
+            ts = to_ts(entry)
+            if ts is None:
+                continue
+            speeds.append(float(sp))
+            headings.append(float(hd))
+            if prev is not None:
+                dt = ts - prev["ts"]
+                if dt > 0:
+                    acc = (float(sp) - float(prev["speed"])) / dt
+                    accs.append(acc)
+            prev = {"ts": ts, "speed": sp}
+
+        import statistics
+
+        speed_var = statistics.pvariance(speeds) if len(speeds) > 1 else 0.0
+        heading_var = statistics.pvariance(headings) if len(headings) > 1 else 0.0
+        max_acc = max(accs) if accs else 0.0
+        min_acc = min(accs) if accs else 0.0
+        avg_speed = statistics.mean(speeds) if speeds else 0.0
+
+        return {
+            "max_acceleration": max_acc,
+            "min_acceleration": min_acc,
+            "speed_variance": speed_var,
+            "heading_variance": heading_var,
+            "average_speed": avg_speed,
+        }
+
+    def predict_behavioral_anomaly(self, summary_vector: Dict[str, float]):
+        """Return IsolationForest prediction if model available, else None.
+
+        The IsolationForest convention: -1 => anomaly, 1 => normal.
+        """
+        if self.isolation_model is None:
+            return None
+        try:
+            # model expects a 2D array-like
+            features = [
+                summary_vector.get("max_acceleration", 0.0),
+                summary_vector.get("min_acceleration", 0.0),
+                summary_vector.get("speed_variance", 0.0),
+                summary_vector.get("heading_variance", 0.0),
+                summary_vector.get("average_speed", 0.0),
+            ]
+            pred = self.isolation_model.predict([features])
+            return int(pred[0])
+        except Exception:
+            logger.exception("Isolation forest prediction failed")
+            return None
 
     def detect_inactive_trip_dlq(
         self,
