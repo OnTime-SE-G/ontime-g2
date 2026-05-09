@@ -77,13 +77,20 @@ jobs:
     needs: [build-and-push]
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     env:
-      KUBE_CONFIG_B64: ${{ vars.KUBE_CONFIG_B64 }}
+      KUBE_CONFIG_B64: ${{ secrets.KUBE_CONFIG_B64 }}
     steps:
       - name: Set up kubectl
         if: ${{ env.KUBE_CONFIG_B64 != '' }}
         uses: azure/setup-kubectl@v4
         with:
           version: "v1.29.0"
+
+      - name: Install doctl
+        if: ${{ env.KUBE_CONFIG_B64 != '' }}
+        run: |
+          curl -sL https://github.com/digitalocean/doctl/releases/download/v1.104.0/doctl-1.104.0-linux-amd64.tar.gz | tar xz
+          sudo mv doctl /usr/local/bin/doctl
+          doctl auth init --access-token ${{ secrets.DO_ACCESS_TOKEN }}
 
       - name: Configure kubeconfig
         if: ${{ env.KUBE_CONFIG_B64 != '' }}
