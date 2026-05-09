@@ -101,7 +101,6 @@ jobs:
       - name: Deploy to Kubernetes
         if: ${{ env.KUBE_CONFIG_B64 != '' }}
         run: |
-          owner=$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')
           repo=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
           sha="${{ github.sha }}"
           kubectl set image deployment/transit-platform-g2-api-gateway \
@@ -116,7 +115,22 @@ jobs:
           kubectl set image deployment/transit-platform-g2-route-service \
             route-service="ghcr.io/${repo}/route-service:sha-${sha:0:7}" \
             -n transit-platform
+          kubectl set image deployment/transit-platform-g2-ingestion \
+            ingestion="ghcr.io/${repo}/ingestion:sha-${sha:0:7}" \
+            -n transit-platform
+          kubectl set image deployment/transit-platform-g2-stream-processing \
+            stream-processing="ghcr.io/${repo}/stream-processing:sha-${sha:0:7}" \
+            -n transit-platform
+          kubectl set image deployment/transit-platform-g2-anomaly-service \
+            anomaly-service="ghcr.io/${repo}/anomaly-service:sha-${sha:0:7}" \
+            -n transit-platform
           kubectl rollout status deployment/transit-platform-g2-api-gateway \
+            -n transit-platform --timeout=120s
+          kubectl rollout status deployment/transit-platform-g2-ingestion \
+            -n transit-platform --timeout=120s
+          kubectl rollout status deployment/transit-platform-g2-stream-processing \
+            -n transit-platform --timeout=120s
+          kubectl rollout status deployment/transit-platform-g2-anomaly-service \
             -n transit-platform --timeout=120s
 
       - name: Skip deploy (missing kubeconfig)
