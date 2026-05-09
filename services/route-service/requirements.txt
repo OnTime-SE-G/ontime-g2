@@ -11,6 +11,7 @@ numpy==2.4.4
 packaging==26.2
 pluggy==1.6.0
 pydantic==2.13.3
+pydantic-settings>=2.4.0
 pydantic_core==2.46.3
 Pygments==2.20.0
 pytest==9.0.3

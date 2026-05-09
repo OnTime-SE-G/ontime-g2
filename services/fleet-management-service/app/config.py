@@ -21,24 +21,41 @@ except (IndexError, ValueError):
 class FleetSettings(BaseSettings):
     """Configuration for the fleet management service."""
 
+    service_port: int = Field(
+        default=8003,
+        ge=1,
+        le=65535,
+        validation_alias=AliasChoices("FLEET_SERVICE_PORT", "SERVICE_PORT"),
+        description="HTTP port for Fleet Management Service",
+    )
     database_url: str = Field(
         default="postgresql://postgres:postgres@postgres:5432/fleet_db",
         validation_alias=AliasChoices("FLEET_DATABASE_URL", "DATABASE_URL"),
+        description="PostgreSQL connection URL for fleet/trip data",
     )
 
     kafka_broker_url: str = Field(
         default="broker:29092",
         validation_alias=AliasChoices("FLEET_KAFKA_BROKER_URL", "KAFKA_BROKER_URL"),
+        description="Kafka bootstrap server",
     )
 
     kafka_trip_lifecycle_topic: str = Field(
         default="trip.lifecycle",
         validation_alias=AliasChoices("FLEET_KAFKA_TRIP_LIFECYCLE_TOPIC", "KAFKA_TRIP_LIFECYCLE_TOPIC"),
+        description="Kafka topic where Fleet publishes trip lifecycle events",
     )
 
     route_service_url: str = Field(
         default="http://route-service:8002",
-        validation_alias=AliasChoices("ROUTE_SERVICE_URL"),
+        validation_alias=AliasChoices("FLEET_ROUTE_SERVICE_URL", "ROUTE_SERVICE_URL"),
+        description="Private Route Service base URL",
+    )
+    route_service_timeout_seconds: float = Field(
+        default=3.0,
+        ge=0.1,
+        validation_alias=AliasChoices("FLEET_ROUTE_SERVICE_TIMEOUT_SECONDS", "ROUTE_SERVICE_TIMEOUT_SECONDS"),
+        description="HTTP timeout for Fleet -> Route Service validation calls",
     )
 
     model_config = SettingsConfigDict(

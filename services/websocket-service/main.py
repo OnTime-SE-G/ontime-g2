@@ -1,5 +1,3 @@
-# services/websocket-service/main.py
-import os
 import asyncio
 import json
 import logging
@@ -11,36 +9,32 @@ from fastapi.responses import JSONResponse, PlainTextResponse
 from redis.asyncio import Redis
 from typing import Optional
 
+from config import settings
 from connection_manager import ConnectionManager
 
 # Setup logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("ws-service")
 
-# Configuration
-REDIS_URL = os.getenv("REDIS_URL", "redis://redis:6379")
-FLEET_CHANNEL = os.getenv("FLEET_CHANNEL", "fleet:live")
-ETA_CHANNEL = os.getenv("ETA_CHANNEL", "eta:live")
-
 manager = ConnectionManager()
 
 async def redis_listener(app: FastAPI):
-    logger.info(f"TASK START: redis_listener looking for {REDIS_URL}")
+    logger.info(f"TASK START: redis_listener looking for {settings.redis_url}")
     retry_count = 0
     while True:
         try:
-            logger.info(f"ATTEMPTING REDIS CONNECT: {REDIS_URL}")
+            logger.info(f"ATTEMPTING REDIS CONNECT: {settings.redis_url}")
             # Ensure redis is initialized
             if not hasattr(app.state, "redis"):
-                app.state.redis = Redis.from_url(REDIS_URL, decode_responses=True)
+                app.state.redis = Redis.from_url(settings.redis_url, decode_responses=True)
             
             redis = app.state.redis
             await redis.ping()
             logger.info("REDIS PING SUCCESSFUL")
             
             async with redis.pubsub() as pubsub:
-                logger.info(f"SUBSCRIBING TO: {FLEET_CHANNEL}, {ETA_CHANNEL}")
-                await pubsub.subscribe(FLEET_CHANNEL, ETA_CHANNEL)
+                logger.info(f"SUBSCRIBING TO: {settings.fleet_channel}, {settings.eta_channel}")
+                await pubsub.subscribe(settings.fleet_channel, settings.eta_channel)
                 logger.info("SUBSCRIBE COMMAND SENT")
                 
                 while True:
@@ -59,7 +53,7 @@ async def redis_listener(app: FastAPI):
 async def lifespan(app: FastAPI):
     # Startup
     logger.info("FASTAPI STARTUP (LIFESPAN)")
-    app.state.redis = Redis.from_url(REDIS_URL, decode_responses=True)
+    app.state.redis = Redis.from_url(settings.redis_url, decode_responses=True)
     listener_task = asyncio.create_task(redis_listener(app))
     yield
     # Shutdown
@@ -159,10 +153,10 @@ async def metrics_endpoint():
 @app.get("/debug")
 async def debug():
     # Direct check to see if we can see the subscription
-    redis = Redis.from_url(REDIS_URL, decode_responses=True)
-    subs = await redis.execute_command("PUBSUB", "NUMSUB", FLEET_CHANNEL)
+    redis = Redis.from_url(settings.redis_url, decode_responses=True)
+    subs = await redis.execute_command("PUBSUB", "NUMSUB", settings.fleet_channel)
     return {
-        "channel": FLEET_CHANNEL,
+        "channel": settings.fleet_channel,
         "subs_info": subs,
         "connections": len(manager.active_connections)
     }

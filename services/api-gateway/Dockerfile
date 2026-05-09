@@ -19,5 +19,5 @@ COPY schemas /app/schemas
 # Copy the service code into /app
 COPY services/api-gateway /app
 
-# Run Uvicorn in development mode
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Run Uvicorn with runtime-configurable port
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${API_GATEWAY_SERVICE_PORT:-8000}"]

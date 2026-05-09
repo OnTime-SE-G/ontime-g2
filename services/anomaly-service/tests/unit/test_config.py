@@ -1,0 +1,33 @@
+import sys
+from pathlib import Path
+
+
+SERVICE_ROOT = Path(__file__).resolve().parents[2]
+if str(SERVICE_ROOT) not in sys.path:
+    sys.path.insert(0, str(SERVICE_ROOT))
+
+from app.config import AnomalySettings
+
+
+def test_anomaly_config_loads_defaults():
+    settings = AnomalySettings()
+
+    assert settings.service_port == 8006
+    assert settings.kafka_broker_url == "broker:29092"
+    assert settings.kafka_cleaned_topic == "transport-telemetry-cleaned"
+    assert settings.kafka_dlq_topic == "transport-telemetry-dlq"
+    assert settings.kafka_anomaly_topic == "transport-anomaly-alerts"
+    assert settings.kafka_cleaned_group_id == "anomaly-service-group"
+    assert settings.route_service_url == "http://route-service:8002"
+
+
+def test_anomaly_config_accepts_service_specific_env(monkeypatch):
+    monkeypatch.setenv("ANOMALY_KAFKA_BROKER_URL", "kafka:9092")
+    monkeypatch.setenv("ANOMALY_KAFKA_DLQ_GROUP_ID", "dlq-test")
+    monkeypatch.setenv("ANOMALY_ROUTE_REFRESH_INTERVAL_SECONDS", "30")
+
+    settings = AnomalySettings()
+
+    assert settings.kafka_broker_url == "kafka:9092"
+    assert settings.kafka_dlq_group_id == "dlq-test"
+    assert settings.route_refresh_interval_seconds == 30

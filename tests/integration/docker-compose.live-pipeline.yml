@@ -78,7 +78,7 @@ services:
     ports:
       - "18012:8002"
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/ontime_db
+      ROUTE_DATABASE_URL: postgresql://postgres:postgres@postgres:5432/ontime_db
     depends_on:
       postgres:
         condition: service_healthy
@@ -96,10 +96,10 @@ services:
     ports:
       - "18013:8003"
     environment:
-      DATABASE_URL: postgresql://postgres:postgres@postgres:5432/fleet_db
-      ROUTE_SERVICE_URL: http://route-service:8002
-      KAFKA_BROKER_URL: broker:29092
-      KAFKA_TRIP_LIFECYCLE_TOPIC: trip.lifecycle
+      FLEET_DATABASE_URL: postgresql://postgres:postgres@postgres:5432/fleet_db
+      FLEET_ROUTE_SERVICE_URL: http://route-service:8002
+      FLEET_KAFKA_BROKER_URL: broker:29092
+      FLEET_KAFKA_TRIP_LIFECYCLE_TOPIC: trip.lifecycle
     depends_on:
       postgres:
         condition: service_healthy
@@ -121,11 +121,11 @@ services:
     ports:
       - "18011:8001"
     environment:
-      MQTT_BROKER_HOST: mqtt-broker
-      MQTT_BROKER_PORT: 1883
-      MQTT_TOPIC_PATTERN: transport/bus/+/location
-      MQTT_HEARTBEAT_TOPIC_PATTERN: transport/bus/+/heartbeat
-      KAFKA_BROKER_URL: broker:29092
+      INGESTION_MQTT_BROKER_HOST: mqtt-broker
+      INGESTION_MQTT_BROKER_PORT: 1883
+      INGESTION_MQTT_TOPIC_PATTERN: transport/bus/+/location
+      INGESTION_MQTT_HEARTBEAT_TOPIC_PATTERN: transport/bus/+/heartbeat
+      INGESTION_KAFKA_BROKER_URL: broker:29092
       INGESTION_KAFKA_RAW_TOPIC: transport-telemetry-raw
       INGESTION_KAFKA_DLQ_TOPIC: transport-telemetry-dlq
       INGESTION_KAFKA_TRIP_LIFECYCLE_TOPIC: trip.lifecycle
@@ -152,9 +152,9 @@ services:
     ports:
       - "18014:8004"
     environment:
-      REDIS_URL: redis://redis:6379
-      FLEET_CHANNEL: fleet:live
-      ETA_CHANNEL: eta:live
+      WEBSOCKET_REDIS_URL: redis://redis:6379
+      WEBSOCKET_FLEET_CHANNEL: fleet:live
+      WEBSOCKET_ETA_CHANNEL: eta:live
     depends_on:
       redis:
         condition: service_healthy
@@ -175,14 +175,14 @@ services:
     environment:
       FLINK_PROPERTIES: |
         jobmanager.rpc.address: flink-jobmanager
-      KAFKA_BROKER_URL: broker:29092
-      KAFKA_RAW_TOPIC: transport-telemetry-raw
-      KAFKA_CLEANED_TOPIC: transport-telemetry-cleaned
-      KAFKA_LIFECYCLE_TOPIC: trip.lifecycle
-      ROUTE_SERVICE_URL: http://route-service:8002
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      INFLUXDB_URL: http://influxdb-not-required:8086
+      STREAM_KAFKA_BROKER_URL: broker:29092
+      STREAM_KAFKA_RAW_TOPIC: transport-telemetry-raw
+      STREAM_KAFKA_CLEANED_TOPIC: transport-telemetry-cleaned
+      STREAM_KAFKA_LIFECYCLE_TOPIC: trip.lifecycle
+      STREAM_ROUTE_SERVICE_URL: http://route-service:8002
+      STREAM_REDIS_HOST: redis
+      STREAM_REDIS_PORT: 6379
+      STREAM_INFLUXDB_URL: http://influxdb-not-required:8086
       PYTHONPATH: /opt/flink/usrlib
     depends_on:
       kafka-init:
@@ -201,14 +201,14 @@ services:
       FLINK_PROPERTIES: |
         jobmanager.rpc.address: flink-jobmanager
         taskmanager.numberOfTaskSlots: 2
-      KAFKA_BROKER_URL: broker:29092
-      KAFKA_RAW_TOPIC: transport-telemetry-raw
-      KAFKA_CLEANED_TOPIC: transport-telemetry-cleaned
-      KAFKA_LIFECYCLE_TOPIC: trip.lifecycle
-      ROUTE_SERVICE_URL: http://route-service:8002
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      INFLUXDB_URL: http://influxdb-not-required:8086
+      STREAM_KAFKA_BROKER_URL: broker:29092
+      STREAM_KAFKA_RAW_TOPIC: transport-telemetry-raw
+      STREAM_KAFKA_CLEANED_TOPIC: transport-telemetry-cleaned
+      STREAM_KAFKA_LIFECYCLE_TOPIC: trip.lifecycle
+      STREAM_ROUTE_SERVICE_URL: http://route-service:8002
+      STREAM_REDIS_HOST: redis
+      STREAM_REDIS_PORT: 6379
+      STREAM_INFLUXDB_URL: http://influxdb-not-required:8086
       PYTHONPATH: /opt/flink/usrlib
     depends_on:
       - flink-jobmanager
@@ -234,14 +234,14 @@ services:
     environment:
       FLINK_PROPERTIES: |
         jobmanager.rpc.address: flink-jobmanager
-      KAFKA_BROKER_URL: broker:29092
-      KAFKA_RAW_TOPIC: transport-telemetry-raw
-      KAFKA_CLEANED_TOPIC: transport-telemetry-cleaned
-      KAFKA_LIFECYCLE_TOPIC: trip.lifecycle
-      ROUTE_SERVICE_URL: http://route-service:8002
-      REDIS_HOST: redis
-      REDIS_PORT: 6379
-      INFLUXDB_URL: http://influxdb-not-required:8086
+      STREAM_KAFKA_BROKER_URL: broker:29092
+      STREAM_KAFKA_RAW_TOPIC: transport-telemetry-raw
+      STREAM_KAFKA_CLEANED_TOPIC: transport-telemetry-cleaned
+      STREAM_KAFKA_LIFECYCLE_TOPIC: trip.lifecycle
+      STREAM_ROUTE_SERVICE_URL: http://route-service:8002
+      STREAM_REDIS_HOST: redis
+      STREAM_REDIS_PORT: 6379
+      STREAM_INFLUXDB_URL: http://influxdb-not-required:8086
       PYTHONPATH: /opt/flink/usrlib
     depends_on:
       - flink-jobmanager

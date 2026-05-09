@@ -1,6 +1,6 @@
 # services/route-service/Dockerfile
 
-FROM python:3.13-slim
+FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
@@ -20,4 +20,4 @@ COPY . .
 
 EXPOSE 8002
 
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8002"]
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${ROUTE_SERVICE_PORT:-8002}"]

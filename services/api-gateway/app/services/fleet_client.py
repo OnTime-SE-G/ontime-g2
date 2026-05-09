@@ -1,8 +1,9 @@
 import httpx
-import os
 
-# Internal service URLs from environment variables
-FLEET_SERVICE_URL = os.getenv("FLEET_SERVICE_URL", "http://fleet-management-service:8003")
+from app.config import settings
+
+
+FLEET_SERVICE_URL = settings.fleet_service_url
 
 
 async def add_bus(bus_data: dict):
