@@ -118,6 +118,14 @@ class MQTTSubscriber:
             self._reject(raw_payload, source_topic, location_result)
             return
 
+        # If stateless mode is enabled, forward the validated raw JSON payload
+        # directly to Kafka and skip enrichment / stateful validation.
+        if settings.stateless_mode:
+            self.messages_validated += 1
+            metrics.increment_validated()
+            self.producer.publish_raw_bytes(raw_payload, source_topic)
+            return
+
         if self.trip_cache is not None and self.trip_cache.is_rebuilding:
             self._buffer_until_trip_cache_ready(raw_payload, source_topic)
             return

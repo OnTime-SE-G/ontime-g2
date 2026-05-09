@@ -51,3 +51,6 @@ class GPSMessage(GPSLocationMessage):
     """
 
     trip_id: str = Field(..., min_length=1, max_length=50, alias="tripId")
+    # CR1: route-awareness metadata added by Flink/stateful processing
+    on_route: bool = Field(default=True, alias="onRoute")
+    route_deviation_meters: float | None = Field(default=None, alias="routeDeviationMeters")

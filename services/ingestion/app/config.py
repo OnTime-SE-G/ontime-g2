@@ -169,6 +169,15 @@ class IngestionSettings(BaseSettings):
         description="Number of recent payload hashes kept per bus for duplicate detection",
     )
 
+    # Stateless ingestion mode: when enabled ingestion will perform schema-only
+    # validation and forward raw JSON to Kafka via `publish_raw_bytes()` instead
+    # of performing trip-cache enrichment and stateful validation.
+    stateless_mode: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("INGESTION_STATELESS_MODE", "STATELESS_MODE"),
+        description="When true, forward validated JSON to Kafka without enrichment",
+    )
+
     model_config = SettingsConfigDict(
         env_file=ENV_FILES,
         env_file_encoding="utf-8",
