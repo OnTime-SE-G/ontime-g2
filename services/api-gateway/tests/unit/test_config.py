@@ -1,7 +1,15 @@
 from app.config import ApiGatewaySettings
 
 
-def test_api_gateway_config_loads_defaults():
+def test_api_gateway_config_loads_defaults(monkeypatch):
+    # Clear any environment overrides so we test the hardcoded defaults
+    monkeypatch.delenv("KEYCLOAK_BASE_URL", raising=False)
+    monkeypatch.delenv("KEYCLOAK_REALM", raising=False)
+    monkeypatch.delenv("KEYCLOAK_CLIENT_ID", raising=False)
+    monkeypatch.delenv("KEYCLOAK_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("KEYCLOAK_ADMIN_USERNAME", raising=False)
+    monkeypatch.delenv("KEYCLOAK_ADMIN_PASSWORD", raising=False)
+
     settings = ApiGatewaySettings()
 
     assert settings.service_port == 8000
