@@ -29,6 +29,13 @@ class DriverCreate(DriverBase):
     username: str | None = None
 
 
+class DriverUpdate(BaseModel):
+    """Partial update schema — only provided fields will be changed."""
+    name: str | None = None
+    license_number: str | None = None
+    phone: str | None = None
+
+
 class DriverResponse(DriverBase):
     id: int
     auth_user_id: str | None = None

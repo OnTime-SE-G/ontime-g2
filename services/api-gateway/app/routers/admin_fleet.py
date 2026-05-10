@@ -7,15 +7,16 @@ from app.services.fleet_client import (
     add_bus, update_bus, delete_bus, get_buses, get_bus as get_bus_from_fleet
     , get_route_buses,
     assign_route, unassign_route,
-    create_driver, list_drivers, deactivate_driver,
+    create_driver, get_driver as get_driver_from_fleet, update_driver as update_driver_in_fleet,
+    list_drivers, deactivate_driver,
     create_schedule, list_schedules,
-    generate_planned_trips, get_today_trips, get_trip_detail, assign_trip_resources,
+    generate_planned_trips, get_today_trips, get_trips, get_trip_detail, assign_trip_resources,
     report_trip_delay, report_trip_incident
 )
 from app.services.keycloak_client import keycloak_client
 from app.schemas import (
     BusResponse, BusAssignmentResponse, BusDeletionResponse,
-    AdminDriverCreate, DriverResponse, DriverDeactivationResponse,
+    AdminDriverCreate, DriverResponse, DriverUpdate, DriverDeactivationResponse,
     ScheduleCreate, ScheduleResponse,
     PlannedTripResponse, TripDelayReport, TripIncidentReport
 )
@@ -167,6 +168,32 @@ async def deactivate_driver_account(driver_id: int):
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
 
 
+@router.get("/drivers/{driver_id}", response_model=DriverResponse)
+async def get_driver(driver_id: int):
+    """
+    Get details of a single driver by their fleet ID.
+
+    Admin only.
+    """
+    try:
+        return await get_driver_from_fleet(driver_id)
+    except HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+
+
+@router.patch("/drivers/{driver_id}", response_model=DriverResponse)
+async def edit_driver(driver_id: int, update: DriverUpdate):
+    """
+    Update a driver's profile fields (name, license_number, phone).
+
+    Admin only. Does not affect Keycloak credentials.
+    """
+    try:
+        return await update_driver_in_fleet(driver_id, update.model_dump(exclude_none=True))
+    except HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+
+
 @router.get("/drivers", response_model=List[DriverResponse])
 async def get_drivers():
     """
@@ -218,6 +245,28 @@ async def get_schedules():
 
 
 # ── Planned Trip Management ───────────────────────────────────────────────────
+
+@router.get("/planned-trips", response_model=List[PlannedTripResponse])
+async def query_trips(
+    target_date: date | None = None,
+    driver_id: int | None = None,
+    status: str | None = None,
+):
+    """
+    Query planned trips with optional filters.
+
+    Admin only. Supports filtering by date, driver, and trip status.
+    Example: GET /planned-trips?target_date=2026-05-10&driver_id=4&status=EN_ROUTE
+    """
+    try:
+        return await get_trips(
+            target_date=str(target_date) if target_date else None,
+            driver_id=driver_id,
+            status=status,
+        )
+    except HTTPStatusError as e:
+        raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
+
 
 @router.post("/planned-trips/generate")
 async def generate_trips(target_date: date):
