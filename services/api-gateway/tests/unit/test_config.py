@@ -2,13 +2,14 @@ from app.config import ApiGatewaySettings
 
 
 def test_api_gateway_config_loads_defaults(monkeypatch):
-    # Clear any environment overrides so we test the hardcoded defaults
-    monkeypatch.delenv("KEYCLOAK_BASE_URL", raising=False)
-    monkeypatch.delenv("KEYCLOAK_REALM", raising=False)
-    monkeypatch.delenv("KEYCLOAK_CLIENT_ID", raising=False)
-    monkeypatch.delenv("KEYCLOAK_CLIENT_SECRET", raising=False)
-    monkeypatch.delenv("KEYCLOAK_ADMIN_USERNAME", raising=False)
-    monkeypatch.delenv("KEYCLOAK_ADMIN_PASSWORD", raising=False)
+    # Force-set the canonical defaults so this test is isolated from
+    # any docker/.env file or CI environment variable overrides.
+    monkeypatch.setenv("KEYCLOAK_BASE_URL", "http://keycloak:8080")
+    monkeypatch.setenv("KEYCLOAK_REALM", "ontime")
+    monkeypatch.setenv("KEYCLOAK_CLIENT_ID", "ontime-api")
+    monkeypatch.setenv("KEYCLOAK_CLIENT_SECRET", "secret")
+    monkeypatch.setenv("KEYCLOAK_ADMIN_USERNAME", "admin")
+    monkeypatch.setenv("KEYCLOAK_ADMIN_PASSWORD", "admin")
 
     settings = ApiGatewaySettings()
 
