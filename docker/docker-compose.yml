@@ -107,13 +107,14 @@ services:
 
   auth-service:
     build:
-      context: ../services/auth-service
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: services/auth-service/Dockerfile
     container_name: ontime_auth_service
     ports:
       - "8005:8005"
     volumes:
       - ../services/auth-service:/app
+      - ../schemas:/app/schemas
     environment:
       - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/auth_db
       - KEYCLOAK_URL=${KEYCLOAK_URL:-http://keycloak:8080}
