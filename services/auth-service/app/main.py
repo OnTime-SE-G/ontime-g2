@@ -5,10 +5,21 @@ from .config import settings
 
 from contextlib import asynccontextmanager
 
+import time
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Create database tables on startup
-    Base.metadata.create_all(bind=engine)
+    # Create database tables on startup with retry
+    for attempt in range(10):
+        try:
+            Base.metadata.create_all(bind=engine)
+            print("Database ready (auth)")
+            break
+        except Exception:
+            print(f"Waiting for database... {attempt + 1}/10")
+            time.sleep(3)
+    else:
+        raise RuntimeError("Database not available")
     yield
 
 app = FastAPI(
