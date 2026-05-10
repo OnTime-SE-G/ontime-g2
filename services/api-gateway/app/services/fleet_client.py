@@ -76,6 +76,13 @@ async def list_drivers():
         return res.json()
 
 
+async def deactivate_driver(driver_id: int):
+    async with httpx.AsyncClient() as client:
+        res = await client.patch(f"{FLEET_SERVICE_URL}/api/v1/fleet/drivers/{driver_id}/deactivate")
+        res.raise_for_status()
+        return res.json()
+
+
 async def create_schedule(schedule_data: dict):
     async with httpx.AsyncClient() as client:
         res = await client.post(f"{FLEET_SERVICE_URL}/api/v1/fleet/schedules", json=schedule_data)
