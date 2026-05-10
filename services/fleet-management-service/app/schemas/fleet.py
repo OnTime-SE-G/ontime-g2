@@ -25,11 +25,15 @@ class DriverBase(BaseModel):
 
 
 class DriverCreate(DriverBase):
-    pass
+    auth_user_id: str | None = None
+    username: str | None = None
 
 
 class DriverResponse(DriverBase):
     id: int
+    auth_user_id: str | None = None
+    username: str | None = None
+    is_active: bool
     model_config = ConfigDict(from_attributes=True)
 
 
