@@ -41,6 +41,9 @@ jobs:
           - service: anomaly-service
             context: services/anomaly-service
             dockerfile: services/anomaly-service/Dockerfile
+          - service: auth-service
+            context: services/auth-service
+            dockerfile: services/auth-service/Dockerfile
 
     steps:
       - name: Checkout repository

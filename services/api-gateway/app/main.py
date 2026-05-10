@@ -5,7 +5,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from app.routers import system, routes, buses, stops, admin_routes, admin_fleet, driver, trips
+from app.routers import system, routes, buses, stops, admin_routes, admin_fleet, driver, trips, auth, users
 
 app = FastAPI(
     title="OnTime API Gateway",
@@ -36,6 +36,8 @@ app.include_router(admin_routes.router)
 app.include_router(admin_fleet.router)
 app.include_router(driver.router)
 app.include_router(trips.router)
+app.include_router(auth.router)
+app.include_router(users.router)
 
 if __name__ == "__main__":
     import uvicorn

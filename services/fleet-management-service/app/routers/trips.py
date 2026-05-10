@@ -33,6 +33,16 @@ def create_driver(driver: DriverCreate, db: Session = Depends(get_db)):
 def get_drivers(db: Session = Depends(get_db)):
     return db.query(DriverORM).all()
 
+@router.patch("/drivers/{driver_id}/deactivate", response_model=DriverResponse)
+def deactivate_driver(driver_id: int, db: Session = Depends(get_db)):
+    driver = db.query(DriverORM).filter(DriverORM.id == driver_id).first()
+    if not driver:
+        raise HTTPException(status_code=404, detail="Driver not found")
+    driver.is_active = False
+    db.commit()
+    db.refresh(driver)
+    return driver
+
 # --- Schedules ---
 
 @router.post("/schedules", response_model=ScheduleResponse)

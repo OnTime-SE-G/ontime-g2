@@ -53,14 +53,35 @@ class ApiGatewaySettings(BaseSettings):
         ),
         description="Redis URL used for latest live bus snapshots",
     )
-    auth_service_url: str = Field(
-        default="http://auth-service:8005",
-        validation_alias=AliasChoices(
-            "API_GATEWAY_AUTH_SERVICE_URL",
-            "APIGATEWAY_AUTH_SERVICE_URL",
-            "AUTH_SERVICE_URL",
-        ),
-        description="Planned Auth wrapper or G4 Auth base URL",
+    keycloak_base_url: str = Field(
+        default="http://keycloak:8080",
+        validation_alias="KEYCLOAK_BASE_URL",
+        description="Keycloak base URL"
+    )
+    keycloak_realm: str = Field(
+        default="ontime",
+        validation_alias="KEYCLOAK_REALM",
+        description="Keycloak realm"
+    )
+    keycloak_client_id: str = Field(
+        default="ontime-api",
+        validation_alias="KEYCLOAK_CLIENT_ID",
+        description="Keycloak API client ID"
+    )
+    keycloak_client_secret: str = Field(
+        default="secret",
+        validation_alias="KEYCLOAK_CLIENT_SECRET",
+        description="Keycloak client secret"
+    )
+    keycloak_admin_username: str = Field(
+        default="admin",
+        validation_alias="KEYCLOAK_ADMIN_USERNAME",
+        description="Keycloak admin username"
+    )
+    keycloak_admin_password: str = Field(
+        default="admin",
+        validation_alias="KEYCLOAK_ADMIN_PASSWORD",
+        description="Keycloak admin password"
     )
 
     postgres_host: str = Field(
@@ -126,4 +147,3 @@ settings = ApiGatewaySettings()
 ROUTE_SERVICE_URL = settings.route_service_url
 FLEET_SERVICE_URL = settings.fleet_service_url
 REDIS_URL = settings.redis_url
-AUTH_SERVICE_URL = settings.auth_service_url

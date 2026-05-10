@@ -32,6 +32,11 @@ class DriverORM(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     license_number: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
     phone: Mapped[str] = mapped_column(String(20), nullable=True)
+    
+    # Keycloak linkage
+    auth_user_id: Mapped[str] = mapped_column(String(50), unique=True, nullable=True)
+    username: Mapped[str] = mapped_column(String(50), nullable=True)
+    is_active: Mapped[bool] = mapped_column(default=True)
 
     # Relationships
     planned_trips: Mapped[list["PlannedTripORM"]] = relationship(back_populates="driver")
