@@ -76,6 +76,27 @@ async def list_drivers():
         return res.json()
 
 
+async def get_driver(driver_id: int):
+    async with httpx.AsyncClient() as client:
+        res = await client.get(f"{FLEET_SERVICE_URL}/api/v1/fleet/drivers/{driver_id}")
+        res.raise_for_status()
+        return res.json()
+
+
+async def get_driver_by_auth_id(auth_user_id: str):
+    async with httpx.AsyncClient() as client:
+        res = await client.get(f"{FLEET_SERVICE_URL}/api/v1/fleet/drivers/by-auth/{auth_user_id}")
+        res.raise_for_status()
+        return res.json()
+
+
+async def update_driver(driver_id: int, driver_data: dict):
+    async with httpx.AsyncClient() as client:
+        res = await client.patch(f"{FLEET_SERVICE_URL}/api/v1/fleet/drivers/{driver_id}", json=driver_data)
+        res.raise_for_status()
+        return res.json()
+
+
 async def deactivate_driver(driver_id: int):
     async with httpx.AsyncClient() as client:
         res = await client.patch(f"{FLEET_SERVICE_URL}/api/v1/fleet/drivers/{driver_id}/deactivate")
@@ -107,9 +128,24 @@ async def generate_planned_trips(target_date: str):
         return res.json()
 
 
-async def get_today_trips():
+async def get_today_trips(driver_id: int | None = None):
     async with httpx.AsyncClient() as client:
-        res = await client.get(f"{FLEET_SERVICE_URL}/api/v1/fleet/planned-trips/today")
+        params = {}
+        if driver_id is not None:
+            params["driver_id"] = driver_id
+        res = await client.get(f"{FLEET_SERVICE_URL}/api/v1/fleet/planned-trips/today", params=params)
+        res.raise_for_status()
+        return res.json()
+
+
+async def get_trips(
+    target_date: str | None = None,
+    driver_id: int | None = None,
+    status: str | None = None,
+):
+    async with httpx.AsyncClient() as client:
+        params = {k: v for k, v in {"target_date": target_date, "driver_id": driver_id, "status": status}.items() if v is not None}
+        res = await client.get(f"{FLEET_SERVICE_URL}/api/v1/fleet/planned-trips", params=params)
         res.raise_for_status()
         return res.json()
 
