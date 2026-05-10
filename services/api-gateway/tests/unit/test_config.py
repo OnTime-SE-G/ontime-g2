@@ -8,7 +8,9 @@ def test_api_gateway_config_loads_defaults():
     assert settings.route_service_url == "http://route-service:8002"
     assert settings.fleet_service_url == "http://fleet-management-service:8003"
     assert settings.redis_url.startswith("redis://")
-    assert settings.auth_service_url == "http://auth-service:8005"
+    assert settings.keycloak_base_url == "http://keycloak:8080"
+    assert settings.keycloak_realm == "ontime"
+    assert settings.keycloak_client_id == "ontime-api"
 
 
 def test_api_gateway_config_prefers_service_specific_env(monkeypatch):

@@ -23,11 +23,31 @@ def test_list_buses():
 # ── Driver Management ─────────────────────────────────────────────────────────
 
 def test_add_driver():
-    with patch("app.routers.admin_fleet.create_driver", new_callable=AsyncMock) as mock_create:
-        mock_create.return_value = {"id": 1, "name": "Alice", "license_number": "L1", "phone": "123"}
-        response = client.post("/api/v1/admin/fleet/drivers", json={"name": "Alice", "license_number": "L1"})
+    with patch("app.routers.admin_fleet.keycloak_client.create_user") as mock_kc, \
+         patch("app.routers.admin_fleet.create_driver", new_callable=AsyncMock) as mock_fleet:
+        
+        mock_kc.return_value = "kc-user-123"
+        mock_fleet.return_value = {
+            "id": 1, 
+            "name": "Alice", 
+            "license_number": "L1", 
+            "phone": "123", 
+            "username": "alice123", 
+            "auth_user_id": "kc-user-123",
+            "is_active": True
+        }
+        
+        payload = {
+            "name": "Alice", 
+            "license_number": "L1", 
+            "username": "alice123", 
+            "password": "password123"
+        }
+        response = client.post("/api/v1/admin/fleet/drivers", json=payload)
+        
         assert response.status_code == 200
         assert response.json()["name"] == "Alice"
+        assert response.json()["auth_user_id"] == "kc-user-123"
 
 def test_list_drivers():
     with patch("app.routers.admin_fleet.list_drivers", new_callable=AsyncMock) as mock_list:
