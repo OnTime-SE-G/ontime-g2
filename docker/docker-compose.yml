@@ -116,7 +116,7 @@ services:
       - ../services/auth-service:/app
       - ../schemas:/app/schemas
     environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/auth_db
+      - AUTH_DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/auth_db
       - KEYCLOAK_URL=${KEYCLOAK_URL:-http://keycloak:8080}
       - KEYCLOAK_REALM=${KEYCLOAK_REALM:-ontime}
       - KEYCLOAK_CLIENT_ID=${KEYCLOAK_CLIENT_ID:-ontime-auth-service}
