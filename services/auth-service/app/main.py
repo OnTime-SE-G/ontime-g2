@@ -3,12 +3,18 @@ from .routers import auth, users
 from .database import engine, Base
 from .config import settings
 
-# Create database tables
-Base.metadata.create_all(bind=engine)
+from contextlib import asynccontextmanager
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    # Create database tables on startup
+    Base.metadata.create_all(bind=engine)
+    yield
 
 app = FastAPI(
     title=settings.PROJECT_NAME,
     description="User management and authentication service for OnTime G2",
+    lifespan=lifespan
 )
 
 app.include_router(auth.router)
