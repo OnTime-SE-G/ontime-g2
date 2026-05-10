@@ -158,6 +158,18 @@ class DriverResponse(BaseModel):
     username: Optional[str] = None
     is_active: bool = True
 
+
+class DriverUpdate(BaseModel):
+    """Partial update — only provided fields will be changed."""
+    name: Optional[str] = None
+    license_number: Optional[str] = None
+    phone: Optional[str] = None
+
+
+class DriverProfile(DriverResponse):
+    """Extended driver profile returned from /driver/me."""
+    pass
+
 class ScheduleCreate(BaseModel):
     route_id: int
     scheduled_time: time
