@@ -1,4 +1,3 @@
-import os
 import socket
 from datetime import datetime, timezone
 from typing import Dict
@@ -7,6 +6,8 @@ from urllib.request import urlopen
 
 from fastapi import APIRouter, Request
 from fastapi.responses import PlainTextResponse
+
+from app.config import settings
 
 router = APIRouter(tags=["System"])
 
@@ -27,21 +28,12 @@ def _can_get_http(url: str, timeout: float = 0.6) -> bool:
         return False
 
 def _dependency_status() -> Dict[str, str]:
-    postgres_host = os.getenv("POSTGRES_HOST", "localhost")
-    postgres_port = int(os.getenv("POSTGRES_PORT", "5432"))
-    redis_host = os.getenv("REDIS_HOST", "localhost")
-    redis_port = int(os.getenv("REDIS_PORT", "6379"))
-    kafka_host = os.getenv("KAFKA_HOST", "localhost")
-    kafka_port = int(os.getenv("KAFKA_PORT", "9092"))
-    influx_host = os.getenv("INFLUXDB_HOST", "localhost")
-    influx_port = int(os.getenv("INFLUXDB_PORT", "8086"))
-
-    influx_ok = _can_get_http(f"http://{influx_host}:{influx_port}/ping")
+    influx_ok = _can_get_http(f"http://{settings.influxdb_host}:{settings.influxdb_port}/ping")
 
     return {
-        "postgres": "up" if _can_open_tcp(postgres_host, postgres_port) else "down",
-        "redis": "up" if _can_open_tcp(redis_host, redis_port) else "down",
-        "kafka": "up" if _can_open_tcp(kafka_host, kafka_port) else "down",
+        "postgres": "up" if _can_open_tcp(settings.postgres_host, settings.postgres_port) else "down",
+        "redis": "up" if _can_open_tcp(settings.redis_host, settings.redis_port) else "down",
+        "kafka": "up" if _can_open_tcp(settings.kafka_host, settings.kafka_port) else "down",
         "influxdb": "up" if influx_ok else "down",
     }
 

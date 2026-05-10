@@ -25,7 +25,7 @@ class RedisSink:
             self.r.set(f"bus:{bus_id}:position", value)
 
             # 2. Publish to live feed
-            self.r.publish("fleet:live", value)
+            self.r.publish(settings.redis_fleet_live_channel, value)
         except Exception as e:
             logger.error(f"Redis Sink error: {e}")
 

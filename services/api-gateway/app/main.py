@@ -3,12 +3,21 @@
 # Serves health, metrics, and API endpoints for the frontend.
 
 from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.routers import system, routes, buses, stops, admin_routes, admin_fleet, driver, trips, auth, users
 
 app = FastAPI(
     title="OnTime API Gateway",
     description="G2 API gateway service for REST aggregation.",
+)
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=False,
+    allow_methods=["*"],
+    allow_headers=["*"],
 )
 
 app.state.request_count = 0

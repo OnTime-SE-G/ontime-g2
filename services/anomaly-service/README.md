@@ -1,58 +1,70 @@
 # Anomaly Service
 
-Rule-based alerting for G2 telemetry.
+Anomaly Service is a rule-based Kafka worker. It consumes cleaned telemetry and
+DLQ events, detects operational issues, and emits alert events for admin and
+monitoring flows.
 
-## Inputs
+## Responsibilities
 
-| Topic | Purpose |
-|-------|---------|
-| `transport-telemetry-cleaned` | enriched GPS telemetry from Flink |
-| `transport-telemetry-dlq` | rejected GPS envelopes from ingestion |
+- Consume enriched GPS from `transport-telemetry-cleaned`.
+- Consume rejected GPS envelopes from `transport-telemetry-dlq`.
+- Load route geometries from Route Service for off-route checks.
+- Detect rule-based anomalies.
+- Publish alerts to Kafka `transport-anomaly-alerts`.
+- Expose health and Prometheus-style metrics on port `8006`.
 
-## Output
+## Kafka Topics
 
-| Topic | Purpose |
-|-------|---------|
-| `transport-anomaly-alerts` | anomaly/operations alerts for admin, API, and monitoring |
+| Topic | Direction | Purpose |
+|---|---|---|
+| `transport-telemetry-cleaned` | consume | enriched GPS from Flink |
+| `transport-telemetry-dlq` | consume | rejected GPS from ingestion |
+| `transport-anomaly-alerts` | produce | alerts for admin/API/monitoring |
 
 ## Current Rules
 
-- `UNREALISTIC_SPEED`: cleaned telemetry speed is above the safe threshold.
-- `OFF_ROUTE`: cleaned telemetry is too far from the route geometry.
-- `STATIONARY`: bus remains under the stationary speed threshold for too long.
-- `COMMUNICATION_LOSS`: an active bus stops sending cleaned telemetry.
-- `TRIP_NOT_STARTED_DEVICE_ACTIVE`: ingestion repeatedly sends `INACTIVE_TRIP`
-  DLQ events for the same bus, meaning the device is on but no driver-started
-  trip exists.
+| Rule | Meaning |
+|---|---|
+| `UNREALISTIC_SPEED` | speed is above safe threshold |
+| `OFF_ROUTE` | bus is too far from assigned route geometry |
+| `STATIONARY` | bus remains nearly stopped for too long |
+| `COMMUNICATION_LOSS` | active bus stops sending telemetry |
+| `TRIP_NOT_STARTED_DEVICE_ACTIVE` | repeated `INACTIVE_TRIP` DLQ events for same bus |
 
-## DLQ Inactive-Trip Logic
+The inactive-trip rule is useful when a device is powered on and sending GPS,
+but the driver has not started the trip in Fleet.
 
-The service does not alert on a single inactive GPS packet. It waits for repeated
-DLQ events from the same `busId`:
+## HTTP / Prometheus
 
-- default threshold: 3 `INACTIVE_TRIP` DLQ events
-- default window: 60 seconds
-- default cooldown: 300 seconds before another alert for the same bus
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/health` | service health summary |
+| `GET` | `/health/live` | liveness |
+| `GET` | `/health/ready` | readiness |
+| `GET` | `/metrics` | Prometheus-style metrics |
 
-This keeps startup/cache timing noise from becoming a false alert.
+## Environment Variables
 
-## Configuration
+| Variable | Default | Meaning |
+|---|---|---|
+| `KAFKA_BROKER_URL` | `broker:29092` | Kafka bootstrap server |
+| `KAFKA_CLEANED_TOPIC` | `transport-telemetry-cleaned` | cleaned telemetry source |
+| `KAFKA_DLQ_TOPIC` | `transport-telemetry-dlq` | ingestion DLQ source |
+| `KAFKA_ANOMALY_TOPIC` | `transport-anomaly-alerts` | alert output topic |
+| `KAFKA_DLQ_GROUP_ID` | `anomaly-service-dlq-group` | DLQ consumer group |
+| `ROUTE_SERVICE_URL` | `http://route-service:8002` | route geometry API |
+| `COMMUNICATION_LOSS_CHECK_INTERVAL_SECONDS` | `60` | communication-loss scan interval |
+| `COMMUNICATION_LOSS_THRESHOLD_SECONDS` | `180` | no-telemetry threshold |
+| `INACTIVE_TRIP_DLQ_THRESHOLD_COUNT` | `3` | repeated inactive trip event count |
+| `INACTIVE_TRIP_DLQ_WINDOW_SECONDS` | `60` | inactive trip window |
+| `INACTIVE_TRIP_DLQ_COOLDOWN_SECONDS` | `300` | duplicate alert cooldown |
 
-| Env var | Default |
-|---------|---------|
-| `KAFKA_BROKER_URL` | `broker:29092` |
-| `KAFKA_CLEANED_TOPIC` | `transport-telemetry-cleaned` |
-| `KAFKA_DLQ_TOPIC` | `transport-telemetry-dlq` |
-| `KAFKA_ANOMALY_TOPIC` | `transport-anomaly-alerts` |
-| `KAFKA_DLQ_GROUP_ID` | `anomaly-service-dlq-group` |
-| `ROUTE_SERVICE_URL` | `http://route-service:8002` |
-| `INACTIVE_TRIP_DLQ_THRESHOLD_COUNT` | `3` |
-| `INACTIVE_TRIP_DLQ_WINDOW_SECONDS` | `60` |
-| `INACTIVE_TRIP_DLQ_COOLDOWN_SECONDS` | `300` |
+## MQTT / Redis
 
-## Health
+Anomaly Service does not subscribe to MQTT and does not use Redis directly.
 
-- `GET /health`
-- `GET /health/live`
-- `GET /health/ready`
-- `GET /metrics`
+## Cross-Group Notes
+
+- This is rule-based, not ML/AI, in the current implementation.
+- Alert read APIs for UI/admin are still a separate gateway/product concern.
+- G4 should deploy the service privately and scrape `/metrics` internally.
