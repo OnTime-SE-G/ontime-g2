@@ -38,7 +38,7 @@ class KeycloakClient:
                 "enabled": True,
                 "firstName": first_name,
                 "lastName": last_name,
-                "credentials": [{"value": password, "type": "password", "temporary": True}] # Force change
+                "credentials": [{"value": password, "type": "password", "temporary": False}]
             }, exist_ok=False)
             
             # Assign the role
