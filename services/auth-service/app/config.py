@@ -5,7 +5,7 @@ class Settings(BaseSettings):
     PROJECT_NAME: str = "OnTime Auth Service"
     
     # Database
-    DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/auth_db"
+    AUTH_DATABASE_URL: str = "postgresql://postgres:postgres@localhost:5432/auth_db"
     
     # Keycloak
     KEYCLOAK_URL: str = "http://localhost:8080"
