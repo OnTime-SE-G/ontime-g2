@@ -8,11 +8,13 @@ from services.ingestion.app.metrics import metrics
 from services.ingestion.app.mqtt_subscriber import MQTTSubscriber
 from services.ingestion.app.producer import TelemetryProducer
 from services.ingestion.app.trip_lifecycle_cache import ActiveTripCache, TripLifecycleConsumer
+from services.ingestion.app.config_consumer import DeviceConfigConsumer
 
 producer = None
 subscriber = None
 trip_cache = None
 trip_consumer = None
+config_consumer = None
 health_thread = None
 
 
@@ -24,6 +26,9 @@ def handle_shutdown(sig, frame):
     if trip_consumer:
         print("Stopping trip lifecycle consumer...")
         trip_consumer.stop()
+    if config_consumer:
+        print("Stopping config consumer...")
+        config_consumer.stop()
     if producer:
         print("Closing Kafka producer...")
         producer.close()
@@ -32,7 +37,7 @@ def handle_shutdown(sig, frame):
 
 
 def main():
-    global producer, subscriber, trip_cache, trip_consumer, health_thread
+    global producer, subscriber, trip_cache, trip_consumer, config_consumer, health_thread
 
     signal.signal(signal.SIGINT, handle_shutdown)
     signal.signal(signal.SIGTERM, handle_shutdown)
@@ -46,6 +51,7 @@ def main():
     print(f"  Raw Topic:    {settings.kafka_raw_topic}")
     print(f"  DLQ Topic:    {settings.kafka_dlq_topic}")
     print(f"  Trip Topic:   {settings.kafka_trip_lifecycle_topic}")
+    print(f"  Config Topic: {settings.kafka_device_config_topic}")
     print(f"  Health Port:  {settings.service_port}")
     print("=" * 50)
 
@@ -67,6 +73,12 @@ def main():
             subscriber = MQTTSubscriber(producer, trip_cache=trip_cache)
             subscriber.connect()
             print("MQTT subscriber initialized.")
+
+            print("Starting device config consumer...")
+            config_consumer = DeviceConfigConsumer(
+                publish_config_callback=subscriber.publish_config
+            )
+            config_consumer.start()
         except Exception as error:
             metrics.mqtt_broker_up = False
             print(f"Failed to connect MQTT subscriber: {error}")
