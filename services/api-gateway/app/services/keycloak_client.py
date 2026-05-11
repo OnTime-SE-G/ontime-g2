@@ -33,9 +33,10 @@ class KeycloakClient:
         try:
             # Create the user
             new_user_id = self.keycloak_admin.create_user({
-                "email": f"{username}@ontime.local", # Fallback email if needed
+                "email": f"{username}@on-time.live",
                 "username": username,
                 "enabled": True,
+                "emailVerified": True,
                 "firstName": first_name,
                 "lastName": last_name,
                 "credentials": [{"value": password, "type": "password", "temporary": False}]
