@@ -50,7 +50,7 @@ def _predict_eta_from_snapshot(snapshot: dict[str, Any], stop: dict[str, Any], m
             from models.sarima_eta import forecast_eta_sarima
 
             route_id = str(snapshot.get("routeId", ""))
-            sarima_result = forecast_eta_sarima(route_id, stop_id, timestamp)
+            sarima_result = forecast_eta_sarima(route_id, int(stop.get("stopId")), timestamp)
             if sarima_result is not None:
                 return sarima_result, "sarima", False
         except Exception:
