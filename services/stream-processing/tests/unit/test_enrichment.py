@@ -292,3 +292,26 @@ def test_lifecycle_state_supplies_trip_for_stateless_ingestion(enrichment_fn):
     assert enriched["tripId"] == "T1"
     assert enriched["routeId"] == "R1"
     assert enriched["trip_status"] == "ACTIVE"
+
+
+def test_startup_active_trip_bootstrap_supplies_trip_for_stateless_ingestion(enrichment_fn):
+    ctx = MagicMock()
+    enrichment_fn.bootstrap_active_trips = {
+        "B1": {"tripId": "T1", "routeId": "R1", "trip_status": "ACTIVE"}
+    }
+    enrichment_fn.last_ts_state.value.return_value = None
+
+    telemetry = json.dumps({
+        "busId": "B1",
+        "lat": 6.5,
+        "lon": 80.0,
+        "speed": 40.0,
+        "timestamp": "2026-05-02T10:00:00Z"
+    })
+
+    results = list(enrichment_fn.process_element(telemetry, ctx))
+    enriched = json.loads(results[0])
+
+    assert enriched["tripId"] == "T1"
+    assert enriched["routeId"] == "R1"
+    assert enriched["trip_status"] == "ACTIVE"

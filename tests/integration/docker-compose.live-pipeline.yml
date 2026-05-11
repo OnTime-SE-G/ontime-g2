@@ -185,6 +185,7 @@ services:
       STREAM_KAFKA_INVALID_TOPIC: telemetry-invalid
       STREAM_KAFKA_LIFECYCLE_TOPIC: trip.lifecycle
       STREAM_ROUTE_SERVICE_URL: http://route-service:8002
+      STREAM_FLEET_SERVICE_URL: http://fleet-management-service:8003
       STREAM_REDIS_HOST: redis
       STREAM_REDIS_PORT: 6379
       STREAM_INFLUXDB_URL: http://influxdb-not-required:8086
@@ -212,6 +213,7 @@ services:
       STREAM_KAFKA_INVALID_TOPIC: telemetry-invalid
       STREAM_KAFKA_LIFECYCLE_TOPIC: trip.lifecycle
       STREAM_ROUTE_SERVICE_URL: http://route-service:8002
+      STREAM_FLEET_SERVICE_URL: http://fleet-management-service:8003
       STREAM_REDIS_HOST: redis
       STREAM_REDIS_PORT: 6379
       STREAM_INFLUXDB_URL: http://influxdb-not-required:8086
@@ -246,6 +248,7 @@ services:
       STREAM_KAFKA_INVALID_TOPIC: telemetry-invalid
       STREAM_KAFKA_LIFECYCLE_TOPIC: trip.lifecycle
       STREAM_ROUTE_SERVICE_URL: http://route-service:8002
+      STREAM_FLEET_SERVICE_URL: http://fleet-management-service:8003
       STREAM_REDIS_HOST: redis
       STREAM_REDIS_PORT: 6379
       STREAM_INFLUXDB_URL: http://influxdb-not-required:8086

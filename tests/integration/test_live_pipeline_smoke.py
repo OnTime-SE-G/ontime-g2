@@ -283,17 +283,6 @@ def create_and_start_trip(route_id: int, unique_suffix: str) -> tuple[str, str]:
     return bus_id, trip_id
 
 
-def wait_for_ingestion_active_trip(timeout_seconds: int = 60) -> None:
-    log_step("Waiting for ingestion active-trip cache")
-    wait_for_http_json(
-        f"{INGESTION_URL}/health",
-        lambda payload: payload["dependencies"]["trip_cache"] == "ready"
-        and payload["counters"]["active_trip_count"] >= 1,
-        timeout_seconds=timeout_seconds,
-    )
-    log_step("Ingestion active-trip cache has the started trip")
-
-
 def wait_for_flink_job_running(timeout_seconds: int = 180) -> None:
     log_step("Waiting for Flink job to be RUNNING")
     wait_for_http_json(
@@ -485,8 +474,6 @@ def test_fleet_mqtt_ingestion_flink_redis_websocket_smoke():
         )
         assert lifecycle_message.value["routeId"] == str(route_id)
 
-        wait_for_ingestion_active_trip()
-
         gps_payload = make_gps_payload(bus_id)
         publish_mqtt_gps(gps_payload)
 
@@ -494,11 +481,12 @@ def test_fleet_mqtt_ingestion_flink_redis_websocket_smoke():
             RAW_TOPIC,
             lambda message: message.key == bus_id
             and message.value.get("busId") == bus_id
-            and message.value.get("tripId") == trip_id,
+            and message.value.get("lat") == gps_payload["lat"],
             timeout_seconds=60,
         )
         assert raw_message.value["lat"] == gps_payload["lat"]
         assert raw_message.value["lon"] == gps_payload["lon"]
+        assert "tripId" not in raw_message.value
 
         cleaned_message = wait_for_cleaned_message_with_republish(bus_id, trip_id, route_id)
         assert "routeProgressPct" in cleaned_message.value
