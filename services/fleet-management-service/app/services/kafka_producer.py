@@ -42,6 +42,20 @@ class KafkaProducerService:
             logger.exception("Failed to publish trip lifecycle event")
             raise
 
+    async def publish_device_config(self, bus_id: str, config_data: dict):
+        producer = await self._get_producer()
+        try:
+            payload = {"bus_id": bus_id, **config_data}
+            await producer.send_and_wait(
+                settings.kafka_device_config_topic,
+                json.dumps(payload).encode("utf-8")
+            )
+            logger.info("Published device config for bus %s", bus_id)
+        except Exception:
+            self._producer = None
+            logger.exception("Failed to publish device config event")
+            raise
+
 
 kafka_service = KafkaProducerService()
 

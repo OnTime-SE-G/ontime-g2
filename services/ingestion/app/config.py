@@ -99,6 +99,22 @@ class IngestionSettings(BaseSettings):
         ),
         description="Kafka consumer group for ingestion active trip cache",
     )
+    kafka_device_config_topic: str = Field(
+        default="device.config",
+        validation_alias=AliasChoices(
+            "INGESTION_KAFKA_DEVICE_CONFIG_TOPIC",
+            "KAFKA_DEVICE_CONFIG_TOPIC",
+        ),
+        description="Kafka topic for incoming device configurations",
+    )
+    device_config_consumer_group: str = Field(
+        default="ingestion-device-config",
+        validation_alias=AliasChoices(
+            "INGESTION_DEVICE_CONFIG_CONSUMER_GROUP",
+            "DEVICE_CONFIG_CONSUMER_GROUP",
+        ),
+        description="Kafka consumer group for device configs",
+    )
     require_active_trip: bool = Field(
         default=True,
         validation_alias=AliasChoices("INGESTION_REQUIRE_ACTIVE_TRIP", "REQUIRE_ACTIVE_TRIP"),
@@ -172,6 +188,15 @@ class IngestionSettings(BaseSettings):
             "DUPLICATE_CACHE_SIZE",
         ),
         description="Number of recent payload hashes kept per bus for duplicate detection",
+    )
+
+    # Stateless ingestion mode: when enabled ingestion will perform schema-only
+    # validation and forward raw JSON to Kafka via `publish_raw_bytes()` instead
+    # of performing trip-cache enrichment and stateful validation.
+    stateless_mode: bool = Field(
+        default=False,
+        validation_alias=AliasChoices("INGESTION_STATELESS_MODE", "STATELESS_MODE"),
+        description="When true, forward validated JSON to Kafka without enrichment",
     )
 
     model_config = SettingsConfigDict(

@@ -2,6 +2,8 @@ fastapi[standard]>=0.114.0
 uvicorn>=0.30.6
 psycopg2-binary>=2.9.9
 redis>=5.0.8
+httpx==0.27.0
+python-keycloak==4.0.0
 pydantic-settings>=2.4.0
 python-multipart>=0.0.20
 pytest

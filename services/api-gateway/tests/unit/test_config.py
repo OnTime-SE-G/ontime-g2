@@ -1,14 +1,25 @@
 from app.config import ApiGatewaySettings
 
 
-def test_api_gateway_config_loads_defaults():
+def test_api_gateway_config_loads_defaults(monkeypatch):
+    # Force-set the canonical defaults so this test is isolated from
+    # any docker/.env file or CI environment variable overrides.
+    monkeypatch.setenv("KEYCLOAK_BASE_URL", "http://keycloak:8080")
+    monkeypatch.setenv("KEYCLOAK_REALM", "ontime")
+    monkeypatch.setenv("KEYCLOAK_CLIENT_ID", "ontime-api")
+    monkeypatch.setenv("KEYCLOAK_CLIENT_SECRET", "secret")
+    monkeypatch.setenv("KEYCLOAK_ADMIN_USERNAME", "admin")
+    monkeypatch.setenv("KEYCLOAK_ADMIN_PASSWORD", "admin")
+
     settings = ApiGatewaySettings()
 
     assert settings.service_port == 8000
     assert settings.route_service_url == "http://route-service:8002"
     assert settings.fleet_service_url == "http://fleet-management-service:8003"
     assert settings.redis_url.startswith("redis://")
-    assert settings.auth_service_url == "http://auth-service:8005"
+    assert settings.keycloak_base_url == "http://keycloak:8080"
+    assert settings.keycloak_realm == "ontime"
+    assert settings.keycloak_client_id == "ontime-api"
 
 
 def test_api_gateway_config_prefers_service_specific_env(monkeypatch):

@@ -76,6 +76,34 @@ async def list_drivers():
         return res.json()
 
 
+async def get_driver(driver_id: int):
+    async with httpx.AsyncClient() as client:
+        res = await client.get(f"{FLEET_SERVICE_URL}/api/v1/fleet/drivers/{driver_id}")
+        res.raise_for_status()
+        return res.json()
+
+
+async def get_driver_by_auth_id(auth_user_id: str):
+    async with httpx.AsyncClient() as client:
+        res = await client.get(f"{FLEET_SERVICE_URL}/api/v1/fleet/drivers/by-auth/{auth_user_id}")
+        res.raise_for_status()
+        return res.json()
+
+
+async def update_driver(driver_id: int, driver_data: dict):
+    async with httpx.AsyncClient() as client:
+        res = await client.patch(f"{FLEET_SERVICE_URL}/api/v1/fleet/drivers/{driver_id}", json=driver_data)
+        res.raise_for_status()
+        return res.json()
+
+
+async def deactivate_driver(driver_id: int):
+    async with httpx.AsyncClient() as client:
+        res = await client.patch(f"{FLEET_SERVICE_URL}/api/v1/fleet/drivers/{driver_id}/deactivate")
+        res.raise_for_status()
+        return res.json()
+
+
 async def create_schedule(schedule_data: dict):
     async with httpx.AsyncClient() as client:
         res = await client.post(f"{FLEET_SERVICE_URL}/api/v1/fleet/schedules", json=schedule_data)
@@ -100,9 +128,10 @@ async def generate_planned_trips(target_date: str):
         return res.json()
 
 
-async def get_today_trips():
+async def get_today_trips(target_date: str | None = None):
     async with httpx.AsyncClient() as client:
-        res = await client.get(f"{FLEET_SERVICE_URL}/api/v1/fleet/planned-trips/today")
+        params = {"target_date": target_date} if target_date else {}
+        res = await client.get(f"{FLEET_SERVICE_URL}/api/v1/fleet/planned-trips/today", params=params)
         res.raise_for_status()
         return res.json()
 

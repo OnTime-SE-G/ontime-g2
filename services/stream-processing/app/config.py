@@ -36,7 +36,7 @@ class StreamSettings(BaseSettings):
     kafka_eta_features_topic: str = Field(
         default="transport-eta-features",
         validation_alias=AliasChoices("STREAM_KAFKA_ETA_FEATURES_TOPIC", "KAFKA_ETA_FEATURES_TOPIC"),
-        description="Flink-enriched ETA features topic consumed by ETA Service",
+        description="ETA-enriched GPS topic used by ETA service consumer",
     )
     kafka_lifecycle_topic: str = Field(
         default="trip.lifecycle",

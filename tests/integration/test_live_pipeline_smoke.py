@@ -243,7 +243,7 @@ def create_and_start_trip(route_id: int, unique_suffix: str) -> tuple[str, str]:
         json={
             "route_id": route_id,
             "scheduled_time": "10:00:00",
-            "day_of_week": today.weekday(),
+            "day_of_week": today.isoweekday() % 7,
         },
         timeout=30.0,
     )

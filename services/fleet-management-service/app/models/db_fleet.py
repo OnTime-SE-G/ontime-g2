@@ -17,6 +17,7 @@ class FleetBusORM(Base):
 
     # Static configuration
     capacity: Mapped[int] = mapped_column(Integer, default=50)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="active")
 
     # Assignment (can be null if not assigned yet)
     route_id: Mapped[int] = mapped_column(Integer, nullable=True)
@@ -32,6 +33,11 @@ class DriverORM(Base):
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     license_number: Mapped[str] = mapped_column(String(50), unique=True, nullable=False)
     phone: Mapped[str] = mapped_column(String(20), nullable=True)
+    
+    # Keycloak linkage
+    auth_user_id: Mapped[str] = mapped_column(String(50), unique=True, nullable=True)
+    username: Mapped[str] = mapped_column(String(50), nullable=True)
+    is_active: Mapped[bool] = mapped_column(default=True)
 
     # Relationships
     planned_trips: Mapped[list["PlannedTripORM"]] = relationship(back_populates="driver")
