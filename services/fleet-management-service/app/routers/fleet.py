@@ -4,8 +4,9 @@ from sqlalchemy.orm import Session
 
 from app.database import get_db
 from app.models.db_fleet import FleetBusORM
-from app.schemas.fleet import FleetBusCreate, FleetBusResponse
+from app.schemas.fleet import FleetBusCreate, FleetBusResponse, DeviceConfigCreate
 from app.services.route_service import validate_route_exists
+from app.services.kafka_producer import kafka_service
 
 router = APIRouter(
     prefix="/api/v1/fleet/buses",
@@ -44,6 +45,21 @@ def get_bus(bus_id: int, db: Session = Depends(get_db)):
     if not bus:
         raise HTTPException(status_code=404, detail="Bus not found")
     return bus
+
+
+# Configure bus device
+@router.put("/{bus_id}/config")
+async def configure_bus(bus_id: int, config: DeviceConfigCreate, db: Session = Depends(get_db)):
+    bus = db.query(FleetBusORM).filter(FleetBusORM.id == bus_id).first()
+    if not bus:
+        raise HTTPException(status_code=404, detail="Bus not found")
+
+    config_dict = config.model_dump(exclude_unset=True)
+    if not config_dict:
+        raise HTTPException(status_code=400, detail="No configuration provided")
+
+    await kafka_service.publish_device_config(str(bus.id), config_dict)
+    return {"status": "success", "message": "Configuration queued for delivery"}
 
 
 # Assign bus to route
