@@ -193,6 +193,7 @@ services:
         kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic trip.lifecycle --partitions 1 --replication-factor 1
         kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic transport-telemetry-raw --partitions 1 --replication-factor 1
         kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic transport-telemetry-dlq --partitions 1 --replication-factor 1
+        kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic telemetry-invalid --partitions 1 --replication-factor 1
         kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic transport-telemetry-cleaned --partitions 1 --replication-factor 1
         kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic transport-anomaly-alerts --partitions 1 --replication-factor 1
         kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic transport-eta-features --partitions 1 --replication-factor 1
@@ -258,6 +259,7 @@ services:
       INGESTION_MAX_FUTURE_SKEW_SECONDS: ${INGESTION_MAX_FUTURE_SKEW_SECONDS:-30.0}
       INGESTION_MAX_STALE_AGE_SECONDS: ${INGESTION_MAX_STALE_AGE_SECONDS:-86400.0}
       INGESTION_DUPLICATE_CACHE_SIZE: ${INGESTION_DUPLICATE_CACHE_SIZE:-100}
+      INGESTION_STATELESS_MODE: ${INGESTION_STATELESS_MODE:-true}
     networks:
       - ontime_network
     depends_on:
@@ -294,6 +296,7 @@ services:
       WEBSOCKET_REDIS_URL: ${WEBSOCKET_REDIS_URL:-redis://redis:6379}
       WEBSOCKET_FLEET_CHANNEL: ${WEBSOCKET_FLEET_CHANNEL:-fleet:live}
       WEBSOCKET_ETA_CHANNEL: ${WEBSOCKET_ETA_CHANNEL:-eta:live}
+      WEBSOCKET_ANOMALY_CHANNEL: ${WEBSOCKET_ANOMALY_CHANNEL:-anomaly:live}
     networks:
       - ontime_network
     depends_on:
@@ -314,6 +317,7 @@ services:
       STREAM_KAFKA_BROKER_URL: ${STREAM_KAFKA_BROKER_URL:-broker:29092}
       STREAM_KAFKA_RAW_TOPIC: ${STREAM_KAFKA_RAW_TOPIC:-transport-telemetry-raw}
       STREAM_KAFKA_CLEANED_TOPIC: ${STREAM_KAFKA_CLEANED_TOPIC:-transport-telemetry-cleaned}
+      STREAM_KAFKA_INVALID_TOPIC: ${STREAM_KAFKA_INVALID_TOPIC:-telemetry-invalid}
       STREAM_KAFKA_LIFECYCLE_TOPIC: ${STREAM_KAFKA_LIFECYCLE_TOPIC:-trip.lifecycle}
       STREAM_KAFKA_CONSUMER_GROUP: ${STREAM_KAFKA_CONSUMER_GROUP:-stream-processing-group}
       STREAM_KAFKA_LIFECYCLE_CONSUMER_GROUP: ${STREAM_KAFKA_LIFECYCLE_CONSUMER_GROUP:-stream-processing-lifecycle-group}
@@ -349,6 +353,7 @@ services:
       STREAM_KAFKA_BROKER_URL: ${STREAM_KAFKA_BROKER_URL:-broker:29092}
       STREAM_KAFKA_RAW_TOPIC: ${STREAM_KAFKA_RAW_TOPIC:-transport-telemetry-raw}
       STREAM_KAFKA_CLEANED_TOPIC: ${STREAM_KAFKA_CLEANED_TOPIC:-transport-telemetry-cleaned}
+      STREAM_KAFKA_INVALID_TOPIC: ${STREAM_KAFKA_INVALID_TOPIC:-telemetry-invalid}
       STREAM_KAFKA_LIFECYCLE_TOPIC: ${STREAM_KAFKA_LIFECYCLE_TOPIC:-trip.lifecycle}
       STREAM_KAFKA_CONSUMER_GROUP: ${STREAM_KAFKA_CONSUMER_GROUP:-stream-processing-group}
       STREAM_KAFKA_LIFECYCLE_CONSUMER_GROUP: ${STREAM_KAFKA_LIFECYCLE_CONSUMER_GROUP:-stream-processing-lifecycle-group}
@@ -390,6 +395,7 @@ services:
       STREAM_KAFKA_BROKER_URL: ${STREAM_KAFKA_BROKER_URL:-broker:29092}
       STREAM_KAFKA_RAW_TOPIC: ${STREAM_KAFKA_RAW_TOPIC:-transport-telemetry-raw}
       STREAM_KAFKA_CLEANED_TOPIC: ${STREAM_KAFKA_CLEANED_TOPIC:-transport-telemetry-cleaned}
+      STREAM_KAFKA_INVALID_TOPIC: ${STREAM_KAFKA_INVALID_TOPIC:-telemetry-invalid}
       STREAM_KAFKA_LIFECYCLE_TOPIC: ${STREAM_KAFKA_LIFECYCLE_TOPIC:-trip.lifecycle}
       STREAM_KAFKA_CONSUMER_GROUP: ${STREAM_KAFKA_CONSUMER_GROUP:-stream-processing-group}
       STREAM_KAFKA_LIFECYCLE_CONSUMER_GROUP: ${STREAM_KAFKA_LIFECYCLE_CONSUMER_GROUP:-stream-processing-lifecycle-group}
@@ -450,6 +456,7 @@ services:
       - "8006:8006"
     environment:
       ANOMALY_SERVICE_PORT: ${ANOMALY_SERVICE_PORT:-8006}
+      ANOMALY_DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/anomaly_db
       ANOMALY_KAFKA_BROKER_URL: ${ANOMALY_KAFKA_BROKER_URL:-broker:29092}
       ANOMALY_KAFKA_CLEANED_TOPIC: ${ANOMALY_KAFKA_CLEANED_TOPIC:-transport-telemetry-cleaned}
       ANOMALY_KAFKA_DLQ_TOPIC: ${ANOMALY_KAFKA_DLQ_TOPIC:-transport-telemetry-dlq}
@@ -459,16 +466,26 @@ services:
       ANOMALY_ROUTE_SERVICE_URL: ${ANOMALY_ROUTE_SERVICE_URL:-http://route-service:8002}
       ANOMALY_ROUTE_FETCH_TIMEOUT_SECONDS: ${ANOMALY_ROUTE_FETCH_TIMEOUT_SECONDS:-10.0}
       ANOMALY_ROUTE_REFRESH_INTERVAL_SECONDS: ${ANOMALY_ROUTE_REFRESH_INTERVAL_SECONDS:-300}
+      ANOMALY_REDIS_HOST: ${ANOMALY_REDIS_HOST:-redis}
+      ANOMALY_REDIS_PORT: ${ANOMALY_REDIS_PORT:-6379}
+      ANOMALY_REDIS_LIVE_CHANNEL: ${ANOMALY_REDIS_LIVE_CHANNEL:-anomaly:live}
       ANOMALY_COMMUNICATION_LOSS_CHECK_INTERVAL_SECONDS: ${ANOMALY_COMMUNICATION_LOSS_CHECK_INTERVAL_SECONDS:-60}
       ANOMALY_COMMUNICATION_LOSS_THRESHOLD_SECONDS: ${ANOMALY_COMMUNICATION_LOSS_THRESHOLD_SECONDS:-180}
       ANOMALY_INACTIVE_TRIP_DLQ_THRESHOLD_COUNT: ${ANOMALY_INACTIVE_TRIP_DLQ_THRESHOLD_COUNT:-3}
       ANOMALY_INACTIVE_TRIP_DLQ_WINDOW_SECONDS: ${ANOMALY_INACTIVE_TRIP_DLQ_WINDOW_SECONDS:-60}
       ANOMALY_INACTIVE_TRIP_DLQ_COOLDOWN_SECONDS: ${ANOMALY_INACTIVE_TRIP_DLQ_COOLDOWN_SECONDS:-300}
+      ANOMALY_OFF_ROUTE_DISTANCE_THRESHOLD_M: ${ANOMALY_OFF_ROUTE_DISTANCE_THRESHOLD_M:-50}
+      ANOMALY_OFF_ROUTE_STREAK_WINDOW_SECONDS: ${ANOMALY_OFF_ROUTE_STREAK_WINDOW_SECONDS:-5}
+      ANOMALY_PERSISTENT_OFF_ROUTE_THRESHOLD: ${ANOMALY_PERSISTENT_OFF_ROUTE_THRESHOLD:-3}
     networks:
       - ontime_network
     depends_on:
+      postgres:
+        condition: service_healthy
       kafka-init:
         condition: service_completed_successfully
+      redis:
+        condition: service_healthy
       route-service:
         condition: service_started
 
