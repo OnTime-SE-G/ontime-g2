@@ -45,6 +45,10 @@ class FleetSettings(BaseSettings):
         validation_alias=AliasChoices("FLEET_KAFKA_TRIP_LIFECYCLE_TOPIC", "KAFKA_TRIP_LIFECYCLE_TOPIC"),
         description="Kafka topic where Fleet publishes trip lifecycle events",
     )
+    kafka_device_config_topic: str = Field(
+        default="device.config",
+        validation_alias=AliasChoices("FLEET_KAFKA_DEVICE_CONFIG_TOPIC", "KAFKA_DEVICE_CONFIG_TOPIC"),
+    )
 
     route_service_url: str = Field(
         default="http://route-service:8002",
