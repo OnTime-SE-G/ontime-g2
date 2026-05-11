@@ -30,7 +30,7 @@ except ImportError:  # pragma: no cover - local unit tests without PyFlink
     Types = _Types()
 from app.config import settings
 from app.utils.geo import calculate_route_progress, distance_to_route, get_dist_along_route
-from app.utils.route_client import fetch_geometries_sync, fetch_stops_sync
+from app.utils.route_client import fetch_active_trips_sync, fetch_geometries_sync, fetch_stops_sync
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +68,7 @@ class EnrichmentFunction(KeyedProcessFunction):
         self.route_geometries = {}
         # {routeId: [{id, name, stop_order, lat, lon, dist_along_route}, ...]}
         self.route_stops = {}
+        self.bootstrap_active_trips = {}
 
     def open(self, runtime_context: RuntimeContext):
         # State to store mapping of tripId to routeId for this bus
@@ -115,6 +116,10 @@ class EnrichmentFunction(KeyedProcessFunction):
             self.route_stops[route_id] = enriched_stops
         logger.info(f"Loaded stops for {len(self.route_stops)} routes.")
 
+        logger.info("Fetching active Fleet trips for startup bootstrap...")
+        self.bootstrap_active_trips = fetch_active_trips_sync()
+        logger.info("Loaded %d active Fleet trips.", len(self.bootstrap_active_trips))
+
     def _state_value(self, state):
         return state.value() if state is not None else None
 
@@ -145,12 +150,18 @@ class EnrichmentFunction(KeyedProcessFunction):
                     self._state_update(self.active_trip_id_state, trip_id)
                     self._state_update(self.active_route_id_state, route_id)
                     self._state_update(self.trip_status_state, "ACTIVE")
+                    self.bootstrap_active_trips[str(bus_id)] = {
+                        "tripId": trip_id,
+                        "routeId": route_id,
+                        "trip_status": "ACTIVE",
+                    }
                     logger.info(f"Bus {bus_id} started trip {trip_id} on route {route_id}")
                 elif event_type == "TRIP_ENDED":
                     self.trip_to_route_state.remove(trip_id)
                     self._state_clear(self.active_trip_id_state)
                     self._state_clear(self.active_route_id_state)
                     self._state_update(self.trip_status_state, "INACTIVE")
+                    self.bootstrap_active_trips.pop(str(bus_id), None)
                     logger.info(f"Bus {bus_id} ended trip {trip_id}")
                 return # Don't emit lifecycle events to the cleaned stream
 
@@ -158,7 +169,8 @@ class EnrichmentFunction(KeyedProcessFunction):
             bus_id = data.get("busId")
             active_trip_id = self._state_value(self.active_trip_id_state)
             active_route_id = self._state_value(self.active_route_id_state)
-            trip_id = data.get("tripId") or active_trip_id
+            bootstrap_trip = self.bootstrap_active_trips.get(str(bus_id), {})
+            trip_id = data.get("tripId") or active_trip_id or bootstrap_trip.get("tripId")
             lat = data.get("lat")
             lon = data.get("lon")
             speed = data.get("speed", 0.0)
@@ -175,10 +187,14 @@ class EnrichmentFunction(KeyedProcessFunction):
             self.last_ts_state.update(ts)
 
             # Enrichment: Lookup routeId from tripId
-            route_id = data.get("routeId") or active_route_id
+            route_id = data.get("routeId") or active_route_id or bootstrap_trip.get("routeId")
             if not route_id and trip_id:
                 route_id = self.trip_to_route_state.get(trip_id)
-            trip_status = self._state_value(self.trip_status_state) or ("ACTIVE" if route_id else "INACTIVE")
+            trip_status = (
+                self._state_value(self.trip_status_state)
+                or bootstrap_trip.get("trip_status")
+                or ("ACTIVE" if route_id else "INACTIVE")
+            )
 
             # Enrichment: Progress & Distance
             remaining_dist = 0.0
