@@ -72,6 +72,9 @@ def test_process_payload_writes_snapshot_and_live_event():
     assert snapshot["stopsRemaining"] == 3
     assert snapshot["stopsAhead"][0]["stopId"] == 42
     assert snapshot["stopsAhead"][1]["stopOrder"] == 6
+    assert len(snapshot["stopEtas"]) == 2
+    assert snapshot["stopEtas"][0]["stopId"] == 42
+    assert snapshot["stopEtas"][1]["stopId"] == 43
 
     assert redis_client.calls[1][0] == "publish"
     assert redis_client.calls[1][1] == ETA_LIVE_CHANNEL
@@ -81,6 +84,9 @@ def test_process_payload_writes_snapshot_and_live_event():
     assert live_event["stopId"] == 42
     assert live_event["stopName"] == "Kadawatha Junction"
     assert live_event["model_used"] == "physics"
+    assert len(live_event["stop_etas"]) == 2
+    assert live_event["stop_etas"][0]["stop_id"] == 42
+    assert live_event["stop_etas"][1]["stop_id"] == 43
     assert result["snapshot"]["modelUsed"] == "physics"
 
 
@@ -191,7 +197,7 @@ def test_process_payload_uses_xgboost_when_available(monkeypatch):
     fake_result = SimpleNamespace(eta_seconds=77.0, speed_ms=1.95, clamped=False)
     monkeypatch.setattr(
         "consumer.EtaFeatureConsumer._predict_eta",
-        lambda self, distance_m, speed_ms, stops_remaining, timestamp, model_name=None: (fake_result, "xgboost"),
+        lambda self, distance_m, speed_ms, stops_remaining, timestamp, model_name=None, **kwargs: (fake_result, "xgboost"),
     )
 
     result = consumer.process_payload(make_payload())
@@ -207,13 +213,31 @@ def test_process_payload_falls_back_to_physics_when_xgboost_fails(monkeypatch):
 
     monkeypatch.setattr(
         "consumer.EtaFeatureConsumer._predict_eta",
-        lambda self, distance_m, speed_ms, stops_remaining, timestamp, model_name=None: (SimpleNamespace(eta_seconds=0.0, speed_ms=speed_ms, clamped=False), "physics"),
+        lambda self, distance_m, speed_ms, stops_remaining, timestamp, model_name=None, **kwargs: (SimpleNamespace(eta_seconds=0.0, speed_ms=speed_ms, clamped=False), "physics"),
     )
 
     result = consumer.process_payload(make_payload())
 
     assert result["model_used"] == "physics"
     assert result["live_event"]["model_used"] == "physics"
+
+
+def test_process_payload_uses_sarima_when_available(monkeypatch):
+    redis_client = FakeRedis()
+    consumer = EtaFeatureConsumer(redis_client, default_model="sarima")
+
+    fake_module = SimpleNamespace(
+        forecast_eta_sarima=lambda route_id, stop_id, dt=None: 66.0
+    )
+    monkeypatch.setitem(sys.modules, "models.sarima_eta", fake_module)
+
+    result = consumer.process_payload(make_payload())
+
+    assert result["model_used"] == "sarima"
+    assert result["eta_result"].eta_seconds == pytest.approx(66.0)
+    assert result["snapshot"]["modelUsed"] == "sarima"
+    assert result["live_event"]["model_used"] == "sarima"
+    assert result["live_event"]["stop_etas"][0]["model_used"] == "sarima"
 
 
 def test_process_payload_labels_physics_when_xgboost_artifact_missing(monkeypatch):
