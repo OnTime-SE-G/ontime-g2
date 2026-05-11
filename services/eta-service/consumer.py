@@ -85,7 +85,7 @@ class EtaFeatureConsumer:
         redis_client: Any,
         *,
         kafka_broker_url: str = "broker:29092",
-        topic_name: str = "transport-eta-features",
+        topic_name: str = "gps-cleaned",
         consumer_group_id: str = "eta-service",
         default_model: str = DEFAULT_MODEL_NAME,
         snapshot_ttl_seconds: int = DEFAULT_SNAPSHOT_TTL_SECONDS,
@@ -214,6 +214,18 @@ class EtaFeatureConsumer:
         *,
         model_name: str | None = None,
     ) -> dict[str, Any]:
+        # Off-route guard: skip ETA computation when Flink flags the bus as
+        # off-route.  Defaults to True (on-route) for backward compatibility
+        # with messages from non-Flink sources that omit the field.
+        if not payload.get("onRoute", True):
+            logging.getLogger(__name__).warning(
+                "Skipping ETA for off-route bus %s (trip %s, deviation %.1f m)",
+                payload.get("busId"),
+                payload.get("tripId"),
+                payload.get("routeDeviationMeters", 0.0),
+            )
+            return {"skipped": True, "reason": "off_route"}
+
         event = EtaFeatureMessage.from_payload(payload)
         eta_result, model_used = self._predict_eta(
             event.distance_to_next_stop,
@@ -235,6 +247,22 @@ class EtaFeatureConsumer:
             snapshot_json,
         )
         self.redis_client.publish(self.live_channel, live_event_json)
+
+        # Persist ETA observation to eta_db for SARIMA training data.
+        # Non-blocking best-effort: any failure is logged but never raised
+        # so a DB outage cannot disrupt the real-time ETA pipeline.
+        try:
+            from models import eta_db
+
+            eta_db.insert_record(
+                snapshot_payload,
+                stop_id=event.next_stop_id,
+                off_route=False,
+            )
+        except Exception as _db_exc:
+            logging.getLogger(__name__).error(
+                "eta_db insert failed (non-fatal): %s", _db_exc
+            )
 
         return {
             "snapshot_key": self.snapshot_key(event.trip_id),
