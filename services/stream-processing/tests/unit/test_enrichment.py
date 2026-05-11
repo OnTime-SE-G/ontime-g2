@@ -188,7 +188,7 @@ def test_next_stop_id_is_first_stop_ahead(enrichment_fn_with_stops):
 
 
 def test_distance_to_next_stop_matches_stops_ahead(enrichment_fn_with_stops):
-    """distanceToNextStop should equal stopsAhead[0].distanceFromBus."""
+    """distanceToNextStop should equal stopsAhead[0].distanceAlongRouteMeters."""
     ctx = MagicMock()
     enrichment_fn_with_stops.trip_to_route_state.get.return_value = "R1"
     enrichment_fn_with_stops.last_ts_state.value.return_value = None
@@ -196,8 +196,8 @@ def test_distance_to_next_stop_matches_stops_ahead(enrichment_fn_with_stops):
     results = list(enrichment_fn_with_stops.process_element(_gps(6.3), ctx))
     enriched = json.loads(results[0])
 
-    print(f"\n>>> distanceToNextStop={enriched['distanceToNextStop']}  stopsAhead[0].distanceFromBus={enriched['stopsAhead'][0]['distanceFromBus']}")
-    assert enriched["distanceToNextStop"] == enriched["stopsAhead"][0]["distanceFromBus"]
+    print(f"\n>>> distanceToNextStop={enriched['distanceToNextStop']}  stopsAhead[0].distanceAlongRouteMeters={enriched['stopsAhead'][0]['distanceAlongRouteMeters']}")
+    assert enriched["distanceToNextStop"] == enriched["stopsAhead"][0]["distanceAlongRouteMeters"]
 
 
 def test_stops_ahead_ordered_by_stop_order(enrichment_fn_with_stops):
