@@ -10,7 +10,7 @@
 
 ## Problem Statement
 
-The existing `gps-cleaned` Kafka topic feeds the ETA Service directly from the Flink
+The existing `transport-eta-features` Kafka topic feeds the ETA Service directly from the Flink
 EnrichmentFunction. However:
 
 1. **Flink already detects off-route positions** (via route geometry projection) but discards
@@ -33,7 +33,7 @@ Flink EnrichmentFunction
   └── NEW: expose it as offRoute (bool) + offRouteDistanceM (float) on every enriched message
         ↓
   transport-telemetry-cleaned  (existing consumers unaffected — additive field)
-  gps-cleaned                  (ETA Service consumer)
+  transport-eta-features         (ETA Service consumer)
         ↓
   ┌──────────────────────────────────────────────────┐
   │  Anomaly Service                                 │
@@ -99,7 +99,7 @@ iterated on every message.
 - `offRoute: true` when projection distance > **50 m** (same threshold already used by the
   Anomaly Service `OFF_ROUTE` check — consistency).
 - When `routeId` is `null` (bus not on a trip): `offRoute: false`, `offRouteDistanceM: 0.0`.
-- **Both** `transport-telemetry-cleaned` and `gps-cleaned` carry these fields automatically
+- **Both** `transport-telemetry-cleaned` and `transport-eta-features` carry these fields automatically
   because both sinks consume the same `processed_ds` — no extra sink code needed.
 
 ### Backward compatibility
@@ -257,7 +257,7 @@ def detect_erratic_driving(window, model, settings):
 |------|--------|
 | `docker/init/01-databases.sql` | Add `CREATE DATABASE eta_db;` |
 | `docker/docker-compose.yml` | Add `ETA_DATABASE_URL` env to `eta-service` block |
-| `docker/docker-compose.yml` `kafka-init` | Add `gps-cleaned` Kafka topic (currently missing from init) |
+| `docker/docker-compose.yml` `kafka-init` | Ensure `transport-eta-features` Kafka topic is listed in init |
 
 ### `docker/init/01-databases.sql` addition
 
@@ -449,7 +449,7 @@ Response 200 (no artifact — graceful fallback):
 
 ### Phase 1 — `offRoute` field
 - [ ] `pytest services/stream-processing/tests/unit/test_enrichment.py -v` → all pass (incl. `offRoute` tests)
-- [ ] Enriched message on `gps-cleaned` contains `offRoute`, `offRouteDistanceM`
+- [ ] Enriched message on `transport-eta-features` contains `offRoute`, `offRouteDistanceM`
 
 ### Phase 2 — Anomaly streak
 - [ ] `pytest services/anomaly-service/tests/ -v` → streak tests pass
