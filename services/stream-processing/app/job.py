@@ -83,19 +83,19 @@ def run_telemetry_job():
 
     processed_ds.sink_to(kafka_sink).name("Kafka Cleaned Sink")
 
-    # - Kafka Sink (GPS-enriched stream for ETA Service — new gps-cleaned topic)
-    gps_cleaned_sink = KafkaSink.builder() \
+    # - Kafka Sink (ETA-enriched stream for ETA Service — transport-eta-features topic)
+    eta_features_sink = KafkaSink.builder() \
         .set_bootstrap_servers(settings.kafka_broker_url) \
         .set_record_serializer(
             KafkaRecordSerializationSchema.builder()
-                .set_topic(settings.kafka_gps_cleaned_topic)
+                .set_topic(settings.kafka_eta_features_topic)
                 .set_value_serialization_schema(SimpleStringSchema())
                 .build()
         ) \
         .set_delivery_guarantee(DeliveryGuarantee.AT_LEAST_ONCE) \
         .build()
 
-    processed_ds.sink_to(gps_cleaned_sink).name("Kafka GPS Cleaned Sink")
+    processed_ds.sink_to(eta_features_sink).name("Kafka ETA Features Sink")
 
     logger.info("Starting Flink stream processing job for Increment 1 Phase T2...")
     env.execute("OnTime GPS Telemetry Processing - Phase T2")
