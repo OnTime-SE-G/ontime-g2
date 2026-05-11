@@ -58,6 +58,11 @@ class MQTTSubscriber:
                 self.client.tls_set()
         self.client.connect(settings.mqtt_broker_host, settings.mqtt_broker_port, 60)
 
+    def publish_config(self, bus_id: str, config_string: str):
+        topic = f"transport/bus/{bus_id}/config"
+        logger.info("Publishing config to %s: %s", topic, config_string)
+        self.client.publish(topic, config_string, retain=True)
+
     def start(self):
         logger.info("Starting MQTT subscriber loop...")
         self.client.loop_forever()

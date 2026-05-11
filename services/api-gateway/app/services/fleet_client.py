@@ -76,6 +76,27 @@ async def list_drivers():
         return res.json()
 
 
+async def get_driver(driver_id: int):
+    async with httpx.AsyncClient() as client:
+        res = await client.get(f"{FLEET_SERVICE_URL}/api/v1/fleet/drivers/{driver_id}")
+        res.raise_for_status()
+        return res.json()
+
+
+async def get_driver_by_auth_id(auth_user_id: str):
+    async with httpx.AsyncClient() as client:
+        res = await client.get(f"{FLEET_SERVICE_URL}/api/v1/fleet/drivers/by-auth/{auth_user_id}")
+        res.raise_for_status()
+        return res.json()
+
+
+async def update_driver(driver_id: int, driver_data: dict):
+    async with httpx.AsyncClient() as client:
+        res = await client.patch(f"{FLEET_SERVICE_URL}/api/v1/fleet/drivers/{driver_id}", json=driver_data)
+        res.raise_for_status()
+        return res.json()
+
+
 async def deactivate_driver(driver_id: int):
     async with httpx.AsyncClient() as client:
         res = await client.patch(f"{FLEET_SERVICE_URL}/api/v1/fleet/drivers/{driver_id}/deactivate")
