@@ -114,6 +114,11 @@ class StreamSettings(BaseSettings):
         validation_alias=AliasChoices("STREAM_ROUTE_SERVICE_URL", "ROUTE_SERVICE_URL"),
         description="Private Route Service base URL",
     )
+    fleet_service_url: str = Field(
+        default="http://fleet-management-service:8003",
+        validation_alias=AliasChoices("STREAM_FLEET_SERVICE_URL", "FLEET_SERVICE_URL"),
+        description="Private Fleet Service base URL for active-trip bootstrap",
+    )
     route_deviation_threshold_meters: float = Field(
         default=50.0,
         ge=0.0,
