@@ -18,8 +18,10 @@ def _make_redis_client():
     try:
         import redis
 
-        return redis.Redis(host="redis", port=6379, decode_responses=False)
-    except Exception:
+        from app.config import settings
+
+        return redis.Redis(host=settings.redis_host, port=settings.redis_port, decode_responses=False)
+    except ImportError:
         # Fallback no-op redis-like client for local tests / missing deps
         class _FakeRedis:
             def setex(self, *args, **kwargs):

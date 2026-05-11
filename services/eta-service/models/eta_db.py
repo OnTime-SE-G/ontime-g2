@@ -31,15 +31,28 @@ logger = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Engine — created lazily so import alone never connects to Postgres
 # ---------------------------------------------------------------------------
-_engine = create_engine(
-    settings.eta_database_url,
-    pool_size=5,
-    max_overflow=10,
-    pool_pre_ping=True,
-    future=True,
-)
+_engine = None
+_SessionLocal = None
 
-_SessionLocal = sessionmaker(bind=_engine, autocommit=False, autoflush=False)
+
+def _get_engine():
+    global _engine
+    if _engine is None:
+        _engine = create_engine(
+            settings.eta_database_url,
+            pool_size=5,
+            max_overflow=10,
+            pool_pre_ping=True,
+            future=True,
+        )
+    return _engine
+
+
+def _get_session_factory():
+    global _SessionLocal
+    if _SessionLocal is None:
+        _SessionLocal = sessionmaker(bind=_get_engine(), autocommit=False, autoflush=False)
+    return _SessionLocal
 
 
 # ---------------------------------------------------------------------------
@@ -86,7 +99,7 @@ def init_db() -> None:
     - Indexes for SARIMA training queries and trip look-ups
     - Monthly child partitions for the current and next calendar month
     """
-    with _engine.begin() as conn:
+    with _get_engine().begin() as conn:
         # ---------------------------------------------------------------- #
         # 1. Parent table (partitioned)                                    #
         # ---------------------------------------------------------------- #
@@ -153,7 +166,7 @@ def init_db() -> None:
 @contextmanager
 def get_session() -> Generator[Session, None, None]:
     """Yield a transactional SQLAlchemy Session, rolling back on error."""
-    session: Session = _SessionLocal()
+    session: Session = _get_session_factory()()
     try:
         yield session
         session.commit()
