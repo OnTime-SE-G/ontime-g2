@@ -158,6 +158,47 @@ def test_detect_off_route(model):
     print(f"\n>>> DETECTED {len(alerts)} ALERTS: {alerts}")
     assert any(a["anomalyType"] == "OFF_ROUTE" for a in alerts)
 
+
+def test_detect_off_route_uses_flink_flag_without_geometry(model):
+    telemetry = {
+        "busId": "B1",
+        "tripId": "T1",
+        "routeId": "R1",
+        "lat": 6.91,
+        "lon": 79.85,
+        "speed": 20.0,
+        "timestamp": "2026-05-02T10:00:00Z",
+        "offRoute": True,
+        "offRouteDistanceM": 83.4,
+    }
+
+    alerts = model.detect(telemetry, [])
+
+    assert any(a["anomalyType"] == "OFF_ROUTE" for a in alerts)
+
+
+def test_detect_persistent_off_route_after_streak(model):
+    base = {
+        "busId": "B1",
+        "tripId": "T1",
+        "routeId": "R1",
+        "lat": 6.91,
+        "lon": 79.85,
+        "speed": 20.0,
+        "offRoute": True,
+        "offRouteDistanceM": 83.4,
+    }
+
+    first = model.detect({**base, "timestamp": "2026-05-02T10:00:00Z"}, [])
+    second = model.detect({**base, "timestamp": "2026-05-02T10:00:01Z"}, [])
+    third = model.detect({**base, "timestamp": "2026-05-02T10:00:02Z"}, [])
+
+    assert not any(a["anomalyType"] == "PERSISTENT_OFF_ROUTE" for a in first)
+    assert not any(a["anomalyType"] == "PERSISTENT_OFF_ROUTE" for a in second)
+    persistent = [a for a in third if a["anomalyType"] == "PERSISTENT_OFF_ROUTE"]
+    assert len(persistent) == 1
+    assert persistent[0]["streakCount"] == 3
+
 def test_detect_stationary_bus(model):
     bus_id = "B1"
     route_geom = [(6.9, 79.9), (6.91, 79.91)]

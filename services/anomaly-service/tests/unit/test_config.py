@@ -18,7 +18,14 @@ def test_anomaly_config_loads_defaults():
     assert settings.kafka_dlq_topic == "transport-telemetry-dlq"
     assert settings.kafka_anomaly_topic == "transport-anomaly-alerts"
     assert settings.kafka_cleaned_group_id == "anomaly-service-group"
+    assert settings.anomaly_database_url.endswith("/anomaly_db")
     assert settings.route_service_url == "http://route-service:8002"
+    assert settings.redis_host == "redis"
+    assert settings.redis_port == 6379
+    assert settings.redis_anomaly_live_channel == "anomaly:live"
+    assert settings.off_route_distance_threshold_m == 50.0
+    assert settings.off_route_streak_window_seconds == 5
+    assert settings.persistent_off_route_threshold == 3
 
 
 def test_anomaly_config_accepts_service_specific_env(monkeypatch):
