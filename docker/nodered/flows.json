@@ -1,0 +1,294 @@
+[
+    {
+        "id": "simulation_flow",
+        "type": "tab",
+        "label": "Bus Trip Simulation",
+        "disabled": false,
+        "info": ""
+    },
+    {
+        "id": "trigger_simulation",
+        "type": "inject",
+        "z": "simulation_flow",
+        "name": "Start Trip Simulation",
+        "props": [
+            {
+                "p": "payload"
+            }
+        ],
+        "repeat": "",
+        "crontab": "",
+        "once": false,
+        "onceDelay": 0.1,
+        "topic": "",
+        "payload": "{\"username\":\"driver1\", \"password\":\"password\"}",
+        "payloadType": "json",
+        "x": 150,
+        "y": 80,
+        "wires": [
+            [
+                "get_token"
+            ]
+        ]
+    },
+    {
+        "id": "get_token",
+        "type": "http request",
+        "z": "simulation_flow",
+        "name": "Keycloak Login",
+        "method": "POST",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "http://keycloak:8080/realms/ontime/protocol/openid-connect/token",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 360,
+        "y": 80,
+        "wires": [
+            [
+                "extract_token"
+            ]
+        ]
+    },
+    {
+        "id": "extract_token",
+        "type": "function",
+        "z": "simulation_flow",
+        "name": "Extract Token",
+        "func": "const payload = msg.payload;\nmsg.token = payload.access_token;\nmsg.headers = {\n    'Authorization': 'Bearer ' + msg.token\n};\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 560,
+        "y": 80,
+        "wires": [
+            [
+                "get_profile"
+            ]
+        ]
+    },
+    {
+        "id": "get_profile",
+        "type": "http request",
+        "z": "simulation_flow",
+        "name": "Get Profile",
+        "method": "GET",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "http://api-gateway:8000/api/v1/driver/me",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 750,
+        "y": 80,
+        "wires": [
+            [
+                "get_trips"
+            ]
+        ]
+    },
+    {
+        "id": "get_trips",
+        "type": "function",
+        "z": "simulation_flow",
+        "name": "Prepare Trip Query",
+        "func": "msg.driver_id = msg.payload.id;\nmsg.url = 'http://api-gateway:8000/api/v1/driver/trips/today?driver_id=' + msg.driver_id;\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 170,
+        "y": 160,
+        "wires": [
+            [
+                "fetch_trips"
+            ]
+        ]
+    },
+    {
+        "id": "fetch_trips",
+        "type": "http request",
+        "z": "simulation_flow",
+        "name": "Fetch Trips",
+        "method": "GET",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 370,
+        "y": 160,
+        "wires": [
+            [
+                "select_trip"
+            ]
+        ]
+    },
+    {
+        "id": "select_trip",
+        "type": "function",
+        "z": "simulation_flow",
+        "name": "Select Trip & Start",
+        "func": "const trips = msg.payload;\nif (trips.length === 0) {\n    node.error(\"No trips found for driver\");\n    return null;\n}\n\nconst trip = trips[0];\nmsg.trip_id = trip.id;\nmsg.bus_id = trip.bus_id;\nmsg.route_id = trip.route_id;\n\nmsg.url = 'http://api-gateway:8000/api/v1/driver/trips/' + msg.trip_id + '/start';\nmsg.method = 'POST';\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 590,
+        "y": 160,
+        "wires": [
+            [
+                "start_trip"
+            ]
+        ]
+    },
+    {
+        "id": "start_trip",
+        "type": "http request",
+        "z": "simulation_flow",
+        "name": "Start Trip",
+        "method": "POST",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 780,
+        "y": 160,
+        "wires": [
+            [
+                "get_route_geometry"
+            ]
+        ]
+    },
+    {
+        "id": "get_route_geometry",
+        "type": "function",
+        "z": "simulation_flow",
+        "name": "Prepare Route Query",
+        "func": "msg.url = 'http://route-service:8002/api/v1/routes/' + msg.route_id;\nmsg.method = 'GET';\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 180,
+        "y": 240,
+        "wires": [
+            [
+                "fetch_route"
+            ]
+        ]
+    },
+    {
+        "id": "fetch_route",
+        "type": "http request",
+        "z": "simulation_flow",
+        "name": "Fetch Route",
+        "method": "GET",
+        "ret": "obj",
+        "paytoqs": "ignore",
+        "url": "",
+        "tls": "",
+        "persist": false,
+        "proxy": "",
+        "insecureHTTPParser": false,
+        "authType": "",
+        "senderr": false,
+        "headers": [],
+        "x": 390,
+        "y": 240,
+        "wires": [
+            [
+                "process_geometry"
+            ]
+        ]
+    },
+    {
+        "id": "process_geometry",
+        "type": "function",
+        "z": "simulation_flow",
+        "name": "Stream GPS",
+        "func": "const geojson = msg.payload;\nconst routeFeature = geojson.features.find(f => f.properties.feature_type === 'route');\nif (!routeFeature) {\n    node.error(\"Route geometry not found\");\n    return null;\n}\n\nconst coords = routeFeature.geometry.coordinates;\nconst bus_id = msg.bus_id;\nconst trip_id = msg.trip_id;\n\nlet i = 0;\nconst interval = setInterval(() => {\n    if (i >= coords.length) {\n        clearInterval(interval);\n        node.log(\"Simulation finished for trip \" + trip_id);\n        return;\n    }\n\n    const [lon, lat] = coords[i];\n    const mqttMsg = {\n        topic: 'transport/bus/' + bus_id + '/location',\n        payload: {\n            busId: String(bus_id),\n            tripId: trip_id,\n            lat: lat,\n            lon: lon,\n            speed: 40 + Math.random() * 10,\n            heading: 0, // Simplified\n            timestamp: new Date().toISOString()\n        }\n    };\n    \n    node.send(mqttMsg);\n    i++;\n}, 3000);\n\nreturn null;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 610,
+        "y": 240,
+        "wires": [
+            [
+                "mqtt_out"
+            ]
+        ]
+    },
+    {
+        "id": "mqtt_out",
+        "type": "mqtt out",
+        "z": "simulation_flow",
+        "name": "MQTT Out",
+        "topic": "",
+        "qos": "1",
+        "retain": "",
+        "respTopic": "",
+        "contentType": "",
+        "userProps": "",
+        "correl": "",
+        "expiry": "",
+        "broker": "mqtt_broker_node",
+        "x": 810,
+        "y": 240,
+        "wires": []
+    },
+    {
+        "id": "mqtt_broker_node",
+        "type": "mqtt-broker",
+        "name": "Internal Broker",
+        "broker": "mqtt-broker",
+        "port": "1883",
+        "clientid": "nodered-simulator",
+        "autoConnect": true,
+        "usetls": false,
+        "protocolVersion": "4",
+        "keepalive": "60",
+        "cleansession": true,
+        "birthTopic": "",
+        "birthQos": "0",
+        "birthPayload": "",
+        "birthMsg": {},
+        "closeTopic": "",
+        "closeQos": "0",
+        "closePayload": "",
+        "closeMsg": {},
+        "willTopic": "",
+        "willQos": "0",
+        "willPayload": "",
+        "willMsg": {},
+        "userProps": "",
+        "sessionExpiry": ""
+    }
+]

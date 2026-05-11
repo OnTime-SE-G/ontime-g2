@@ -121,6 +121,29 @@ def test_get_today_trips(client):
     assert trips[0]["status"] == "WAITING_AT_DEPOT"
 
 
+def test_get_today_trips_filtered_by_driver(client):
+    _create_schedule(client)
+    bus = _create_bus(client)
+    driver_a = _create_driver(client, name="Alice", license_no="D-001")
+    driver_b = _create_driver(client, name="Bob", license_no="D-002")
+    
+    today = date.today().isoformat()
+    client.post(f"/api/v1/fleet/planned-trips/generate?target_date={today}")
+    
+    # Get the trip and assign to driver_a
+    trips = client.get("/api/v1/fleet/planned-trips/today").json()
+    trip_id = trips[0]["id"]
+    client.patch(f"/api/v1/fleet/planned-trips/{trip_id}/assign?bus_id={bus['id']}&driver_id={driver_a['id']}")
+    
+    # Filter for driver_a - should find 1 trip
+    r = client.get(f"/api/v1/fleet/planned-trips/today?driver_id={driver_a['id']}")
+    assert len(r.json()) == 1
+    
+    # Filter for driver_b - should find 0 trips
+    r = client.get(f"/api/v1/fleet/planned-trips/today?driver_id={driver_b['id']}")
+    assert len(r.json()) == 0
+
+
 # ── Trip Lifecycle Tests ───────────────────────────────────────────────────────
 
 @patch("app.services.trip_service.kafka_service")

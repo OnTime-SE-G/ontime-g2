@@ -443,6 +443,24 @@ services:
       route-service:
         condition: service_started
 
+  node-red:
+    image: nodered/node-red:latest
+    container_name: ontime_nodered
+    environment:
+      - TZ=Asia/Colombo
+      - NODE_RED_CREDENTIAL_SECRET=ontime_secret
+    ports:
+      - "1880:1880"
+    networks:
+      - ontime_network
+    volumes:
+      - ./nodered:/data
+    depends_on:
+      mqtt-broker:
+        condition: service_healthy
+      api-gateway:
+        condition: service_started
+
 networks:
   ontime_network:
     driver: bridge
@@ -453,3 +471,4 @@ volumes:
   influxdb_config:
   mosquitto_data:
   mosquitto_log:
+  node_red_data:
