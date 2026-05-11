@@ -4,6 +4,7 @@ import math
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Tuple
 
+from app.config import settings
 from .training.feature_extraction import build_summary_vector
 
 logger = logging.getLogger(__name__)
@@ -60,6 +61,7 @@ class AnomalyModel:
         self.version = "rules-v1"
         self.bus_states = {}  # { busId: { last_timestamp, last_telemetry, stationary_start_time } }
         self.inactive_trip_states = {}  # { busId: { timestamps, last_alert_timestamp } }
+        self.off_route_states = {}  # { busId: { count, window_start_ts, alerted } }
         # Isolation Forest model for behavioral anomaly detection (optional).
         self.isolation_model = None
         self.isolation_model_path = None
@@ -97,11 +99,16 @@ class AnomalyModel:
             alerts.append(self._create_alert(bus_id, "INACTIVE_GPS", "GPS received for inactive trip", telemetry))
             return alerts # Stop further checks if inactive
 
-        # 3. Off-route deviation
-        if route_geometry:
-            dist = distance_to_polyline(lat, lon, route_geometry)
-            if dist > 50.0:
-                alerts.append(self._create_alert(bus_id, "OFF_ROUTE", f"Bus deviated by {round(dist)}m from route", telemetry))
+        # 3. Off-route deviation. Prefer Flink's CR1 classification when present,
+        # and fall back to local geometry for backward compatibility.
+        off_route, dist = self._off_route_status(telemetry, route_geometry)
+        if off_route:
+            alerts.append(self._create_alert(bus_id, "OFF_ROUTE", f"Bus deviated by {round(dist)}m from route", telemetry))
+            persistent_alert = self._update_off_route_streak(bus_id, current_time, telemetry, dist)
+            if persistent_alert:
+                alerts.append(persistent_alert)
+        else:
+            self.off_route_states.pop(bus_id, None)
 
         # 4. Stationary Bus (>5 min at <2 km/h)
         state = self.bus_states.get(bus_id, {})
@@ -133,6 +140,68 @@ class AnomalyModel:
             logger.debug("Behavioral anomaly prediction skipped due to missing model or invalid window")
 
         return alerts
+
+    def _off_route_status(
+        self,
+        telemetry: Dict[str, Any],
+        route_geometry: List[Tuple[float, float]],
+    ) -> tuple[bool, float]:
+        if "offRoute" in telemetry:
+            return bool(telemetry["offRoute"]), self._route_deviation_meters(telemetry)
+        if "on_route" in telemetry:
+            return not bool(telemetry["on_route"]), self._route_deviation_meters(telemetry)
+        if "onRoute" in telemetry:
+            return not bool(telemetry["onRoute"]), self._route_deviation_meters(telemetry)
+
+        if not route_geometry:
+            return False, 0.0
+
+        dist = distance_to_polyline(telemetry.get("lat", 0.0), telemetry.get("lon", 0.0), route_geometry)
+        return dist > settings.off_route_distance_threshold_m, dist
+
+    def _route_deviation_meters(self, telemetry: Dict[str, Any]) -> float:
+        for field in ("offRouteDistanceM", "routeDeviationMeters", "route_deviation_meters"):
+            try:
+                return float(telemetry.get(field, 0.0))
+            except (TypeError, ValueError):
+                continue
+        return 0.0
+
+    def _update_off_route_streak(
+        self,
+        bus_id: str,
+        current_time: float,
+        telemetry: Dict[str, Any],
+        distance_m: float,
+    ) -> Dict[str, Any] | None:
+        state = self.off_route_states.get(bus_id)
+        if (
+            state is None
+            or current_time - state["window_start_ts"] > settings.off_route_streak_window_seconds
+        ):
+            state = {"count": 0, "window_start_ts": current_time, "alerted": False}
+
+        state["count"] += 1
+        self.off_route_states[bus_id] = state
+
+        if state["count"] < settings.persistent_off_route_threshold or state["alerted"]:
+            return None
+
+        state["alerted"] = True
+        return self._create_alert(
+            bus_id,
+            "PERSISTENT_OFF_ROUTE",
+            (
+                "Bus remained off-route for "
+                f"{state['count']} readings within {settings.off_route_streak_window_seconds}s"
+            ),
+            telemetry,
+            extra={
+                "streakCount": state["count"],
+                "windowSeconds": settings.off_route_streak_window_seconds,
+                "offRouteDistanceM": round(distance_m, 2),
+            },
+        )
 
     def predict_behavioral_anomaly(self, summary_vector: Dict[str, float]):
         """Return IsolationForest prediction if model available, else None.
@@ -323,9 +392,11 @@ class AnomalyModel:
         source: str | None = None,
         extra: Dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
+        severity = "HIGH" if type in {"OFF_ROUTE", "PERSISTENT_OFF_ROUTE", "UNREALISTIC_SPEED"} else "MEDIUM"
         alert = {
             "busId": bus_id,
             "anomalyType": type,
+            "severity": severity,
             "message": message,
             "tripId": telemetry.get("tripId"),
             "routeId": telemetry.get("routeId"),
