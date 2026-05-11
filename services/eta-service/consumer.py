@@ -11,6 +11,7 @@ import json
 import datetime as dt_module
 import logging
 import threading
+import time
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 
@@ -21,6 +22,63 @@ ETA_SNAPSHOT_KEY_PREFIX = "eta:trip"
 ETA_LIVE_CHANNEL = "eta:live"
 DEFAULT_SNAPSHOT_TTL_SECONDS = 300
 DEFAULT_MODEL_NAME = "xgboost"
+
+_METRICS = {
+    "predictions_total": 0,
+    "skipped_off_route_total": 0,
+    "prediction_latency_seconds_sum": 0.0,
+    "prediction_latency_seconds_count": 0,
+}
+
+
+def _is_off_route_payload(payload: Mapping[str, Any]) -> bool:
+    if "offRoute" in payload:
+        return bool(payload["offRoute"])
+    if "onRoute" in payload:
+        return not bool(payload["onRoute"])
+    if "on_route" in payload:
+        return not bool(payload["on_route"])
+    return False
+
+
+def _route_deviation_meters(payload: Mapping[str, Any]) -> float:
+    for field in ("offRouteDistanceM", "routeDeviationMeters", "route_deviation_meters"):
+        try:
+            return float(payload.get(field, 0.0))
+        except (TypeError, ValueError):
+            continue
+    return 0.0
+
+
+def _is_inactive_trip_payload(payload: Mapping[str, Any]) -> bool:
+    status = payload.get("trip_status", payload.get("tripStatus", "ACTIVE"))
+    return str(status).upper() == "INACTIVE"
+
+
+def render_prometheus_metrics() -> str:
+    """Return Prometheus text exposition for ETA inference counters."""
+    avg_latency = 0.0
+    count = _METRICS["prediction_latency_seconds_count"]
+    if count:
+        avg_latency = _METRICS["prediction_latency_seconds_sum"] / count
+    lines = [
+        "# HELP eta_predictions_total ETA predictions published",
+        "# TYPE eta_predictions_total counter",
+        f"eta_predictions_total {_METRICS['predictions_total']}",
+        "# HELP eta_skipped_off_route_total ETA messages skipped because bus is off-route",
+        "# TYPE eta_skipped_off_route_total counter",
+        f"eta_skipped_off_route_total {_METRICS['skipped_off_route_total']}",
+        "# HELP eta_prediction_latency_seconds_sum Total ETA processing latency in seconds",
+        "# TYPE eta_prediction_latency_seconds_sum counter",
+        f"eta_prediction_latency_seconds_sum {_METRICS['prediction_latency_seconds_sum']:.9f}",
+        "# HELP eta_prediction_latency_seconds_count ETA processing latency sample count",
+        "# TYPE eta_prediction_latency_seconds_count counter",
+        f"eta_prediction_latency_seconds_count {count}",
+        "# HELP eta_prediction_latency_seconds_avg Average ETA processing latency in seconds",
+        "# TYPE eta_prediction_latency_seconds_avg gauge",
+        f"eta_prediction_latency_seconds_avg {avg_latency:.9f}",
+    ]
+    return "\n".join(lines) + "\n"
 
 
 @dataclass(frozen=True)
@@ -191,15 +249,15 @@ class EtaFeatureConsumer:
         selected_model = (model_name or self.default_model).lower().strip()
         if selected_model == "xgboost":
             try:
-                from models.ml_eta_xgb import predict_eta_xgb
+                from models.ml_eta_xgb import predict_eta_xgb_with_fallback
 
-                result = predict_eta_xgb(
+                result, model_used = predict_eta_xgb_with_fallback(
                     distance_m,
                     speed_ms,
                     stops_remaining=stops_remaining,
                     dt=self._parse_timestamp(timestamp),
                 )
-                return result, "xgboost"
+                return result, model_used
             except Exception as exc:
                 logging.getLogger(__name__).warning(
                     "XGBoost ETA unavailable, falling back to physics: %s", exc
@@ -214,18 +272,26 @@ class EtaFeatureConsumer:
         *,
         model_name: str | None = None,
     ) -> dict[str, Any]:
-        # Off-route guard: skip ETA computation when Flink flags the bus as
-        # off-route.  Defaults to True (on-route) for backward compatibility
-        # with messages from non-Flink sources that omit the field.
-        if not payload.get("onRoute", True):
+        # Off-route guard: skip ETA computation when Flink flags the bus as off-route.
+        # Supports the CR1 snake_case field and the newer offRoute additive field.
+        if _is_off_route_payload(payload):
+            _METRICS["skipped_off_route_total"] += 1
             logging.getLogger(__name__).warning(
                 "Skipping ETA for off-route bus %s (trip %s, deviation %.1f m)",
                 payload.get("busId"),
                 payload.get("tripId"),
-                payload.get("routeDeviationMeters", 0.0),
+                _route_deviation_meters(payload),
             )
             return {"skipped": True, "reason": "off_route"}
+        if _is_inactive_trip_payload(payload):
+            logging.getLogger(__name__).warning(
+                "Skipping ETA for inactive trip telemetry from bus %s (trip %s)",
+                payload.get("busId"),
+                payload.get("tripId"),
+            )
+            return {"skipped": True, "reason": "inactive_trip"}
 
+        started = time.perf_counter()
         event = EtaFeatureMessage.from_payload(payload)
         eta_result, model_used = self._predict_eta(
             event.distance_to_next_stop,
@@ -247,6 +313,10 @@ class EtaFeatureConsumer:
             snapshot_json,
         )
         self.redis_client.publish(self.live_channel, live_event_json)
+        elapsed = time.perf_counter() - started
+        _METRICS["predictions_total"] += 1
+        _METRICS["prediction_latency_seconds_sum"] += elapsed
+        _METRICS["prediction_latency_seconds_count"] += 1
 
         # Persist ETA observation to eta_db for SARIMA training data.
         # Non-blocking best-effort: any failure is logged but never raised

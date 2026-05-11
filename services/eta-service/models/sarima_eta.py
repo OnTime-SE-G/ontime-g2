@@ -38,7 +38,8 @@ _ARTIFACT_DIR: str = os.getenv("ETA_SARIMA_ARTIFACT_DIR", "sarima_artifacts")
 def _artifact_path(route_id: str, stop_id: int) -> str:
     """Return the .joblib path for a (route_id, stop_id) pair."""
     filename = f"{route_id}_{stop_id}.joblib"
-    return os.path.join(_ARTIFACT_DIR, filename)
+    artifact_dir = os.getenv("ETA_SARIMA_ARTIFACT_DIR", _ARTIFACT_DIR)
+    return os.path.join(artifact_dir, filename)
 
 
 @lru_cache(maxsize=128)

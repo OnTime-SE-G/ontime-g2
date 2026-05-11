@@ -1,13 +1,15 @@
 from __future__ import annotations
 
 import logging
+import os
 import threading
 from contextlib import asynccontextmanager
 from typing import Optional
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Response
 
-from consumer import EtaFeatureConsumer
+from app.config import settings
+from consumer import EtaFeatureConsumer, render_prometheus_metrics
 from routers.eta import router as eta_router
 
 
@@ -17,8 +19,6 @@ logger = logging.getLogger("eta-service")
 def _make_redis_client():
     try:
         import redis
-
-        from app.config import settings
 
         return redis.Redis(host=settings.redis_host, port=settings.redis_port, decode_responses=False)
     except ImportError:
@@ -33,9 +33,27 @@ def _make_redis_client():
         return _FakeRedis()
 
 
+def _configure_model_paths() -> None:
+    os.environ.setdefault("ETA_SARIMA_ARTIFACT_DIR", settings.sarima_artifact_dir)
+    os.environ.setdefault("ETA_XGB_ARTIFACT_PATH", settings.xgb_artifact_path)
+
+
+def create_eta_consumer(redis_client):
+    return EtaFeatureConsumer(
+        redis_client,
+        kafka_broker_url=settings.kafka_broker_url,
+        topic_name=settings.kafka_topic,
+        consumer_group_id=settings.kafka_consumer_group,
+        default_model=settings.default_model,
+        snapshot_ttl_seconds=settings.eta_snapshot_ttl_seconds,
+        live_channel=settings.eta_live_channel,
+    )
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     stop_event = threading.Event()
+    _configure_model_paths()
     redis_client = _make_redis_client()
 
     # Initialise eta_records schema (idempotent — safe on every startup)
@@ -49,7 +67,7 @@ async def lifespan(app: FastAPI):
         logger.warning("eta_db init failed (non-fatal in dev): %s", exc)
 
     # Create consumer but only start the Kafka loop if kafka-python is installed.
-    consumer = EtaFeatureConsumer(redis_client)
+    consumer = create_eta_consumer(redis_client)
     consumer_thread: Optional[threading.Thread] = None
 
     try:
@@ -81,6 +99,11 @@ app.include_router(eta_router)
 @app.get("/health")
 def health():
     return {"status": "healthy"}
+
+
+@app.get("/metrics")
+def metrics():
+    return Response(render_prometheus_metrics(), media_type="text/plain; version=0.0.4")
 
 
 @app.get("/")

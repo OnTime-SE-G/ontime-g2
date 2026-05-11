@@ -61,15 +61,15 @@ def _predict_eta_from_snapshot(snapshot: dict[str, Any], stop: dict[str, Any], m
 
     if model in {"xgboost", "sarima"}:
         try:
-            from models.ml_eta_xgb import predict_eta_xgb
+            from models.ml_eta_xgb import predict_eta_xgb_with_fallback
 
-            result = predict_eta_xgb(
+            result, model_used = predict_eta_xgb_with_fallback(
                 distance_m,
                 speed_ms,
                 stops_remaining=stops_remaining,
                 dt=timestamp,
             )
-            return result.eta_seconds, "xgboost", result.clamped
+            return result.eta_seconds, model_used, result.clamped
         except Exception:
             pass
 

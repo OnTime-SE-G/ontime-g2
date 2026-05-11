@@ -12,6 +12,8 @@ from pathlib import Path
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+_SERVICE_ROOT = Path(__file__).resolve().parents[1]
+
 try:
     _REPO_ROOT = Path(__file__).resolve().parents[4]
     _ENV_FILES = (
@@ -52,6 +54,11 @@ class EtaSettings(BaseSettings):
         validation_alias=AliasChoices("ETA_KAFKA_CONSUMER_GROUP"),
         description="Kafka consumer group ID",
     )
+    default_model: str = Field(
+        default="xgboost",
+        validation_alias=AliasChoices("ETA_DEFAULT_MODEL"),
+        description="Default realtime ETA model: xgboost or physics",
+    )
 
     # ------------------------------------------------------------------ #
     # Redis                                                                #
@@ -67,6 +74,17 @@ class EtaSettings(BaseSettings):
         le=65535,
         validation_alias=AliasChoices("ETA_REDIS_PORT", "REDIS_PORT"),
         description="Redis port",
+    )
+    eta_live_channel: str = Field(
+        default="eta:live",
+        validation_alias=AliasChoices("ETA_LIVE_CHANNEL"),
+        description="Redis Pub/Sub channel for live ETA events",
+    )
+    eta_snapshot_ttl_seconds: int = Field(
+        default=300,
+        ge=1,
+        validation_alias=AliasChoices("ETA_SNAPSHOT_TTL_SECONDS"),
+        description="TTL for Redis trip ETA snapshots",
     )
 
     # ------------------------------------------------------------------ #
@@ -94,9 +112,14 @@ class EtaSettings(BaseSettings):
         ),
     )
     sarima_artifact_dir: str = Field(
-        default="sarima_artifacts",
+        default=str(_SERVICE_ROOT / "sarima_artifacts"),
         validation_alias=AliasChoices("ETA_SARIMA_ARTIFACT_DIR"),
         description="Directory where train_sarima.py writes .joblib artifacts",
+    )
+    xgb_artifact_path: str = Field(
+        default=str(_SERVICE_ROOT / "models" / "training" / "eta_model_xgb.joblib"),
+        validation_alias=AliasChoices("ETA_XGB_ARTIFACT_PATH"),
+        description="Path to the trained XGBoost ETA .joblib artifact",
     )
 
     # ------------------------------------------------------------------ #
