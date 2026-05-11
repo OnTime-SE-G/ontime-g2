@@ -123,6 +123,7 @@ def test_get_today_trips(client):
 
 def test_get_today_trips_filtered_by_driver(client):
     _create_schedule(client)
+    bus = _create_bus(client)
     driver_a = _create_driver(client, name="Alice", license_no="D-001")
     driver_b = _create_driver(client, name="Bob", license_no="D-002")
     
@@ -132,7 +133,7 @@ def test_get_today_trips_filtered_by_driver(client):
     # Get the trip and assign to driver_a
     trips = client.get("/api/v1/fleet/planned-trips/today").json()
     trip_id = trips[0]["id"]
-    client.patch(f"/api/v1/fleet/planned-trips/{trip_id}/assign?bus_id=1&driver_id={driver_a['id']}")
+    client.patch(f"/api/v1/fleet/planned-trips/{trip_id}/assign?bus_id={bus['id']}&driver_id={driver_a['id']}")
     
     # Filter for driver_a - should find 1 trip
     r = client.get(f"/api/v1/fleet/planned-trips/today?driver_id={driver_a['id']}")
