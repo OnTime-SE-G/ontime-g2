@@ -56,8 +56,10 @@ services:
         kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic trip.lifecycle --partitions 1 --replication-factor 1
         kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic transport-telemetry-raw --partitions 1 --replication-factor 1
         kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic transport-telemetry-dlq --partitions 1 --replication-factor 1
+        kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic telemetry-invalid --partitions 1 --replication-factor 1
         kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic transport-telemetry-cleaned --partitions 1 --replication-factor 1
         kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic transport-anomaly-alerts --partitions 1 --replication-factor 1
+        kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic transport-eta-features --partitions 1 --replication-factor 1
 
   mqtt-broker:
     image: eclipse-mosquitto:2
@@ -133,6 +135,7 @@ services:
       INGESTION_MIN_EVENT_INTERVAL_SECONDS: 1.0
       INGESTION_DUPLICATE_CACHE_SIZE: 100
       INGESTION_TRIP_CACHE_REBUILD_TIMEOUT_SECONDS: 2.0
+      INGESTION_STATELESS_MODE: "true"
     depends_on:
       kafka-init:
         condition: service_completed_successfully
@@ -155,6 +158,7 @@ services:
       WEBSOCKET_REDIS_URL: redis://redis:6379
       WEBSOCKET_FLEET_CHANNEL: fleet:live
       WEBSOCKET_ETA_CHANNEL: eta:live
+      WEBSOCKET_ANOMALY_CHANNEL: anomaly:live
     depends_on:
       redis:
         condition: service_healthy
@@ -178,6 +182,7 @@ services:
       STREAM_KAFKA_BROKER_URL: broker:29092
       STREAM_KAFKA_RAW_TOPIC: transport-telemetry-raw
       STREAM_KAFKA_CLEANED_TOPIC: transport-telemetry-cleaned
+      STREAM_KAFKA_INVALID_TOPIC: telemetry-invalid
       STREAM_KAFKA_LIFECYCLE_TOPIC: trip.lifecycle
       STREAM_ROUTE_SERVICE_URL: http://route-service:8002
       STREAM_REDIS_HOST: redis
@@ -204,6 +209,7 @@ services:
       STREAM_KAFKA_BROKER_URL: broker:29092
       STREAM_KAFKA_RAW_TOPIC: transport-telemetry-raw
       STREAM_KAFKA_CLEANED_TOPIC: transport-telemetry-cleaned
+      STREAM_KAFKA_INVALID_TOPIC: telemetry-invalid
       STREAM_KAFKA_LIFECYCLE_TOPIC: trip.lifecycle
       STREAM_ROUTE_SERVICE_URL: http://route-service:8002
       STREAM_REDIS_HOST: redis
@@ -237,6 +243,7 @@ services:
       STREAM_KAFKA_BROKER_URL: broker:29092
       STREAM_KAFKA_RAW_TOPIC: transport-telemetry-raw
       STREAM_KAFKA_CLEANED_TOPIC: transport-telemetry-cleaned
+      STREAM_KAFKA_INVALID_TOPIC: telemetry-invalid
       STREAM_KAFKA_LIFECYCLE_TOPIC: trip.lifecycle
       STREAM_ROUTE_SERVICE_URL: http://route-service:8002
       STREAM_REDIS_HOST: redis
