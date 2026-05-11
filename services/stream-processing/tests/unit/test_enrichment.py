@@ -1,6 +1,13 @@
 import pytest
 import json
+import sys
+from pathlib import Path
 from unittest.mock import MagicMock
+
+SERVICE_ROOT = Path(__file__).resolve().parents[2]
+if str(SERVICE_ROOT) not in sys.path:
+    sys.path.insert(0, str(SERVICE_ROOT))
+
 from app.transforms.enrichment import EnrichmentFunction
 from app.utils.geo import get_dist_along_route
 
@@ -223,6 +230,65 @@ def test_enriched_message_contains_new_fields(enrichment_fn_with_stops):
     results = list(enrichment_fn_with_stops.process_element(_gps(6.1), ctx))
     enriched = json.loads(results[0])
 
-    for field in ("nextStopId", "distanceToNextStop", "stopsRemaining", "stopsAhead"):
+    for field in (
+        "nextStopId",
+        "distanceToNextStop",
+        "stopsRemaining",
+        "stopsAhead",
+        "on_route",
+        "onRoute",
+        "offRoute",
+        "offRouteDistanceM",
+        "trip_status",
+        "next_stops",
+    ):
         assert field in enriched, f"Missing field: {field}"
     print(f"\n>>> All ETA fields present in enriched message.")
+
+
+def test_enriched_message_flags_off_route(enrichment_fn):
+    ctx = MagicMock()
+    enrichment_fn.trip_to_route_state.get.return_value = "R1"
+    enrichment_fn.last_ts_state.value.return_value = None
+
+    telemetry = json.dumps({
+        "busId": "B1",
+        "tripId": "T1",
+        "lat": 6.5,
+        "lon": 80.01,
+        "speed": 40.0,
+        "timestamp": "2026-05-02T10:00:00Z"
+    })
+
+    results = list(enrichment_fn.process_element(telemetry, ctx))
+    enriched = json.loads(results[0])
+
+    assert enriched["offRoute"] is True
+    assert enriched["on_route"] is False
+    assert enriched["offRouteDistanceM"] > 50.0
+
+
+def test_lifecycle_state_supplies_trip_for_stateless_ingestion(enrichment_fn):
+    ctx = MagicMock()
+    enrichment_fn.active_trip_id_state = MagicMock()
+    enrichment_fn.active_route_id_state = MagicMock()
+    enrichment_fn.trip_status_state = MagicMock()
+    enrichment_fn.active_trip_id_state.value.return_value = "T1"
+    enrichment_fn.active_route_id_state.value.return_value = "R1"
+    enrichment_fn.trip_status_state.value.return_value = "ACTIVE"
+    enrichment_fn.last_ts_state.value.return_value = None
+
+    telemetry = json.dumps({
+        "busId": "B1",
+        "lat": 6.5,
+        "lon": 80.0,
+        "speed": 40.0,
+        "timestamp": "2026-05-02T10:00:00Z"
+    })
+
+    results = list(enrichment_fn.process_element(telemetry, ctx))
+    enriched = json.loads(results[0])
+
+    assert enriched["tripId"] == "T1"
+    assert enriched["routeId"] == "R1"
+    assert enriched["trip_status"] == "ACTIVE"

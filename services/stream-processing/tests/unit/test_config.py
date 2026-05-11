@@ -15,7 +15,9 @@ def test_stream_config_loads_defaults():
     assert settings.kafka_broker_url == "broker:29092"
     assert settings.kafka_raw_topic == "transport-telemetry-raw"
     assert settings.kafka_cleaned_topic == "transport-telemetry-cleaned"
+    assert settings.kafka_invalid_topic == "telemetry-invalid"
     assert settings.kafka_lifecycle_topic == "trip.lifecycle"
+    assert settings.route_deviation_threshold_meters == 50.0
     assert settings.redis_host == "redis"
     assert settings.redis_fleet_live_channel == "fleet:live"
     assert settings.flink_parallelism == 1

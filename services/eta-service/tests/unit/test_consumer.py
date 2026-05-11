@@ -95,6 +95,36 @@ def test_process_payload_clamps_zero_speed_for_eta():
     assert result["eta_result"].eta_seconds == pytest.approx(100.0)
 
 
+def test_process_payload_skips_off_route_field():
+    redis_client = FakeRedis()
+    consumer = EtaFeatureConsumer(redis_client, default_model="physics")
+
+    result = consumer.process_payload(make_payload(offRoute=True, offRouteDistanceM=83.4))
+
+    assert result == {"skipped": True, "reason": "off_route"}
+    assert redis_client.calls == []
+
+
+def test_process_payload_skips_snake_case_on_route_false():
+    redis_client = FakeRedis()
+    consumer = EtaFeatureConsumer(redis_client, default_model="physics")
+
+    result = consumer.process_payload(make_payload(on_route=False, routeDeviationMeters=83.4))
+
+    assert result == {"skipped": True, "reason": "off_route"}
+    assert redis_client.calls == []
+
+
+def test_process_payload_skips_inactive_trip_status():
+    redis_client = FakeRedis()
+    consumer = EtaFeatureConsumer(redis_client, default_model="physics")
+
+    result = consumer.process_payload(make_payload(trip_status="INACTIVE"))
+
+    assert result == {"skipped": True, "reason": "inactive_trip"}
+    assert redis_client.calls == []
+
+
 def test_process_message_decodes_json_bytes():
     redis_client = FakeRedis()
     consumer = EtaFeatureConsumer(redis_client, default_model="physics")
