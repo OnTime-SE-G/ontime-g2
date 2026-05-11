@@ -1,6 +1,7 @@
 import json
 import logging
 import math
+import os
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Tuple
 
@@ -62,15 +63,17 @@ class AnomalyModel:
         self.bus_states = {}  # { busId: { last_timestamp, last_telemetry, stationary_start_time } }
         self.inactive_trip_states = {}  # { busId: { timestamps, last_alert_timestamp } }
         self.off_route_states = {}  # { busId: { count, window_start_ts, alerted } }
+        self.telemetry_windows = {}  # { busId: [recent telemetry dicts] }
         # Isolation Forest model for behavioral anomaly detection (optional).
         self.isolation_model = None
-        self.isolation_model_path = None
+        self.isolation_model_path = settings.isolation_forest_artifact_path
         try:
             # load an optional model artifact if present
             import joblib
-            import os
 
-            candidate = os.path.join(os.path.dirname(__file__), "training", "isolation_forest.joblib")
+            candidate = self.isolation_model_path
+            if not os.path.isabs(candidate):
+                candidate = os.path.abspath(candidate)
             if os.path.exists(candidate):
                 self.isolation_model = joblib.load(candidate)
                 self.isolation_model_path = candidate
@@ -127,19 +130,41 @@ class AnomalyModel:
         self.bus_states[bus_id] = state
 
         # Behavioral anomaly detection via summary-vector -> IsolationForest
+        behavioral_alert = self._detect_behavioral_anomaly(bus_id, telemetry)
+        if behavioral_alert:
+            alerts.append(behavioral_alert)
+
+        return alerts
+
+    def _detect_behavioral_anomaly(
+        self,
+        bus_id: str,
+        telemetry: Dict[str, Any],
+    ) -> Dict[str, Any] | None:
+        window = self.telemetry_windows.setdefault(bus_id, [])
+        window.append(dict(telemetry))
+        max_window_size = max(settings.sliding_window_size, settings.sliding_window_min_size)
+        if len(window) > max_window_size:
+            del window[:-max_window_size]
+
+        if len(window) < settings.sliding_window_min_size:
+            return None
+
         try:
-            window = []
-            last = state.get("last_telemetry")
-            if last:
-                window = [last, telemetry]
-            summary = build_summary_vector(window)
+            summary = build_summary_vector(window[-settings.sliding_window_size:])
             pred = self.predict_behavioral_anomaly(summary)
             if pred is not None and pred == -1:
-                alerts.append(self._create_alert(bus_id, "ERRATIC_DRIVING", "Behavioral anomaly detected", telemetry))
+                return self._create_alert(
+                    bus_id,
+                    "ERRATIC_DRIVING",
+                    "Behavioral anomaly detected",
+                    telemetry,
+                    extra={"features": summary},
+                )
         except Exception:
             logger.debug("Behavioral anomaly prediction skipped due to missing model or invalid window")
 
-        return alerts
+        return None
 
     def _off_route_status(
         self,
@@ -218,6 +243,7 @@ class AnomalyModel:
                 summary_vector.get("speed_variance", 0.0),
                 summary_vector.get("heading_variance", 0.0),
                 summary_vector.get("average_speed", 0.0),
+                summary_vector.get("sample_count", 0.0),
             ]
             pred = self.isolation_model.predict([features])
             return int(pred[0])
