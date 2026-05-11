@@ -43,6 +43,7 @@ class EtaRecord(Base):
     """
 
     __tablename__ = "eta_records"
+    __table_args__ = {"extend_existing": True}
 
     id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
     trip_id: Mapped[str] = mapped_column(Text, nullable=False)
@@ -57,6 +58,7 @@ class EtaRecord(Base):
     off_route: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
     timestamp: Mapped[datetime] = mapped_column(nullable=False)
     recorded_at: Mapped[datetime] = mapped_column(
+        primary_key=True,
         nullable=False,
         default=lambda: datetime.now(timezone.utc),
     )
