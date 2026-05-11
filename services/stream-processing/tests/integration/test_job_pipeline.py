@@ -1,62 +1,151 @@
+import importlib.util
+from pathlib import Path
+import sys
+from unittest.mock import MagicMock, call, patch
+
 import pytest
-from unittest.mock import MagicMock, patch
-from app.job import run_telemetry_job
 
-@patch("app.job.StreamExecutionEnvironment.get_execution_environment")
-@patch("app.job.KafkaSource.builder")
-@patch("app.job.KafkaSink.builder")
-@patch("app.job.KafkaOffsetsInitializer")
-@patch("app.job.KafkaRecordSerializationSchema.builder")
-def test_run_telemetry_job_wiring(mock_schema_builder, mock_offsets, mock_kafka_sink_builder, mock_kafka_source_builder, mock_get_env):
-    """Test that the Flink job wires up the sources, transforms, and sinks correctly."""
 
-    # Setup mocks
+def _load_job_module():
+    module_path = Path(__file__).resolve().parents[2] / "flink" / "job.py"
+    spec = importlib.util.spec_from_file_location("flink_job_cr1_integration", module_path)
+    module = importlib.util.module_from_spec(spec)
+    assert spec is not None and spec.loader is not None
+    sys.modules["flink_job_cr1_integration"] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+class RecordingRedisSink:
+    def __init__(self):
+        self.published = []
+
+    def publish(self, value):
+        self.published.append(value)
+
+
+class RecordingInfluxSink:
+    def __init__(self):
+        self.writes = []
+
+    def write(self, measurement, data):
+        self.writes.append((measurement, data))
+
+
+@pytest.mark.integration
+def test_cleaned_event_is_published_to_redis_and_influx():
+    job = _load_job_module()
+    cache = job.RuntimeCache(routes={"R1": [(6.9, 79.9), (6.91, 79.91)]})
+    redis_sink = RecordingRedisSink()
+    influx_sink = RecordingInfluxSink()
+
+    wrapper = job.classify_event_record(
+        {"busId": "B1", "routeId": "R1", "lat": 7.2, "lon": 79.9, "speed": 25.0},
+        cache,
+    )
+
+    assert wrapper["kind"] == "cleaned"
+    assert wrapper["payload"]["on_route"] is False
+    assert wrapper["payload"]["route_deviation_meters"] > 50.0
+
+    result = job.publish_cleaned_event(wrapper["payload"], redis_sink, influx_sink)
+
+    assert result == wrapper["payload"]
+    assert redis_sink.published == [wrapper["payload"]]
+    assert influx_sink.writes == [("telemetry", wrapper["payload"])]
+
+
+@pytest.mark.integration
+def test_lifecycle_event_updates_cache_before_raw_classification():
+    job = _load_job_module()
+    cache = job.RuntimeCache()
+
+    job.apply_lifecycle_event(
+        {
+            "event": "TRIP_STARTED",
+            "busId": "B1",
+            "tripId": "T1",
+            "routeId": "R1",
+            "timestamp": "2026-05-09T10:00:00Z",
+        },
+        cache,
+    )
+
+    wrapper = job.classify_event_record(
+        {"busId": "B1", "lat": 6.9, "lon": 79.9, "speed": 20.0},
+        cache,
+    )
+
+    assert cache.active_trips["B1"]["tripId"] == "T1"
+    assert wrapper["kind"] == "cleaned"
+    assert wrapper["payload"]["tripId"] == "T1"
+    assert wrapper["payload"]["routeId"] == "R1"
+    assert wrapper["payload"]["trip_status"] == "active"
+
+
+@pytest.mark.integration
+def test_malformed_raw_event_is_classified_invalid():
+    job = _load_job_module()
+
+    wrapper = job.classify_event_record("not-json", job.RuntimeCache())
+
+    assert wrapper["kind"] == "invalid"
+    assert wrapper["payload"]["_invalid_reason"] == "MALFORMED_JSON"
+
+
+@pytest.mark.integration
+def test_main_wires_cleaned_side_effects_and_kafka_sinks():
+    job = _load_job_module()
+
     mock_env = MagicMock()
-    mock_get_env.return_value = mock_env
+    raw_stream = MagicMock()
+    lifecycle_stream = MagicMock()
+    classified_stream = MagicMock()
+    cleaned_stream = MagicMock()
+    invalid_stream = MagicMock()
+    cleaned_sink = MagicMock()
+    invalid_sink = MagicMock()
+    redis_sink = RecordingRedisSink()
+    influx_sink = RecordingInfluxSink()
 
-    mock_source = MagicMock()
-    mock_kafka_source_builder.return_value.set_bootstrap_servers.return_value \
-        .set_topics.return_value.set_group_id.return_value \
-        .set_starting_offsets.return_value.set_value_only_deserializer.return_value \
-        .build.return_value = mock_source
+    job.StreamExecutionEnvironment = MagicMock()
+    job.StreamExecutionEnvironment.get_execution_environment.return_value = mock_env
+    mock_env.add_source.side_effect = [raw_stream, lifecycle_stream]
 
-    mock_offsets.earliest.return_value = MagicMock()
+    raw_stream.name.return_value = raw_stream
+    lifecycle_stream.name.return_value = lifecycle_stream
+    raw_stream.map.return_value = classified_stream
+    classified_stream.name.return_value = classified_stream
+    classified_stream.filter.side_effect = [cleaned_stream, invalid_stream]
+    cleaned_stream.map.return_value = cleaned_stream
+    invalid_stream.map.return_value = invalid_stream
+    cleaned_stream.name.return_value = cleaned_stream
+    invalid_stream.name.return_value = invalid_stream
+    cleaned_stream.sink_to.return_value = cleaned_stream
+    invalid_stream.sink_to.return_value = invalid_stream
 
-    mock_sink = MagicMock()
-    mock_kafka_sink_builder.return_value.set_bootstrap_servers.return_value \
-        .set_record_serializer.return_value.set_delivery_guarantee.return_value \
-        .build.return_value = mock_sink
+    with patch.object(job, "fetch_startup_cache", return_value=job.RuntimeCache()) as mock_cache, \
+        patch.object(job, "build_raw_telemetry_source", return_value=MagicMock()) as mock_raw_source, \
+        patch.object(job, "build_lifecycle_event_source", return_value=MagicMock()) as mock_lifecycle_source, \
+        patch.object(job, "build_cleaned_telemetry_sink", return_value=cleaned_sink) as mock_cleaned_sink, \
+        patch.object(job, "build_invalid_telemetry_sink", return_value=invalid_sink) as mock_invalid_sink, \
+        patch.object(job, "build_redis_live_sink", return_value=redis_sink) as mock_redis_sink, \
+        patch.object(job, "build_influx_history_sink", return_value=influx_sink) as mock_influx_sink:
+        job.main()
 
-    mock_schema_builder.return_value.set_topic.return_value \
-        .set_value_serialization_schema.return_value \
-        .build.return_value = MagicMock()
-
-    mock_ds = MagicMock()
-    mock_env.from_source.return_value = mock_ds
-    mock_ds.union.return_value = mock_ds
-    mock_ds.key_by.return_value = mock_ds
-    mock_ds.process.return_value = mock_ds
-    mock_ds.map.return_value = mock_ds
-
-    # Execute wiring
-    run_telemetry_job()
-
-    # Verify environment setup
-    mock_get_env.assert_called_once()
-    mock_env.set_parallelism.assert_called_with(1)
-
-    # Verify sources are created (one for telemetry, one for lifecycle)
-    assert mock_env.from_source.call_count == 2
-
-    # Verify union and processing
-    mock_ds.union.assert_called()
-    mock_ds.process.assert_called()
-
-    # Verify sinks are added
-    assert mock_ds.map.call_count == 2 # Redis and InfluxDB
-    mock_ds.sink_to.assert_called_with(mock_sink)
-
-    # Verify execution
-    mock_env.execute.assert_called_once()
-
-    print(f"\n>>> PIPELINE WIRED SUCCESSFULLY: Sources={mock_env.from_source.call_count}, Transforms={mock_ds.process.call_count}, Sinks={mock_ds.map.call_count} + KafkaSink")
+    mock_cache.assert_called_once()
+    mock_raw_source.assert_called_once()
+    mock_lifecycle_source.assert_called_once()
+    mock_cleaned_sink.assert_called_once()
+    mock_invalid_sink.assert_called_once()
+    mock_redis_sink.assert_called_once()
+    mock_influx_sink.assert_called_once()
+    mock_env.add_source.assert_has_calls([call(mock_raw_source.return_value), call(mock_lifecycle_source.return_value)])
+    assert raw_stream.map.call_count == 1
+    assert lifecycle_stream.map.call_count == 1
+    assert classified_stream.filter.call_count == 2
+    assert cleaned_stream.map.call_count == 3
+    assert cleaned_stream.sink_to.call_count == 1
+    assert invalid_stream.map.call_count == 2
+    assert invalid_stream.sink_to.call_count == 1
+    mock_env.execute.assert_called_once_with("OnTime CR1 Telemetry Processing")

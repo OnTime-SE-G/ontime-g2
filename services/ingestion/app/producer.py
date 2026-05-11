@@ -93,6 +93,34 @@ class TelemetryProducer:
 
         self.producer.send(topic=self.raw_topic, key=message.bus_id, value=payload)
 
+    def publish_raw_bytes(self, raw_payload: bytes, source_topic: str | None = None):
+        """Publish a raw JSON payload (bytes) directly to the raw telemetry topic.
+
+        This method is intended for a schema-only, stateless ingestion pipeline
+        that forwards validated JSON payloads to Kafka for downstream stateful
+        processing (e.g., Flink).
+        """
+        try:
+            parsed = json.loads(raw_payload.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            # Should not occur for callers that already validated JSON; however
+            # fail-safe by sending to DLQ via publish_to_dlq if necessary.
+            logger.warning("publish_raw_bytes received non-json payload")
+            return
+
+        # Normalize timestamp to ISO string when present
+        ts = parsed.get("timestamp")
+        if ts is not None:
+            parsed["timestamp"] = _parse_event_timestamp(ts) or parsed["timestamp"]
+
+        # Use busId or bus_id as Kafka key when available
+        bus_id = parsed.get("busId") or parsed.get("bus_id")
+        key = str(bus_id) if bus_id is not None else None
+        try:
+            self.producer.send(topic=self.raw_topic, key=key, value=parsed)
+        except Exception:
+            logger.exception("Failed to send raw payload to %s", self.raw_topic)
+
     def publish_to_dlq(
         self,
         raw_payload: bytes,

@@ -30,18 +30,15 @@ from sqlalchemy.orm import sessionmaker
 from app.main import app
 from app.database import get_db
 from app.models.base import Base
+from app.models.db_fleet import FleetBusORM, DriverORM, ScheduleORM, PlannedTripORM, TripIncidentORM
 
 # Use test DB
-TEST_DATABASE_URL = os.getenv(
-    "TEST_DATABASE_URL",
-    f"postgresql://{os.getenv('POSTGRES_USER', 'postgres')}:"
-    f"{os.getenv('POSTGRES_PASSWORD', 'postgres')}@"
-    f"{os.getenv('POSTGRES_HOST', 'postgres')}:"
-    f"{os.getenv('POSTGRES_PORT', '5432')}/"
-    f"{os.getenv('POSTGRES_DB_TEST', 'ontime_test_db')}"
-)
+TEST_DATABASE_URL = os.getenv("TEST_DATABASE_URL", "sqlite:///test.db")
 
-engine = create_engine(TEST_DATABASE_URL)
+if TEST_DATABASE_URL.startswith("sqlite"):
+    engine = create_engine(TEST_DATABASE_URL, connect_args={"check_same_thread": False})
+else:
+    engine = create_engine(TEST_DATABASE_URL)
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 

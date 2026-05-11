@@ -1,7 +1,6 @@
 import logging
 import json
 from collections import deque
-
 import paho.mqtt.client as mqtt
 
 from schemas.gps import GPSLocationMessage, GPSMessage
@@ -25,7 +24,7 @@ class MQTTSubscriber:
             raise ValueError("TelemetryProducer is required for MQTTSubscriber")
 
         self.producer = producer
-        self.trip_cache = trip_cache or ActiveTripCache()
+        self.trip_cache = trip_cache
         self.validator = StatefulValidator()
         self.startup_buffer = deque(maxlen=settings.startup_buffer_max_messages)
         self.messages_received = 0
@@ -106,7 +105,7 @@ class MQTTSubscriber:
         self.messages_received += 1
         metrics.increment_received()
 
-        if self.trip_cache.is_ready:
+        if self.trip_cache is not None and self.trip_cache.is_ready:
             self.drain_startup_buffer()
 
         if self._is_heartbeat_topic(msg.topic):
@@ -118,18 +117,21 @@ class MQTTSubscriber:
     def _is_heartbeat_topic(self, topic: str) -> bool:
         return topic.endswith("/heartbeat")
 
-    def drain_startup_buffer(self):
-        while self.trip_cache.is_ready and self.startup_buffer:
-            raw_payload, source_topic = self.startup_buffer.popleft()
-            self._process_payload(raw_payload, source_topic)
-
     def _process_payload(self, raw_payload: bytes, source_topic: str):
         location_result = validate_gps_location_payload(raw_payload)
         if not location_result.success or not location_result.location:
             self._reject(raw_payload, source_topic, location_result)
             return
 
-        if settings.require_active_trip and self.trip_cache.is_rebuilding:
+        # If stateless mode is enabled, forward the validated raw JSON payload
+        # directly to Kafka and skip enrichment / stateful validation.
+        if settings.stateless_mode:
+            self.messages_validated += 1
+            metrics.increment_validated()
+            self.producer.publish_raw_bytes(raw_payload, source_topic)
+            return
+
+        if self.trip_cache is not None and self.trip_cache.is_rebuilding:
             self._buffer_until_trip_cache_ready(raw_payload, source_topic)
             return
 
@@ -173,6 +175,11 @@ class MQTTSubscriber:
             result.error_reason or "Unknown Error",
         )
 
+    def drain_startup_buffer(self):
+        while self.trip_cache is not None and self.trip_cache.is_ready and self.startup_buffer:
+            raw_payload, source_topic = self.startup_buffer.popleft()
+            self._process_payload(raw_payload, source_topic)
+
     def _buffer_until_trip_cache_ready(self, raw_payload: bytes, source_topic: str):
         if len(self.startup_buffer) == self.startup_buffer.maxlen:
             self._reject(
@@ -190,7 +197,7 @@ class MQTTSubscriber:
 
     def _enrich_location(self, location: GPSLocationMessage) -> GPSMessage | None:
         active_trip: ActiveTripInfo | None = None
-        if settings.require_active_trip:
+        if settings.require_active_trip and self.trip_cache is not None:
             active_trip = self.trip_cache.get_active_trip(location.bus_id)
             if active_trip is None:
                 return None

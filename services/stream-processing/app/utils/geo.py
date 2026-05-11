@@ -68,3 +68,43 @@ def calculate_route_progress(lat: float, lon: float, points: List[Tuple[float, f
     progress_pct = (dist_along_path / total_distance) * 100
 
     return max(0.0, remaining_distance), min(100.0, max(0.0, progress_pct))
+
+
+def get_dist_along_route(lat: float, lon: float, points: List[Tuple[float, float]]) -> float:
+    """
+    Return the distance (metres) from the start of the route to the closest projected
+    point on the route geometry — i.e. how far along the route a position lies.
+    Uses the same projection logic as calculate_route_progress.
+    """
+    if not points or len(points) < 2:
+        return 0.0
+
+    min_dist = float('inf')
+    dist_along_path = 0.0
+    accumulated_dist = 0.0
+
+    for i in range(len(points) - 1):
+        p1 = points[i]
+        p2 = points[i + 1]
+
+        seg_len = haversine_distance(p1[0], p1[1], p2[0], p2[1])
+        if seg_len == 0:
+            continue
+
+        d1 = haversine_distance(lat, lon, p1[0], p1[1])
+        d2 = haversine_distance(lat, lon, p2[0], p2[1])
+
+        t = (d1 ** 2 + seg_len ** 2 - d2 ** 2) / (2 * seg_len ** 2)
+        t = max(0.0, min(1.0, t))
+
+        proj_lat = p1[0] + t * (p2[0] - p1[0])
+        proj_lon = p1[1] + t * (p2[1] - p1[1])
+        d_seg = haversine_distance(lat, lon, proj_lat, proj_lon)
+
+        if d_seg < min_dist:
+            min_dist = d_seg
+            dist_along_path = accumulated_dist + (t * seg_len)
+
+        accumulated_dist += seg_len
+
+    return dist_along_path

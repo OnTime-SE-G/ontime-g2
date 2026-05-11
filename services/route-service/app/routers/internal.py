@@ -4,7 +4,7 @@ from sqlalchemy import func
 import json
 
 from app.database import get_db
-from app.models.db_route import RouteORM
+from app.models.db_route import RouteORM, StopORM, RouteStopLinkORM
 
 router = APIRouter(
     prefix="/internal/routes",
@@ -35,3 +35,36 @@ def get_all_route_geometries(db: Session = Depends(get_db)):
         })
 
     return results
+
+
+@router.get("/{routeId}/stops")
+def get_route_stops(routeId: int, db: Session = Depends(get_db)):
+    """
+    Return all stops for a route ordered by stop_order.
+    Used by Flink at startup to cache stop sequences for stopsAhead computation.
+    Response: [{id, name, stop_order, lat, lon}, ...]
+    """
+    rows = (
+        db.query(
+            RouteStopLinkORM.stop_order,
+            StopORM.id,
+            StopORM.name,
+            func.ST_Y(StopORM.location).label("lat"),
+            func.ST_X(StopORM.location).label("lon"),
+        )
+        .join(StopORM, RouteStopLinkORM.stop_id == StopORM.id)
+        .filter(RouteStopLinkORM.route_id == routeId)
+        .order_by(RouteStopLinkORM.stop_order)
+        .all()
+    )
+
+    return [
+        {
+            "id": row.id,
+            "name": row.name,
+            "stop_order": row.stop_order,
+            "lat": float(row.lat) if row.lat is not None else None,
+            "lon": float(row.lon) if row.lon is not None else None,
+        }
+        for row in rows
+    ]

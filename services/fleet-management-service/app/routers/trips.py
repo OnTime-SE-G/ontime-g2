@@ -116,10 +116,10 @@ def get_planned_trips(
     return query.all()
 
 @router.get("/planned-trips/today", response_model=List[PlannedTripResponse])
-def get_today_trips(driver_id: int | None = None, db: Session = Depends(get_db)):
-    today = date.today()
-    query = db.query(PlannedTripORM).filter(PlannedTripORM.date == today)
-    if driver_id:
+def get_today_trips(target_date: date | None = None, driver_id: int | None = None, db: Session = Depends(get_db)):
+    query_date = target_date or date.today()
+    query = db.query(PlannedTripORM).filter(PlannedTripORM.date == query_date)
+    if driver_id is not None:
         query = query.filter(PlannedTripORM.driver_id == driver_id)
     return query.all()
 

@@ -472,3 +472,4 @@ volumes:
   influxdb_config:
   mosquitto_data:
   mosquitto_log:
+  node_red_data:

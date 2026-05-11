@@ -1,6 +1,6 @@
 import httpx
 import logging
-from typing import Dict, List, Tuple
+from typing import Dict, List, Tuple, Any
 from app.config import settings
 
 logger = logging.getLogger(__name__)
@@ -67,3 +67,33 @@ def fetch_geometries_sync():
     import asyncio
     client = RouteClient()
     return asyncio.run(client.get_all_route_geometries())
+
+
+def fetch_stops_sync(route_id: str) -> List[Dict]:
+    """
+    Synchronously fetch all stops for a single route from the Route Service.
+    Returns [{id, name, stop_order, lat, lon}, ...] ordered by stop_order.
+    Used by EnrichmentFunction.open() to preload stop data for stopsAhead computation.
+    """
+    import asyncio
+
+    async def _fetch():
+        async with httpx.AsyncClient() as client:
+            try:
+                response = await client.get(
+                    f"{settings.route_service_url}/internal/routes/{route_id}/stops",
+                    timeout=10.0,
+                )
+                if response.status_code == 200:
+                    return response.json()
+                logger.warning("fetch_stops_sync: route %s returned %s", route_id, response.status_code)
+                return []
+            except Exception as exc:
+                logger.error("fetch_stops_sync: request failed for route %s: %s", route_id, exc)
+                return []
+
+    try:
+        return asyncio.run(_fetch())
+    except Exception as exc:
+        logger.error("fetch_stops_sync: asyncio.run failed for route %s: %s", route_id, exc)
+        return []
