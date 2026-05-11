@@ -146,16 +146,17 @@ class EnrichmentFunction(KeyedProcessFunction):
                     bus_dist_along = get_dist_along_route(lat, lon, geom)
                     for stop in route_stops:  # already sorted by stop_order
                         if stop["dist_along_route"] >= bus_dist_along:
-                            dist_from_bus = haversine_distance(lat, lon, stop["lat"], stop["lon"])
+                            dist_along_from_bus = stop["dist_along_route"] - bus_dist_along
                             stops_ahead.append({
                                 "stopId": stop["id"],
                                 "stopName": stop["name"],
-                                "distanceFromBus": round(dist_from_bus, 2),
+                                "stopOrder": stop["stop_order"],
+                                "distanceAlongRouteMeters": round(dist_along_from_bus, 2),
                             })
                     if stops_ahead:
                         stops_remaining = len(stops_ahead)
                         next_stop_id = stops_ahead[0]["stopId"]
-                        distance_to_next_stop = stops_ahead[0]["distanceFromBus"]
+                        distance_to_next_stop = stops_ahead[0]["distanceAlongRouteMeters"]
 
             enriched = {
                 **data,
