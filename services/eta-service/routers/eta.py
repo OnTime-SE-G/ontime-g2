@@ -21,8 +21,10 @@ def _get_redis_client():
     try:
         import redis
 
-        return redis.Redis(host="redis", port=6379)
-    except Exception:
+        from app.config import settings
+
+        return redis.Redis(host=settings.redis_host, port=settings.redis_port)
+    except ImportError:
         class _FakeRedis:
             def get(self, *args, **kwargs):
                 return None
@@ -45,7 +47,19 @@ def _predict_eta_from_snapshot(snapshot: dict[str, Any], stop: dict[str, Any], m
     stops_remaining = int(snapshot.get("stopsRemaining", 1))
     timestamp = _parse_timestamp(snapshot.get("timestamp"))
 
-    if model == "xgboost":
+    if model == "sarima":
+        try:
+            from models.sarima_eta import forecast_eta_sarima
+
+            route_id = str(snapshot.get("routeId", ""))
+            sarima_result = forecast_eta_sarima(route_id, int(stop.get("stopId")), timestamp)
+            if sarima_result is not None:
+                return sarima_result, "sarima", False
+        except Exception:
+            pass
+        # Fall through to xgboost when no SARIMA artifact is available
+
+    if model in {"xgboost", "sarima"}:
         try:
             from models.ml_eta_xgb import predict_eta_xgb
 
@@ -83,7 +97,7 @@ def get_eta(trip_id: str, stop_id: int, model: str = Query("physics")):
           "timestamp": "2026-05-05T01:00:00Z"
         }
     """
-    if model not in {"physics", "xgboost"}:
+    if model not in {"physics", "xgboost", "sarima"}:
         raise HTTPException(status_code=400, detail=f"Unsupported model '{model}'")
 
     redis_client = _get_redis_client()

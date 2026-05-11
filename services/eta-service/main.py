@@ -18,8 +18,10 @@ def _make_redis_client():
     try:
         import redis
 
-        return redis.Redis(host="redis", port=6379, decode_responses=False)
-    except Exception:
+        from app.config import settings
+
+        return redis.Redis(host=settings.redis_host, port=settings.redis_port, decode_responses=False)
+    except ImportError:
         # Fallback no-op redis-like client for local tests / missing deps
         class _FakeRedis:
             def setex(self, *args, **kwargs):
@@ -35,6 +37,16 @@ def _make_redis_client():
 async def lifespan(app: FastAPI):
     stop_event = threading.Event()
     redis_client = _make_redis_client()
+
+    # Initialise eta_records schema (idempotent — safe on every startup)
+    try:
+        from models.eta_db import init_db
+
+        init_db()
+        logger.info("eta_db schema initialised")
+    except Exception as exc:
+        # Non-fatal in dev/CI environments without a Postgres instance
+        logger.warning("eta_db init failed (non-fatal in dev): %s", exc)
 
     # Create consumer but only start the Kafka loop if kafka-python is installed.
     consumer = EtaFeatureConsumer(redis_client)
@@ -64,6 +76,11 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="ETA Service", version="0.1.0", description="ETA computation service", lifespan=lifespan)
 
 app.include_router(eta_router)
+
+
+@app.get("/health")
+def health():
+    return {"status": "healthy"}
 
 
 @app.get("/")
