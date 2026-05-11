@@ -18,6 +18,12 @@ class FleetBusResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class DeviceConfigCreate(BaseModel):
+    location_interval: int | None = Field(default=None, ge=1000, le=60000)
+    heartbeat_interval: int | None = Field(default=None, ge=10000, le=300000)
+    new_bus_id: str | None = Field(default=None, min_length=1, max_length=15)
+
+
 class DriverBase(BaseModel):
     name: str
     license_number: str

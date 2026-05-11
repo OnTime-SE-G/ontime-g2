@@ -3,6 +3,21 @@
 #include <PubSubClient.h>
 #include <SoftwareSerial.h>
 #include <TinyGPS++.h>
+#include <EEPROM.h>
+
+const int ADDR_CONFIG = 0;
+
+struct DeviceConfig {
+  char busId[16];
+  unsigned long locationIntervalMs;
+  unsigned long heartbeatIntervalMs;
+};
+
+DeviceConfig config = {
+  "1",      // Default Bus ID
+  5000,     // Default Location Interval
+  30000     // Default Heartbeat Interval
+};
 
 // OnTime G1 -> G2 contract:
 // - GPS device sends busId and event-time GPS only.
@@ -28,15 +43,13 @@ const char MQTT_USERNAME[] = "";
 const char MQTT_PASSWORD[] = "";
 
 // Device identity config
-const char BUS_ID[] = "1";
-const char CLIENT_ID[] = "ontime-g1-bus-1";
-const char DEVICE_ID[] = "GPS-1";
-const char FIRMWARE_VERSION[] = "g1-0.1.0";
-const unsigned long LOCATION_INTERVAL_MS = 5000;
-const unsigned long HEARTBEAT_INTERVAL_MS = 30000;
+const char DEVICE_ID[] = "GPS-1";         // Hardcoded physical hardware ID
+const char FIRMWARE_VERSION[] = "g1-0.1.0"; // Hardcoded firmware version
 
+char clientId[32]; // Generated from DEVICE_ID
 char locationTopic[96];
 char heartbeatTopic[96];
+char configTopic[96];
 
 SoftwareSerial gsmSerial(3, 2);  // GSM RX=3, TX=2
 SoftwareSerial gpsSerial(5, 4);  // GPS RX=5, TX=4
@@ -121,10 +134,10 @@ void connectGSM() {
 
 bool mqttConnectOnce() {
   if (strlen(MQTT_USERNAME) > 0) {
-    return mqtt.connect(CLIENT_ID, MQTT_USERNAME, MQTT_PASSWORD);
+    return mqtt.connect(clientId, MQTT_USERNAME, MQTT_PASSWORD);
   }
 
-  return mqtt.connect(CLIENT_ID);
+  return mqtt.connect(clientId);
 }
 
 void connectMQTT() {
@@ -138,15 +151,18 @@ void connectMQTT() {
   }
 
   Serial.println(" connected!");
+  mqtt.subscribe(configTopic);
+  Serial.print("Subscribed to ");
+  Serial.println(configTopic);
 }
 
-void publishHeartbeatIfDue() {
+void publishHeartbeatIfDue(bool force = false) {
   unsigned long now = millis();
-  if (lastHeartbeatAt != 0 && now - lastHeartbeatAt < HEARTBEAT_INTERVAL_MS) {
+  if (!force && lastHeartbeatAt != 0 && now - lastHeartbeatAt < config.heartbeatIntervalMs) {
     return;
   }
 
-  if (!timestampValid) {
+  if (!timestampValid && !force) {
     Serial.println("Heartbeat skipped: waiting for valid GPS date/time...");
     return;
   }
@@ -167,15 +183,17 @@ void publishHeartbeatIfDue() {
       "\"gpsFix\":%s,"
       "\"satellites\":%lu,"
       "\"signalQuality\":%d,"
-      "\"firmwareVersion\":\"%s\""
+      "\"firmwareVersion\":\"%s\","
+      "\"current_interval\":%lu"
     "}",
-    BUS_ID,
+    config.busId,
     DEVICE_ID,
     timestampIso,
     gpsFixed ? "true" : "false",
     gps.satellites.value(),
     signalQuality,
-    FIRMWARE_VERSION
+    FIRMWARE_VERSION,
+    config.locationIntervalMs
   );
 
   if (mqtt.publish(heartbeatTopic, heartbeatPayload, true)) {
@@ -188,28 +206,99 @@ void publishHeartbeatIfDue() {
   }
 }
 
+void mqttCallback(char* topic, byte* payload, unsigned int length) {
+  String message = "";
+  for (unsigned int i = 0; i < length; i++) {
+    message += (char)payload[i];
+  }
+  
+  Serial.print("Received MQTT Config: ");
+  Serial.println(message);
+
+  // Expecting format "B:2,I:10000,H:60000"
+  // For simplicity on Nano, we check for presence of tags
+  bool updated = false;
+  
+  int iIndex = message.indexOf("I:");
+  if (iIndex != -1) {
+    unsigned long newLoc = message.substring(iIndex + 2).toInt();
+    if (newLoc >= 1000 && newLoc <= 60000) {
+      config.locationIntervalMs = newLoc;
+      updated = true;
+    }
+  }
+
+  int hIndex = message.indexOf("H:");
+  if (hIndex != -1) {
+    unsigned long newHb = message.substring(hIndex + 2).toInt();
+    if (newHb >= 10000 && newHb <= 300000) {
+      config.heartbeatIntervalMs = newHb;
+      updated = true;
+    }
+  }
+
+  int bIndex = message.indexOf("B:");
+  if (bIndex != -1) {
+    int commaIndex = message.indexOf(",", bIndex);
+    String newBus = (commaIndex == -1) ? message.substring(bIndex + 2) : message.substring(bIndex + 2, commaIndex);
+    if (newBus.length() > 0 && newBus.length() < 16) {
+      newBus.toCharArray(config.busId, 16);
+      updated = true;
+    }
+  }
+
+  if (updated) {
+    EEPROM.put(ADDR_CONFIG, config);
+    Serial.println("Config Applied & Saved to EEPROM!");
+    publishHeartbeatIfDue(true);
+  }
+}
+
 void setup() {
   Serial.begin(9600);
   gsmSerial.begin(9600);
   gpsSerial.begin(9600);
 
+  // Load config from EEPROM
+  DeviceConfig tempConfig;
+  EEPROM.get(ADDR_CONFIG, tempConfig);
+  
+  // Basic validation to ensure EEPROM isn't empty/corrupted (uninitialized EEPROM is 0xFF)
+  if (tempConfig.locationIntervalMs >= 1000 && tempConfig.locationIntervalMs <= 60000) {
+    config = tempConfig;
+  } else {
+    // Save defaults on first boot
+    EEPROM.put(ADDR_CONFIG, config);
+  }
+
+  // Generate unique Client ID from hardware Device ID
+  snprintf(clientId, sizeof(clientId), "ontime-g1-%s", DEVICE_ID);
+
   snprintf(
     locationTopic,
     sizeof(locationTopic),
     "transport/bus/%s/location",
-    BUS_ID
+    config.busId
   );
   snprintf(
     heartbeatTopic,
     sizeof(heartbeatTopic),
     "transport/bus/%s/heartbeat",
-    BUS_ID
+    config.busId
+  );
+  snprintf(
+    configTopic,
+    sizeof(configTopic),
+    "transport/bus/%s/config",
+    config.busId
   );
 
   Serial.print("OnTime GPS topic: ");
   Serial.println(locationTopic);
   Serial.print("OnTime heartbeat topic: ");
   Serial.println(heartbeatTopic);
+
+  mqtt.setCallback(mqttCallback);
 
   connectGSM();
   connectMQTT();
@@ -228,13 +317,13 @@ void loop() {
   if (!gpsFixed) {
     Serial.print("Waiting for GPS fix... satellites: ");
     Serial.println(gps.satellites.value());
-    delay(LOCATION_INTERVAL_MS);
+    delay(config.locationIntervalMs);
     return;
   }
 
   if (!timestampValid) {
     Serial.println("Waiting for valid GPS date/time...");
-    delay(LOCATION_INTERVAL_MS);
+    delay(config.locationIntervalMs);
     return;
   }
 
@@ -256,7 +345,7 @@ void loop() {
       "\"heading\":%s,"
       "\"timestamp\":\"%s\""
     "}",
-    BUS_ID,
+    config.busId,
     latStr,
     lonStr,
     speedStr,
@@ -272,5 +361,5 @@ void loop() {
     connectMQTT();
   }
 
-  delay(LOCATION_INTERVAL_MS);
+  delay(config.locationIntervalMs);
 }
