@@ -56,6 +56,28 @@ class AnomalySettings(BaseSettings):
         validation_alias=AliasChoices("ANOMALY_KAFKA_DLQ_GROUP_ID", "KAFKA_DLQ_GROUP_ID"),
         description="Kafka consumer group for DLQ alerts",
     )
+    anomaly_database_url: str = Field(
+        default="postgresql://postgres:postgres@localhost:5432/anomaly_db",
+        validation_alias=AliasChoices("ANOMALY_DATABASE_URL"),
+        description="SQLAlchemy connection string for anomaly_db",
+    )
+    redis_host: str = Field(
+        default="redis",
+        validation_alias=AliasChoices("ANOMALY_REDIS_HOST", "REDIS_HOST"),
+        description="Redis host for anomaly live Pub/Sub",
+    )
+    redis_port: int = Field(
+        default=6379,
+        ge=1,
+        le=65535,
+        validation_alias=AliasChoices("ANOMALY_REDIS_PORT", "REDIS_PORT"),
+        description="Redis port for anomaly live Pub/Sub",
+    )
+    redis_anomaly_live_channel: str = Field(
+        default="anomaly:live",
+        validation_alias=AliasChoices("ANOMALY_REDIS_LIVE_CHANNEL", "ANOMALY_LIVE_CHANNEL"),
+        description="Redis Pub/Sub channel for anomaly alerts",
+    )
     route_service_url: str = Field(
         default="http://route-service:8002",
         validation_alias=AliasChoices("ANOMALY_ROUTE_SERVICE_URL", "ROUTE_SERVICE_URL"),
@@ -117,6 +139,33 @@ class AnomalySettings(BaseSettings):
             "INACTIVE_TRIP_DLQ_COOLDOWN_SECONDS",
         ),
         description="Cooldown after emitting inactive-trip DLQ alert",
+    )
+    off_route_distance_threshold_m: float = Field(
+        default=50.0,
+        ge=0.0,
+        validation_alias=AliasChoices(
+            "ANOMALY_OFF_ROUTE_DISTANCE_THRESHOLD_M",
+            "OFF_ROUTE_DISTANCE_THRESHOLD_M",
+        ),
+        description="Distance from route polyline before a bus is considered off-route",
+    )
+    off_route_streak_window_seconds: int = Field(
+        default=5,
+        ge=1,
+        validation_alias=AliasChoices(
+            "ANOMALY_OFF_ROUTE_STREAK_WINDOW_SECONDS",
+            "OFF_ROUTE_STREAK_WINDOW_SECONDS",
+        ),
+        description="Time window for consecutive off-route readings",
+    )
+    persistent_off_route_threshold: int = Field(
+        default=3,
+        ge=1,
+        validation_alias=AliasChoices(
+            "ANOMALY_PERSISTENT_OFF_ROUTE_THRESHOLD",
+            "PERSISTENT_OFF_ROUTE_THRESHOLD",
+        ),
+        description="Readings in the streak window before PERSISTENT_OFF_ROUTE is emitted",
     )
 
     model_config = SettingsConfigDict(
