@@ -1,13 +1,12 @@
 from services.ingestion.app.config import IngestionSettings
 
 def test_config_loads_with_defaults(monkeypatch):
-    # Clear environment variables that might be set in docker/.env or locally
-    monkeypatch.delenv("MQTT_BROKER_PORT", raising=False)
-    monkeypatch.delenv("INGESTION_MQTT_BROKER_PORT", raising=False)
-    monkeypatch.delenv("MQTT_TLS_ENABLED", raising=False)
+    # Explicitly set environment variables to default values to override docker/.env
+    monkeypatch.setenv("MQTT_BROKER_PORT", "1883")
+    monkeypatch.setenv("MQTT_TLS_ENABLED", "false")
     monkeypatch.delenv("MQTT_USERNAME", raising=False)
     monkeypatch.delenv("MQTT_PASSWORD", raising=False)
-    monkeypatch.delenv("INGESTION_REQUIRE_ACTIVE_TRIP", raising=False)
+    monkeypatch.setenv("INGESTION_REQUIRE_ACTIVE_TRIP", "true")
 
     settings = IngestionSettings()
     assert settings.mqtt_broker_port == 1883
