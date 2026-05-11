@@ -35,6 +35,7 @@ def test_main_starts_producer_subscriber_and_health_server(isolated_main_state, 
     thread_factory = MagicMock(return_value=mock_health_thread)
 
     monkeypatch.setattr(main_module.signal, "signal", MagicMock())
+    monkeypatch.setattr(main_module.settings, "stateless_mode", False)
     monkeypatch.setattr(main_module, "TelemetryProducer", producer_factory)
     monkeypatch.setattr(main_module, "ActiveTripCache", trip_cache_factory)
     monkeypatch.setattr(main_module, "TripLifecycleConsumer", trip_consumer_factory)
@@ -57,6 +58,38 @@ def test_main_starts_producer_subscriber_and_health_server(isolated_main_state, 
     mock_health_thread.start.assert_called_once_with()
     mock_subscriber.start.assert_called_once_with()
     assert isolated_main_state.kafka_broker_up is True
+
+
+def test_main_stateless_mode_skips_trip_cache_consumer(isolated_main_state, monkeypatch):
+    mock_producer = MagicMock()
+    mock_subscriber = MagicMock()
+    mock_config_consumer = MagicMock()
+    mock_health_thread = MagicMock()
+
+    producer_factory = MagicMock(return_value=mock_producer)
+    subscriber_factory = MagicMock(return_value=mock_subscriber)
+    trip_cache_factory = MagicMock()
+    trip_consumer_factory = MagicMock()
+    config_consumer_factory = MagicMock(return_value=mock_config_consumer)
+    thread_factory = MagicMock(return_value=mock_health_thread)
+
+    monkeypatch.setattr(main_module.signal, "signal", MagicMock())
+    monkeypatch.setattr(main_module.settings, "stateless_mode", True)
+    monkeypatch.setattr(main_module, "TelemetryProducer", producer_factory)
+    monkeypatch.setattr(main_module, "ActiveTripCache", trip_cache_factory)
+    monkeypatch.setattr(main_module, "TripLifecycleConsumer", trip_consumer_factory)
+    monkeypatch.setattr(main_module, "DeviceConfigConsumer", config_consumer_factory)
+    monkeypatch.setattr(main_module, "MQTTSubscriber", subscriber_factory)
+    monkeypatch.setattr(main_module.threading, "Thread", thread_factory)
+
+    with patch("builtins.print"):
+        main_module.main()
+
+    trip_cache_factory.assert_not_called()
+    trip_consumer_factory.assert_not_called()
+    subscriber_factory.assert_called_once_with(mock_producer, trip_cache=None)
+    mock_subscriber.connect.assert_called_once_with()
+    mock_subscriber.start.assert_called_once_with()
 
 
 def test_main_runs_in_degraded_mode_when_producer_fails(isolated_main_state, monkeypatch):
@@ -96,6 +129,7 @@ def test_main_runs_in_degraded_mode_when_mqtt_startup_fails(isolated_main_state,
     mock_event.wait.side_effect = RuntimeError("stop waiting")
 
     monkeypatch.setattr(main_module.signal, "signal", MagicMock())
+    monkeypatch.setattr(main_module.settings, "stateless_mode", False)
     monkeypatch.setattr(main_module, "TelemetryProducer", MagicMock(return_value=mock_producer))
     monkeypatch.setattr(main_module, "ActiveTripCache", MagicMock(return_value=mock_trip_cache))
     monkeypatch.setattr(
