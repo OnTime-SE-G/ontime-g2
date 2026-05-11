@@ -390,8 +390,8 @@ services:
 
   eta-service:
     build:
-      context: ../services/eta-service
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: services/eta-service/Dockerfile
     container_name: ontime_eta_service
     ports:
       - "8005:8005"
