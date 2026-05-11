@@ -13,7 +13,7 @@ logger = logging.getLogger(__name__)
 
 async def generate_daily_trips(db: Session, target_date: date):
     """Generate PlannedTrip records from Schedules for a specific date."""
-    day_of_week = target_date.weekday()
+    day_of_week = target_date.isoweekday() % 7  # Sun=0, Mon=1, ..., Sat=6 (matches JS convention)
     
     # Check if trips already exist for this date
     existing = db.query(PlannedTripORM).filter(PlannedTripORM.date == target_date).first()
