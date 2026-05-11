@@ -33,6 +33,11 @@ class StreamSettings(BaseSettings):
         validation_alias=AliasChoices("STREAM_KAFKA_CLEANED_TOPIC", "KAFKA_CLEANED_TOPIC"),
         description="Cleaned/enriched GPS topic",
     )
+    kafka_eta_features_topic: str = Field(
+        default="transport-eta-features",
+        validation_alias=AliasChoices("STREAM_KAFKA_ETA_FEATURES_TOPIC", "KAFKA_ETA_FEATURES_TOPIC"),
+        description="ETA-enriched GPS topic used by ETA service consumer",
+    )
     kafka_lifecycle_topic: str = Field(
         default="trip.lifecycle",
         validation_alias=AliasChoices("STREAM_KAFKA_LIFECYCLE_TOPIC", "KAFKA_LIFECYCLE_TOPIC"),

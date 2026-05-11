@@ -1,8 +1,10 @@
+import json
 import logging
 import math
-from typing import List, Tuple, Dict, Any
 from datetime import datetime, timezone
-import json
+from typing import Any, Dict, List, Tuple
+
+from .training.feature_extraction import build_summary_vector
 
 logger = logging.getLogger(__name__)
 
@@ -58,6 +60,22 @@ class AnomalyModel:
         self.version = "rules-v1"
         self.bus_states = {}  # { busId: { last_timestamp, last_telemetry, stationary_start_time } }
         self.inactive_trip_states = {}  # { busId: { timestamps, last_alert_timestamp } }
+        # Isolation Forest model for behavioral anomaly detection (optional).
+        self.isolation_model = None
+        self.isolation_model_path = None
+        try:
+            # load an optional model artifact if present
+            import joblib
+            import os
+
+            candidate = os.path.join(os.path.dirname(__file__), "training", "isolation_forest.joblib")
+            if os.path.exists(candidate):
+                self.isolation_model = joblib.load(candidate)
+                self.isolation_model_path = candidate
+                logger.info("Loaded isolation forest model from %s", candidate)
+        except Exception:
+            # model not available in this environment; continue with rule-based checks
+            logger.debug("No isolation forest model loaded (optional)")
 
     def detect(self, telemetry: Dict[str, Any], route_geometry: List[Tuple[float, float]]) -> List[Dict[str, Any]]:
         alerts = []
@@ -101,7 +119,42 @@ class AnomalyModel:
         state["communication_loss_alerted"] = False
         self.bus_states[bus_id] = state
 
+        # Behavioral anomaly detection via summary-vector -> IsolationForest
+        try:
+            window = []
+            last = state.get("last_telemetry")
+            if last:
+                window = [last, telemetry]
+            summary = build_summary_vector(window)
+            pred = self.predict_behavioral_anomaly(summary)
+            if pred is not None and pred == -1:
+                alerts.append(self._create_alert(bus_id, "ERRATIC_DRIVING", "Behavioral anomaly detected", telemetry))
+        except Exception:
+            logger.debug("Behavioral anomaly prediction skipped due to missing model or invalid window")
+
         return alerts
+
+    def predict_behavioral_anomaly(self, summary_vector: Dict[str, float]):
+        """Return IsolationForest prediction if model available, else None.
+
+        The IsolationForest convention: -1 => anomaly, 1 => normal.
+        """
+        if self.isolation_model is None:
+            return None
+        try:
+            # model expects a 2D array-like
+            features = [
+                summary_vector.get("max_acceleration", 0.0),
+                summary_vector.get("min_acceleration", 0.0),
+                summary_vector.get("speed_variance", 0.0),
+                summary_vector.get("heading_variance", 0.0),
+                summary_vector.get("average_speed", 0.0),
+            ]
+            pred = self.isolation_model.predict([features])
+            return int(pred[0])
+        except Exception:
+            logger.exception("Isolation forest prediction failed")
+            return None
 
     def detect_inactive_trip_dlq(
         self,
