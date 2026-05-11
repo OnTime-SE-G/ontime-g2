@@ -4,11 +4,16 @@ from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-REPO_ROOT = Path(__file__).resolve().parents[3]
-ENV_FILES = (
-    str(REPO_ROOT / "docker" / ".env"),
-    str(REPO_ROOT / "docker" / ".env.example"),
-)
+try:
+    REPO_ROOT = Path(__file__).resolve().parents[3]
+    ENV_FILES = (
+        str(REPO_ROOT / "docker" / ".env"),
+        str(REPO_ROOT / "docker" / ".env.example"),
+    )
+except (IndexError, ValueError):
+    # Fallback for Docker or unusual structures
+    REPO_ROOT = Path(__file__).resolve().parents[1]
+    ENV_FILES = ()
 
 
 class IngestionSettings(BaseSettings):
@@ -93,6 +98,22 @@ class IngestionSettings(BaseSettings):
             "TRIP_CACHE_CONSUMER_GROUP",
         ),
         description="Kafka consumer group for ingestion active trip cache",
+    )
+    kafka_device_config_topic: str = Field(
+        default="device.config",
+        validation_alias=AliasChoices(
+            "INGESTION_KAFKA_DEVICE_CONFIG_TOPIC",
+            "KAFKA_DEVICE_CONFIG_TOPIC",
+        ),
+        description="Kafka topic for incoming device configurations",
+    )
+    device_config_consumer_group: str = Field(
+        default="ingestion-device-config",
+        validation_alias=AliasChoices(
+            "INGESTION_DEVICE_CONFIG_CONSUMER_GROUP",
+            "DEVICE_CONFIG_CONSUMER_GROUP",
+        ),
+        description="Kafka consumer group for device configs",
     )
     require_active_trip: bool = Field(
         default=True,

@@ -1,387 +1,274 @@
-<div align="center">
-  <br/>
-  <a href="https://github.com/OnTime-SE-G/ontime-g2">
-    <img src="docs/assets/OnTime_logo_v_1.jpg" alt="OnTime Logo" width="180" style="border-radius: 20px;" />
-  </a>
-  <br/><br/>
+# OnTime G2 - Data, Intelligence, and Live Transport Backend
 
-  <h1>OnTime — Public Transport Real-Time Tracking & ETA Prediction</h1>
+OnTime is a real-time public transport platform. This repository contains the
+Group 2 backend services: ingestion, route/fleet data services, stream
+processing, anomaly detection, live WebSocket push, and planned ETA/Auth
+integration contracts.
 
-  <p>
-    <strong>Group G — SE3080 / SE3070 Software Engineering Project</strong><br/>
-    University of Moratuwa · April 2026
-  </p>
+## Group Boundaries
 
-  <p>
-    <img src="https://img.shields.io/badge/status-active-brightgreen" alt="Status" />
-    <img src="https://img.shields.io/badge/version-0.1.0--dev-blue" alt="Version" />
-    <img src="https://img.shields.io/badge/architecture-microservices-purple" alt="Architecture" />
-    <img src="https://img.shields.io/badge/license-academic-orange" alt="License" />
-  </p>
-</div>
+| Group | Owns | Interface With G2 |
+|---|---|---|
+| G1 | bus device firmware and GPS publisher | MQTT GPS + heartbeat topics |
+| G2 | data services, stream processing, ETA/anomaly logic | this repo |
+| G3 | passenger, driver, and admin UI | REST + WebSocket through G4/Kong |
+| G4 | Kubernetes, Kong, auth, monitoring, deployment | Docker images, probes, metrics, env/secrets |
 
----
+Important: Kafka, Redis, PostgreSQL, InfluxDB, and most service-to-service HTTP
+calls are internal G2 data-plane contracts. G4 needs them for deployment and
+provisioning, but G3 should not call them directly.
 
-## 📖 Overview
-
-**OnTime** is a real-time public transport intelligence platform for Sri Lanka. It tracks live bus positions, predicts arrival times using ML models, and provides passengers and drivers with the information they need, when they need it.
-
-The system is built as a **distributed microservices architecture** processing GPS streams (every 3–5 seconds per bus) through Apache Kafka, running ML-based ETA predictions, and exposing data through REST APIs and WebSocket feeds.
-
-### The Problem
-
-Commuters at intermediate bus halts across Sri Lanka have **zero reliable information** about approaching buses. They over-wait, miss buses, or make uninformed decisions daily. Drivers operate without pacing feedback or trip lifecycle management.
-
-### The Solution
-
-OnTime's first release focuses on two core user roles:
-
-| Role | Platform | Core Value |
-|------|----------|------------|
-| **Passenger** | Mobile (React Native) | Live map with bus positions, ETA on tap, route search |
-| **Bus Driver** | Mobile (React Native) | Trip state management (Start/End trip), target times, issue reporting |
-
-> **Note:** Scheduler/Dispatcher functionality is planned for a future release. For the first release, buses operate on a fixed timetable and scheduling is handled manually.
-
----
-
-## Current G2 Increment 1 Architecture
-
-The diagram below is the current G2 service/data-flow contract for Increment 1.
-G1 owns the bus GPS device, G3 owns passenger/driver UI, and G4 owns the
-external platform gateway, auth, deployment, and monitoring layer. G2 owns the
-data services, stream processing, ETA/anomaly logic, and internal APIs.
+## Current Architecture
 
 ```mermaid
 flowchart LR
-  G1["G1 bus GPS device / simulator"] -->|"MQTT: transport/bus/{busId}/location"| MQTT["MQTT broker"]
-  G1 -->|"MQTT: transport/bus/{busId}/heartbeat"| MQTT
+  G1["G1 Bus Device"] -->|"MQTT transport/bus/{busId}/location"| MQTT["MQTT Broker"]
+  G1 -->|"MQTT transport/bus/{busId}/heartbeat"| MQTT
 
-  G3["G3 passenger + driver UI"] -->|"REST / WebSocket"| G4["G4 Kong gateway + auth"]
-  G4 -->|"proxied G2 APIs"| APIGW["G2 API Gateway"]
-  G4 -->|"health, readiness, metrics"| MON["G4 monitoring / deployment"]
+  G3["G3 UI"] -->|"REST + WebSocket"| KONG["G4 Kong + Auth"]
+  KONG -->|"REST /api/v1/*"| APIGW["G2 API Gateway"]
+  KONG -->|"WS /v1/live"| WS["WebSocket Service"]
+  G4MON["G4 Prometheus / K8s"] -->|"/health, /ready, /metrics"| OPS["G2 service probes"]
+
+  APIGW --> ROUTE["Route Service"]
+  APIGW --> FLEET["Fleet Management Service"]
+  APIGW --> REDIS["Redis"]
+  APIGW -.-> ETA["ETA Service planned"]
+  APIGW -.-> AUTH["Auth Wrapper Contract planned"]
+
+  ROUTE --> PG["PostgreSQL / PostGIS"]
+  FLEET --> PG
+  FLEET -->|"Kafka trip.lifecycle"| KAFKA["Kafka / AutoMQ-compatible Broker"]
 
   MQTT --> ING["Ingestion Service"]
-  FLEET["Fleet Management Service"] -->|"Kafka: trip.lifecycle"| KAFKA["Kafka / AutoMQ"]
   KAFKA -->|"trip.lifecycle"| ING
-  ING -->|"valid active GPS: transport-telemetry-raw"| KAFKA
-  ING -->|"invalid GPS: transport-telemetry-dlq"| KAFKA
+  ING -->|"transport-telemetry-raw"| KAFKA
+  ING -->|"transport-telemetry-dlq"| KAFKA
 
-  KAFKA -->|"transport-telemetry-raw + trip.lifecycle"| FLINK["Stream Processing / PyFlink"]
-  ROUTE["Route Service"] -->|"GET /internal/routes/geometry"| FLINK
-  FLINK -->|"Kafka: transport-telemetry-cleaned"| KAFKA
-  FLINK -->|"Redis key bus:{busId}:position"| REDIS["Redis"]
-  FLINK -->|"Redis Pub/Sub: fleet:live"| REDIS
-  FLINK -->|"historical gps_readings"| INFLUX["InfluxDB"]
+  KAFKA -->|"raw GPS + lifecycle"| FLINK["PyFlink Stream Processing"]
+  ROUTE -->|"/internal/routes/geometry"| FLINK
+  FLINK -->|"transport-telemetry-cleaned"| KAFKA
+  FLINK -->|"bus:{busId}:position"| REDIS
+  FLINK -->|"fleet:live"| REDIS
+  FLINK -->|"gps_readings"| INFLUX["InfluxDB"]
 
-  KAFKA -->|"transport-telemetry-cleaned"| ETA["ETA Service"]
-  ETA -->|"Redis Pub/Sub: eta:live"| REDIS
-  ETA -->|"ETA predictions/history"| INFLUX
+  KAFKA -->|"transport-telemetry-cleaned + dlq"| ANOM["Anomaly Service"]
+  ROUTE -->|"/internal/routes/geometry"| ANOM
+  ANOM -->|"transport-anomaly-alerts"| KAFKA
 
-  KAFKA -->|"transport-telemetry-cleaned"| ANOM["Anomaly Service"]
-  ROUTE -->|"GET /internal/routes/geometry"| ANOM
-  ANOM -->|"Kafka: transport-anomaly-alerts"| KAFKA
+  KAFKA -.-> ETA
+  ETA -.-> REDIS
+  ETA -.-> INFLUX
 
-  APIGW -->|"route APIs"| ROUTE
-  APIGW -->|"fleet + driver trip APIs"| FLEET
-  APIGW -->|"ETA APIs"| ETA
-  APIGW -->|"live map snapshot + deltas"| REDIS
-  APIGW -->|"anomaly alerts"| KAFKA
-
-  ROUTE -->|"route_db schema"| PG["PostgreSQL / PostGIS"]
-  FLEET -->|"fleet_db"| PG
-  ETA -->|"eta_db / model metadata"| PG
-  ANOM -->|"anomaly_db / alert state"| PG
+  REDIS -->|"fleet:live + eta:live"| WS
 ```
 
-### Main Data Contracts
+## Deployable Services
 
-| Boundary | Interface | Producer / Owner | Consumer |
-|----------|-----------|------------------|----------|
-| Bus GPS -> G2 | MQTT `transport/bus/{busId}/location` | G1 | Ingestion |
-| Device health -> G2 | MQTT `transport/bus/{busId}/heartbeat` | G1 | Ingestion metrics |
-| Trip lifecycle | Kafka `trip.lifecycle` | Fleet Management | Ingestion, Flink |
-| Accepted GPS | Kafka `transport-telemetry-raw` | Ingestion | Flink |
-| Rejected GPS | Kafka `transport-telemetry-dlq` | Ingestion | Debug, monitoring, anomaly tooling |
-| Enriched GPS | Kafka `transport-telemetry-cleaned` | Flink | ETA, Anomaly |
-| Live bus updates | Redis Pub/Sub `fleet:live` | Flink | API Gateway WebSocket |
-| Latest bus snapshot | Redis key `bus:{busId}:position` | Flink | API Gateway |
-| ETA updates | Redis Pub/Sub `eta:live` | ETA Service | API Gateway WebSocket |
-| Anomaly alerts | Kafka `transport-anomaly-alerts` | Anomaly Service | API Gateway, admin, monitoring |
+| Service | Folder | Port | Public? | Notes |
+|---|---|---:|---|---|
+| API Gateway | `services/api-gateway` | `8000` | yes, through Kong | G3 REST facade |
+| WebSocket Service | `services/websocket-service` | `8004` | yes, through Kong | `WS /v1/live` |
+| Route Service | `services/route-service` | `8002` | no direct public access | route/stop/PostGIS owner |
+| Fleet Management Service | `services/fleet-management-service` | `8003` | no direct public access | buses, drivers, schedules, trips |
+| Ingestion Service | `services/ingestion` | `8001` | no direct public access | MQTT to Kafka boundary |
+| Stream Processing | `services/stream-processing` | Flink UI `8081` | no | PyFlink job |
+| Anomaly Service | `services/anomaly-service` | `8006` | no direct public access | Kafka alert worker |
+| ETA Service | `services/eta-service` | planned `8007` | through API Gateway later | planned |
+| Auth Wrapper | `services/auth-service` | planned `8005` | through Kong/Auth | temporary contract only |
 
-### External API Surface
+## Public API Surface For G3
 
-G3 mobile/web clients call G2 through G4's gateway and auth layer. G2's API
-Gateway then calls private G2 services over HTTP or reads live state from Redis.
+G3 should call these through G4 Kong. Kong applies auth/RBAC before forwarding to
+G2.
 
-| Purpose | API shape |
-|---------|-----------|
-| Route list/search/detail | `GET /api/v1/routes`, `/api/v1/routes/search`, `/api/v1/routes/{routeId}`, `/api/v1/routes/{routeId}/stops` |
-| Fleet/bus lookup | `GET /api/v1/fleet/buses`, `/api/v1/fleet/buses/route/{routeId}` |
-| Driver trip lifecycle | `POST /api/v1/driver/start-trip`, `POST /api/v1/driver/end-trip` |
-| ETA reads | `GET /api/v1/eta/routes/{routeId}`, `GET /api/v1/eta/buses/{busId}` |
-| Live map | WebSocket live feed backed by Redis `fleet:live` and `eta:live` |
-| Operations | `/health`, `/health/live`, `/health/ready`, `/metrics` on each G2 service |
+### Passenger / Public Current Scope
 
----
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/v1/status` | API Gateway status |
+| `GET` | `/api/v1/routes` | list routes |
+| `GET` | `/api/v1/routes/search` | search routes |
+| `GET` | `/api/v1/routes/{route_id}` | route detail |
+| `GET` | `/api/v1/routes/{route_id}/transit-data` | route aggregate |
+| `GET` | `/api/v1/routes/all-transit-data` | all transit aggregate |
+| `GET` | `/api/v1/routes/{route_id}/stops` | stops on route |
+| `GET` | `/api/v1/routes/{route_id}/buses` | buses on route |
+| `GET` | `/api/v1/routes/{route_id}/progress` | progress for a GPS point |
+| `GET` | `/api/v1/stops` | all stops |
+| `GET` | `/api/v1/stops/nearby` | nearby stops |
+| `GET` | `/api/v1/stops/{stop_id}/routes` | routes serving stop |
+| `GET` | `/api/v1/buses/live` | latest live bus snapshots |
+| `GET` | `/api/v1/buses/route/{route_id}` | buses on route |
+| `GET` | `/api/v1/buses/{bus_id}` | bus detail |
+| `GET` | `/api/v1/trips/{trip_id}/state` | trip state |
+| `WS` | `/v1/live` | live bus and ETA push |
 
-## Legacy High-Level Sketch
+### Driver - Requires `DRIVER`
 
-```
-┌─────────────┐     MQTT      ┌──────────────┐   AutoMQ   ┌──────────────────┐
-│  G1 — Edge  │──────────────▶│  G2 — Data   │────────────▶│  G2 — Stream     │
-│  (GPS/IoT)  │               │  Ingestion    │             │  Processing      │
-└─────────────┘               └──────────────┘             └────────┬─────────┘
-                                                                     │
-                    ┌────────────────────────────────────────────────┤
-                    │                    │                            │
-              ┌─────▼──────┐    ┌───────▼────────┐    ┌─────────────▼───────┐
-              │ ETA Model  │    │ Anomaly Detect │    │  PostgreSQL/PostGIS │
-              │ (XGBoost)  │    │ (3-Layer)      │    │  & InfluxDB + Redis │
-              └─────┬──────┘    └───────┬────────┘    └─────────┬───────────┘
-                    │                    │                        │
-              ┌─────▼────────────────────▼────────────────────────▼───┐
-              │             G2 API (FastAPI)                          │
-              │   REST + WebSocket /live-feed                        │
-              └───────────────────────┬──────────────────────────────┘
-                                      │
-                    ┌─────────────────┼─────────────────┐
-                    │                 │                   │
-              ┌─────▼─────┐   ┌──────▼──────┐   ┌───────▼──────┐
-              │ G3 Mobile  │   │ G3 Web      │   │ G4 Platform  │
-              │(React      │   │ (React.js)  │   │ (K8s/Docker) │
-              │ Native)    │   │             │   │              │
-              └────────────┘   └─────────────┘   └──────────────┘
-```
+| Method | Path | Purpose |
+|---|---|---|
+| `GET` | `/api/v1/driver/trips/today` | driver planned trips |
+| `POST` | `/api/v1/driver/trips/{trip_id}/start` | start trip |
+| `POST` | `/api/v1/driver/trips/{trip_id}/end` | end trip |
+| `POST` | `/api/v1/driver/trips/{trip_id}/report-delay` | report delay |
+| `POST` | `/api/v1/driver/trips/{trip_id}/report-incident` | report incident |
 
----
+### Admin - Requires `ADMIN`
 
-## 👥 Group Structure
+| Method | Path | Purpose |
+|---|---|---|
+| `POST` | `/api/v1/admin/routes/add-route` | import route |
+| `PUT` | `/api/v1/admin/routes/{route_id}` | replace route |
+| `DELETE` | `/api/v1/admin/routes/{route_id}` | delete route |
+| `POST` | `/api/v1/admin/fleet/buses` | create bus |
+| `PUT` | `/api/v1/admin/fleet/buses/{bus_id}` | update bus |
+| `DELETE` | `/api/v1/admin/fleet/buses/{bus_id}` | delete bus |
+| `GET` | `/api/v1/admin/fleet/buses` | list buses |
+| `GET` | `/api/v1/admin/fleet/buses/{bus_id}` | bus detail |
+| `POST` | `/api/v1/admin/fleet/buses/{bus_id}/assign-route/{route_id}` | assign bus route through gateway |
+| `POST` | `/api/v1/admin/fleet/buses/{bus_id}/unassign` | unassign bus route through gateway |
+| `POST` | `/api/v1/admin/fleet/drivers` | create driver profile; Auth linking planned |
+| `GET` | `/api/v1/admin/fleet/drivers` | list drivers |
+| `POST` | `/api/v1/admin/fleet/schedules` | create schedule |
+| `GET` | `/api/v1/admin/fleet/schedules` | list schedules |
+| `POST` | `/api/v1/admin/fleet/planned-trips/generate` | generate daily trips |
+| `GET` | `/api/v1/admin/fleet/planned-trips/today` | today's planned trips |
+| `GET` | `/api/v1/admin/fleet/planned-trips/{trip_id}` | trip detail |
+| `PATCH` | `/api/v1/admin/fleet/planned-trips/{trip_id}/assign` | assign bus/driver |
+| `POST` | `/api/v1/admin/fleet/planned-trips/{trip_id}/delay` | admin delay update |
+| `POST` | `/api/v1/admin/fleet/planned-trips/{trip_id}/incident` | admin incident update |
 
-**Group G** consists of four subgroups, each with 5 members:
+### Planned Auth And ETA
 
-| Subgroup | Focus Area | Key Responsibilities |
-|----------|-----------|---------------------|
-| **G1** — Device & Edge | IoT / Embedded | GPS tracking, data transmission, noise filtering, route deviation detection |
-| **G2** — Data & Intelligence | Data Engineering + AI | ETA prediction, delay detection, stream processing, ML models |
-| **G3** — System Eng & Interaction | System Logic, UX | Live tracking app, notifications, dashboards, maps |
-| **G4** — Platform, Security & Integration | DevOps + Security | CI/CD, Kubernetes, API gateway, monitoring, auth |
+| Contract | Planned Path | Notes |
+|---|---|---|
+| Login | `POST /auth/login` | G4 Keycloak/Auth owner |
+| Admin creates auth user | `POST /auth/admin/users` | `ADMIN` only |
+| Disable auth user | `PATCH /auth/admin/users/{authUserId}/disable` | `ADMIN` only |
+| Driver first password reset | `PATCH /auth/users/{authUserId}/change-password` | Auth-owned |
+| On-demand ETA | `GET /api/v1/eta/{tripId}/{stopId}` | planned, trip-scoped |
 
-> **This repository (`ontime-g2`)** contains **G2's** codebase, documentation, and ML models.
+## G1 MQTT Contract
 
----
+| Purpose | Topic | Retain |
+|---|---|---|
+| live GPS | `transport/bus/{busId}/location` | `false` |
+| heartbeat/device status | `transport/bus/{busId}/heartbeat` | allowed if timestamped |
 
-## 🛠️ Technology Stack (G2)
+GPS payload from G1 must not include `tripId`; ingestion enriches it from
+Fleet's `trip.lifecycle` stream.
 
-| Category | Technology | When Used |
-|----------|-----------|-----------|
-| **Language** | Python 3.12 | All increments |
-| **API Framework** | FastAPI | Inc 0+ |
-| **Message Broker** | AutoMQ (Kafka-compatible, S3-backed) | Inc 0+ |
-| **Databases** | PostgreSQL 16 (Relational/Spatial) + InfluxDB (Time-Series) | Inc 0+ |
-| **Cache** | Redis | Inc 0+ |
-| **Stream Processing** | Apache Flink (PyFlink) | Inc 1+ |
-| **ML Framework** | XGBoost, scikit-learn | Inc 2+ |
-| **ML Ops** | MLflow | Inc 2+ |
-| **Data Validation** | Pydantic v2 | All increments |
-| **Containerization** | Docker | All increments |
-| **Testing** | pytest, locust (load testing) | All increments |
-
----
-
-## 📁 Repository Structure
-
-```
-ontime-g2/
-├── README.md                    # This file
-├── PROJECT_PLAN.md              # Incremental delivery plan
-├── STRATEGY.md                  # Architecture & technology strategy
-├── requirements.txt             # Root Python dependencies
-├── pytest.ini                   # Test configuration & custom markers
-│
-├── schemas/                     # Shared Pydantic data contracts
-│   ├── __init__.py              # Centralized re-exports
-│   ├── gps.py                   # GPSMessage — canonical GPS telemetry schema
-│   ├── bus_status.py            # BusLifecycleState, BusStatusMessage
-│   └── geo_config.py            # CoordinateBounds, SRI_LANKA_BOUNDS
-│
-├── services/                    # Microservices (each is a deployable unit)
-│   ├── api-gateway/             # FastAPI gateway (main.py, Dockerfile)
-│   ├── ingestion/               # GPS ingestion service (Inc 1+)
-│   ├── stream-processing/       # Flink pipeline (Inc 1+)
-│   ├── eta-service/             # ETA prediction API (Inc 2+)
-│   ├── anomaly-service/         # Anomaly detection (Inc 4+)
-│   └── route-service/           # Route management
-│
-├── scripts/                     # CLI tools: seeding, simulation
-│   ├── seed_routes.py           # KML parser + PostGIS seeder
-│   ├── gps_simulator.py         # MQTT GPS telemetry publisher
-│   └── models/                  # Script-specific: ORM models + config
-│       ├── base.py              # SQLAlchemy DeclarativeBase
-│       ├── db_route.py          # RouteORM, StopORM
-│       ├── route.py             # RouteSeed, RouteGeometry, Stop
-│       └── settings.py          # Environment configuration
-│
-├── models/                      # ML model artifacts (Inc 2+)
-├── data/                        # Static data files (KML, GTFS)
-├── docker/                      # Docker Compose + env config
-├── docs/                        # Documentation & SRS
-└── tests/                       # ALL tests (unit, integration, load)
-    ├── unit/                    # Fast, isolated unit tests
-    └── integration/             # Tests requiring Docker infra
+```json
+{
+  "busId": "1",
+  "lat": 6.9271,
+  "lon": 79.8612,
+  "speed": 35.0,
+  "heading": 120.0,
+  "timestamp": "2026-05-02T10:15:30Z"
+}
 ```
 
----
+Heartbeat is metrics/device-status only and is not sent to raw telemetry Kafka.
 
-## 🚀 Getting Started
+## Kafka Topics
 
-### Prerequisites
+| Topic | Producer | Consumer | Purpose |
+|---|---|---|---|
+| `trip.lifecycle` | Fleet Management | Ingestion, Flink | trip start/end state |
+| `transport-telemetry-raw` | Ingestion | Flink | accepted active-trip GPS |
+| `transport-telemetry-dlq` | Ingestion | Anomaly, operators | rejected GPS envelope |
+| `transport-telemetry-cleaned` | Flink | Anomaly, planned ETA | enriched GPS |
+| `transport-anomaly-alerts` | Anomaly Service | planned API/admin readers | alert events |
+| `transport-eta-features` | planned Flink | planned ETA Service | optional ETA feature stream |
 
-- Python 3.12+
-- Docker & Docker Compose
-- Git
+## Redis Channels And Keys
 
-### Local Development Setup
+| Name | Type | Producer | Consumer |
+|---|---|---|---|
+| `fleet:live` | Pub/Sub channel | Flink | WebSocket Service |
+| `eta:live` | Pub/Sub channel | planned ETA Service | WebSocket Service |
+| `bus:{busId}:position` | key | Flink | API Gateway, WebSocket initial state |
+| `eta:trip:{tripId}:snapshot` | planned key | ETA Service | ETA Service |
+
+## Operations For G4
+
+G4 should use Kubernetes probes and Prometheus scraping internally. These routes
+should not be exposed as passenger/admin APIs unless explicitly needed.
+
+| Service | Health / Probes | Metrics |
+|---|---|---|
+| API Gateway | `/health` | `/metrics` |
+| WebSocket Service | `/health`, `/health/live`, `/health/ready` | `/metrics` |
+| Fleet Management | `/health`, `/health/live`, `/health/ready` | `/metrics` |
+| Ingestion | `/health`, `/health/live`, `/health/ready` | `/metrics` |
+| Anomaly Service | `/health`, `/health/live`, `/health/ready` | `/metrics` |
+| Route Service | `/health` | not implemented yet |
+| Stream Processing | Flink JobManager health/jobs | Flink runtime metrics |
+| ETA/Auth | planned | planned |
+
+## Core Environment Variables
+
+Detailed env tables live in each service README.
+
+| Service | Important Vars |
+|---|---|
+| API Gateway | `ROUTE_SERVICE_URL`, `FLEET_SERVICE_URL`, `REDIS_URL`, planned `AUTH_SERVICE_URL` |
+| Route Service | `DATABASE_URL` |
+| Fleet Management | `DATABASE_URL`, `KAFKA_BROKER_URL`, `KAFKA_TRIP_LIFECYCLE_TOPIC`, `ROUTE_SERVICE_URL` |
+| Ingestion | `MQTT_BROKER_HOST`, `MQTT_BROKER_PORT`, `MQTT_USERNAME`, `MQTT_PASSWORD`, `MQTT_TLS_ENABLED`, `KAFKA_BROKER_URL`, `INGESTION_KAFKA_RAW_TOPIC`, `INGESTION_KAFKA_DLQ_TOPIC`, `INGESTION_KAFKA_TRIP_LIFECYCLE_TOPIC` |
+| Stream Processing | `KAFKA_BROKER_URL`, `KAFKA_RAW_TOPIC`, `KAFKA_CLEANED_TOPIC`, `KAFKA_LIFECYCLE_TOPIC`, `REDIS_HOST`, `REDIS_PORT`, `INFLUXDB_URL`, `ROUTE_SERVICE_URL` |
+| WebSocket Service | `REDIS_URL`, `FLEET_CHANNEL`, `ETA_CHANNEL` |
+| Anomaly Service | `KAFKA_BROKER_URL`, `KAFKA_CLEANED_TOPIC`, `KAFKA_DLQ_TOPIC`, `KAFKA_ANOMALY_TOPIC`, `ROUTE_SERVICE_URL` |
+| ETA Service | planned `KAFKA_ETA_FEATURE_TOPIC`, `REDIS_URL`, `ETA_LIVE_CHANNEL`, `INFLUXDB_*` |
+| Auth Wrapper | planned `AUTH_BOOTSTRAP_ADMIN_*`, `AUTH_TOKEN_SECRET` |
+
+## Local Docker Compose
 
 ```bash
-# 1. Clone the repository
-git clone https://github.com/your-org/ontime-g2.git
-cd ontime-g2
-
-# 2. Copy environment config
-cp docker/.env.example docker/.env
-# Edit .env — uncomment the connections you want (local Docker URLs or Cloud connections like Neon PG / InfluxDB Cloud)
-
-# 3. Start infrastructure locally
-# Note: Production uses AutoMQ (cloud-native Kafka), but local dev spins up standard Kafka/Zookeeper, PostgreSQL, InfluxDB, and Redis.
-docker compose -f docker/docker-compose.yml up -d
-
-# 4. Install Python dependencies
-python -m venv .venv
-source .venv/bin/activate   # Linux/Mac
-.venv\Scripts\activate      # Windows
-pip install -r requirements.txt
-
-# 5. Seed route & stop data
-python scripts/seed_routes.py
-
-# 6. Start the API server
-cd services/api-gateway && uvicorn main:app --reload --port 8000
-
-# 7. Start the ingestion service
-python -m services.ingestion.app.main
-
-# 8. (Optional) Start GPS simulator
-python scripts/gps_simulator.py
+docker compose -f docker/docker-compose.yml up -d --build
 ```
 
-### Verify Installation
+Common local checks:
 
 ```bash
 curl http://localhost:8000/health
-# Should return: {"status": "healthy", ...}
-```
-
-### Ingestion Service 
-
-The ingestion service is now wired into local Docker Compose as `ingestion-service`.
-
-Quick start:
-
-```bash
-docker compose -f docker/docker-compose.yml up -d broker mqtt-broker ingestion-service
-curl http://localhost:8001/health
 curl http://localhost:8001/health/ready
+curl http://localhost:8003/health/ready
+curl http://localhost:8004/health/ready
+curl http://localhost:8006/health/ready
 ```
 
-Runtime package layout:
+Kafka topic initialization is handled by `kafka-init` in compose.
 
-```text
-services/ingestion/
-  app/    # runtime code
-  tests/  # service tests
-```
-
-Cross-group interfaces around ingestion:
-
-- G1 connects to G2 ingestion over MQTT using topic `transport/bus/{busId}/location`.
-- G1 payloads must match the shared `GPSMessage` contract in `schemas/gps.py`.
-- G4 connects to ingestion over HTTP for operations and monitoring using `/health`, `/health/live`, `/health/ready`, and `/metrics`.
-- G4 deploys or supervises the service through Docker Compose now and can later reuse the same readiness and metrics endpoints for Kubernetes and Prometheus.
-
----
-
-## 📊 API Endpoints (First Release)
-
-| Method | Endpoint | Description | Increment |
-|--------|----------|-------------|-----------|
-| `GET` | `/health` | Service health check | 0 |
-| `GET` | `/metrics` | Prometheus metrics | 0 |
-| `GET` | `/api/v1/buses/live` | Live bus positions for all active buses | 1 |
-| `GET` | `/api/v1/routes` | List all routes with stops | 1 |
-| `GET` | `/api/v1/routes/{route_id}/buses` | Active buses on a route | 1 |
-| `WS` | `wss://api.ontime.lk/v1/live` | Real-time fleet status (delta updates, ~3–5s) | 1 |
-| `POST` | `/api/v1/trips/{id}/state` | Driver changes trip/bus state | 1 |
-| `POST` | `/api/v1/driver/start-trip` | Driver starts a trip | 1 |
-| `POST` | `/api/v1/driver/report-delay` | Driver reports delay (reason + minutes) | 1 |
-| `POST` | `/api/v1/ingest/gps` | GPS test ingestion endpoint | 1 |
-
-<details>
-<summary><strong>Future Endpoints (Inc 2+)</strong></summary>
-
-| Method | Endpoint | Description | Increment |
-|--------|----------|-------------|-----------|
-| `GET` | `/api/v1/eta/{bus_id}/{stop_id}` | ETA for a specific stop | 2 |
-| `POST` | `/api/v1/driver/report-delay` | ETA engine applies additive downstream offset from delay reports persisted in Increment 1 | 2 |
-| `POST` | `/api/v1/trips/{id}/incident` | FR-G3.3 structured incident report (BREAKDOWN, ACCIDENT, HEAVY_TRAFFIC, ROAD_CLOSURE, MEDICAL_EMERGENCY) → sets `INCIDENT_REPORTED` + triggers admin alert | 4 |
-| `GET` | `/api/v1/admin/fleet` | Admin fleet overview | 4 |
-| `GET` | `/api/v1/admin/alerts` | Active anomaly alerts | 4 |
-| `POST` | `/api/v1/admin/alerts/{id}/acknowledge` | Admin acknowledges alert | 4 |
-| `POST` | `/api/v1/admin/dispatch` | Admin dispatch bus | 3 |
-| `POST` | `/api/v1/admin/slots/{id}/assign` | Admin assigns bus to departure slot | 3 |
-| `GET` | `/api/v1/routes/search` | Route search | 5 |
-| `GET` | `/api/v1/routes/nearest` | Nearest routes by location | 5 |
-
-</details>
-
----
-
-## 🧪 Testing
+## Test Commands
 
 ```bash
-# Run unit tests
-pytest tests/unit/ -v
-
-# Run integration tests (requires Docker infra)
-pytest tests/integration/ -v
-
-# Run load tests
-locust -f tests/load/locustfile.py
-
-# Run ingestion service tests
-python -m pytest services/ingestion/tests -v
+python -m pytest tests/unit -q
+python -m pytest services/ingestion/tests/unit -q
+python -m pytest services/api-gateway/tests/unit -q
+python -m pytest services/fleet-management-service/tests/unit -q
+python -m pytest services/stream-processing/tests/unit -q
+python -m pytest services/anomaly-service/tests/unit -q
 ```
 
----
+Live pipeline smoke test, when Docker is available:
 
-## 📄 Documentation
+```bash
+python -m pytest tests/integration/test_live_pipeline_smoke.py -m integration -v -s
+```
 
-| Document | Description |
-|----------|-------------|
-| [PROJECT_PLAN.md](PROJECT_PLAN.md) | Incremental delivery roadmap with sprint mapping |
-| [STRATEGY.md](STRATEGY.md) | Architecture decisions and technology rationale |
-| [SRS v1.1](docs/srs/SRS_G2_Data_Intelligence_1.1.md) | Full Software Requirements Specification |
-| [PROJECT_INFO.md](docs/PROJECT_INFO.md) | Group structure, deliverables, and evaluation criteria |
+## Documentation Index
 
----
-
-## 📝 License
-
-This project is developed as part of the SE3080/SE3070 Software Engineering module at the University of Moratuwa. All rights reserved by the respective contributors.
-
----
-
-<p align="center">
-  <strong>OnTime G2 — Data & Intelligence</strong><br/>
-  Built with ☕ at University of Moratuwa
-</p>
+| Document | Purpose |
+|---|---|
+| `services/api-gateway/README.md` | REST facade endpoints and env vars |
+| `services/ingestion/README.md` | MQTT/Kafka ingestion contract |
+| `services/stream-processing/README.md` | Flink sources/sinks and Redis/Influx outputs |
+| `services/fleet-management-service/README.md` | fleet/trip lifecycle APIs and Kafka event |
+| `services/route-service/README.md` | route/stop/internal geometry APIs |
+| `services/websocket-service/README.md` | WebSocket and Redis Pub/Sub contract |
+| `services/anomaly-service/README.md` | anomaly topics, rules, probes |
+| `services/eta-service/README.md` | planned ETA contracts |
+| `services/auth-service/README.md` | G2/G4 auth boundary |

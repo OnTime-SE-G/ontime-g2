@@ -35,7 +35,7 @@ def _create_schedule(client, route_id=1):
             json={
                 "route_id": route_id,
                 "scheduled_time": "08:30:00",
-                "day_of_week": date.today().weekday(),
+                "day_of_week": date.today().isoweekday() % 7,
             },
         )
     assert r.status_code == 200

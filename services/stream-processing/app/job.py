@@ -1,5 +1,4 @@
 import logging
-import os
 import json
 from datetime import datetime
 from pyflink.common import WatermarkStrategy, Duration, Types
@@ -20,13 +19,13 @@ def run_telemetry_job():
     # 1. Setup execution environment
     env = StreamExecutionEnvironment.get_execution_environment()
     env.set_runtime_mode(RuntimeExecutionMode.STREAMING)
-    env.set_parallelism(1)
+    env.set_parallelism(settings.flink_parallelism)
 
     # 2. Define Kafka Source for raw telemetry
     telemetry_source = KafkaSource.builder() \
         .set_bootstrap_servers(settings.kafka_broker_url) \
         .set_topics(settings.kafka_raw_topic) \
-        .set_group_id("stream-processing-group") \
+        .set_group_id(settings.kafka_consumer_group) \
         .set_starting_offsets(KafkaOffsetsInitializer.earliest()) \
         .set_value_only_deserializer(SimpleStringSchema()) \
         .build()
@@ -35,7 +34,7 @@ def run_telemetry_job():
     lifecycle_source = KafkaSource.builder() \
         .set_bootstrap_servers(settings.kafka_broker_url) \
         .set_topics(settings.kafka_lifecycle_topic) \
-        .set_group_id("stream-processing-lifecycle-group") \
+        .set_group_id(settings.kafka_lifecycle_consumer_group) \
         .set_starting_offsets(KafkaOffsetsInitializer.earliest()) \
         .set_value_only_deserializer(SimpleStringSchema()) \
         .build()

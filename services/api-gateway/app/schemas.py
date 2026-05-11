@@ -139,11 +139,36 @@ class DriverCreate(BaseModel):
     license_number: str
     phone: Optional[str] = None
 
+class AdminDriverCreate(DriverCreate):
+    username: str
+    password: str
+
+class DriverDeactivationResponse(BaseModel):
+    id: int
+    auth_user_id: Optional[str] = None
+    is_active: bool
+    message: str
+
 class DriverResponse(BaseModel):
     id: int
     name: str
     license_number: str
     phone: Optional[str] = None
+    auth_user_id: Optional[str] = None
+    username: Optional[str] = None
+    is_active: bool = True
+
+
+class DriverUpdate(BaseModel):
+    """Partial update — only provided fields will be changed."""
+    name: Optional[str] = None
+    license_number: Optional[str] = None
+    phone: Optional[str] = None
+
+
+class DriverProfile(DriverResponse):
+    """Extended driver profile returned from /driver/me."""
+    pass
 
 class ScheduleCreate(BaseModel):
     route_id: int

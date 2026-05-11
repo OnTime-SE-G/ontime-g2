@@ -6,7 +6,7 @@ from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.db_fleet import DriverORM, ScheduleORM, PlannedTripORM
 from app.schemas.fleet import (
-    DriverCreate, DriverResponse, 
+    DriverCreate, DriverUpdate, DriverResponse, 
     ScheduleCreate, ScheduleResponse,
     PlannedTripResponse, PlannedTripCreate,
     TripLifecycleResponse, TripDelayReport, TripIncidentReport
@@ -32,6 +32,43 @@ def create_driver(driver: DriverCreate, db: Session = Depends(get_db)):
 @router.get("/drivers", response_model=List[DriverResponse])
 def get_drivers(db: Session = Depends(get_db)):
     return db.query(DriverORM).all()
+
+@router.get("/drivers/by-auth/{auth_user_id}", response_model=DriverResponse)
+def get_driver_by_auth_id(auth_user_id: str, db: Session = Depends(get_db)):
+    """Look up a driver profile using their Keycloak auth_user_id (JWT sub claim)."""
+    driver = db.query(DriverORM).filter(DriverORM.auth_user_id == auth_user_id).first()
+    if not driver:
+        raise HTTPException(status_code=404, detail="Driver not found")
+    return driver
+
+@router.get("/drivers/{driver_id}", response_model=DriverResponse)
+def get_driver(driver_id: int, db: Session = Depends(get_db)):
+    driver = db.query(DriverORM).filter(DriverORM.id == driver_id).first()
+    if not driver:
+        raise HTTPException(status_code=404, detail="Driver not found")
+    return driver
+
+@router.patch("/drivers/{driver_id}", response_model=DriverResponse)
+def update_driver(driver_id: int, update: DriverUpdate, db: Session = Depends(get_db)):
+    """Partial update of driver profile fields (name, license_number, phone)."""
+    driver = db.query(DriverORM).filter(DriverORM.id == driver_id).first()
+    if not driver:
+        raise HTTPException(status_code=404, detail="Driver not found")
+    for field, value in update.model_dump(exclude_none=True).items():
+        setattr(driver, field, value)
+    db.commit()
+    db.refresh(driver)
+    return driver
+
+@router.patch("/drivers/{driver_id}/deactivate", response_model=DriverResponse)
+def deactivate_driver(driver_id: int, db: Session = Depends(get_db)):
+    driver = db.query(DriverORM).filter(DriverORM.id == driver_id).first()
+    if not driver:
+        raise HTTPException(status_code=404, detail="Driver not found")
+    driver.is_active = False
+    db.commit()
+    db.refresh(driver)
+    return driver
 
 # --- Schedules ---
 
@@ -61,10 +98,27 @@ def get_schedules(db: Session = Depends(get_db)):
 async def trigger_generation(target_date: date, db: Session = Depends(get_db)):
     return await trip_service.generate_daily_trips(db, target_date)
 
+@router.get("/planned-trips", response_model=List[PlannedTripResponse])
+def get_planned_trips(
+    target_date: date | None = None,
+    driver_id: int | None = None,
+    status: str | None = None,
+    db: Session = Depends(get_db)
+):
+    """Query planned trips with optional date, driver, and status filters."""
+    query = db.query(PlannedTripORM)
+    if target_date:
+        query = query.filter(PlannedTripORM.date == target_date)
+    if driver_id:
+        query = query.filter(PlannedTripORM.driver_id == driver_id)
+    if status:
+        query = query.filter(PlannedTripORM.status == status)
+    return query.all()
+
 @router.get("/planned-trips/today", response_model=List[PlannedTripResponse])
-def get_today_trips(db: Session = Depends(get_db)):
-    today = date.today()
-    return db.query(PlannedTripORM).filter(PlannedTripORM.date == today).all()
+def get_today_trips(target_date: date | None = None, db: Session = Depends(get_db)):
+    query_date = target_date or date.today()
+    return db.query(PlannedTripORM).filter(PlannedTripORM.date == query_date).all()
 
 @router.get("/planned-trips/{trip_id}", response_model=PlannedTripResponse)
 def get_trip_detail(trip_id: str, db: Session = Depends(get_db)):

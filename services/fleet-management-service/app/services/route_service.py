@@ -1,11 +1,10 @@
-import os
-
 import httpx
 from fastapi import HTTPException
 
+from app.config import settings
 
-ROUTE_SERVICE_URL = os.getenv("ROUTE_SERVICE_URL", "http://route-service:8002")
-ROUTE_SERVICE_TIMEOUT_SECONDS = 3.0
+ROUTE_SERVICE_URL = settings.route_service_url
+ROUTE_SERVICE_TIMEOUT_SECONDS = settings.route_service_timeout_seconds
 
 
 def validate_route_exists(route_id: int) -> None:

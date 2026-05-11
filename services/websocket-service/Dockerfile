@@ -12,5 +12,5 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy the rest of the application code
 COPY . .
 
-# Run Uvicorn
-CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8004"]
+# Run Uvicorn with runtime-configurable port
+CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${WEBSOCKET_SERVICE_PORT:-8004}"]

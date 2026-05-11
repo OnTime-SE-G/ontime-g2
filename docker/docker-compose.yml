@@ -84,8 +84,24 @@ services:
     volumes:
       - ../services/api-gateway:/app
     environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ontime_db}
-      - REDIS_URL=redis://redis:6379
+      API_GATEWAY_SERVICE_PORT: ${API_GATEWAY_SERVICE_PORT:-8000}
+      API_GATEWAY_ROUTE_SERVICE_URL: ${API_GATEWAY_ROUTE_SERVICE_URL:-http://route-service:8002}
+      API_GATEWAY_FLEET_SERVICE_URL: ${API_GATEWAY_FLEET_SERVICE_URL:-http://fleet-management-service:8003}
+      API_GATEWAY_REDIS_URL: ${API_GATEWAY_REDIS_URL:-redis://redis:6379/0}
+      API_GATEWAY_POSTGRES_HOST: ${API_GATEWAY_POSTGRES_HOST:-postgres}
+      API_GATEWAY_POSTGRES_PORT: ${API_GATEWAY_POSTGRES_PORT:-5432}
+      API_GATEWAY_REDIS_HOST: ${API_GATEWAY_REDIS_HOST:-redis}
+      API_GATEWAY_REDIS_PORT: ${API_GATEWAY_REDIS_PORT:-6379}
+      API_GATEWAY_KAFKA_HOST: ${API_GATEWAY_KAFKA_HOST:-broker}
+      API_GATEWAY_KAFKA_PORT: ${API_GATEWAY_KAFKA_PORT:-29092}
+      API_GATEWAY_INFLUXDB_HOST: ${API_GATEWAY_INFLUXDB_HOST:-influxdb}
+      API_GATEWAY_INFLUXDB_PORT: ${API_GATEWAY_INFLUXDB_PORT:-8086}
+      KEYCLOAK_BASE_URL: http://keycloak:8080
+      KEYCLOAK_REALM: ontime
+      KEYCLOAK_CLIENT_ID: ontime-api
+      KEYCLOAK_CLIENT_SECRET: secret
+      KEYCLOAK_ADMIN_USERNAME: ${KEYCLOAK_ADMIN_USERNAME:-admin}
+      KEYCLOAK_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:-admin}
     networks:
       - ontime_network
     depends_on:
@@ -103,9 +119,10 @@ services:
       - "8002:8002"
     volumes:
       - ../services/route-service:/app
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8002 --reload
+    command: sh -c "uvicorn app.main:app --host 0.0.0.0 --port $${ROUTE_SERVICE_PORT:-8002} --reload"
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ontime_db}
+      ROUTE_SERVICE_PORT: ${ROUTE_SERVICE_PORT:-8002}
+      ROUTE_DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/${POSTGRES_DB:-ontime_db}
     networks:
       - ontime_network
     depends_on:
@@ -122,11 +139,14 @@ services:
     volumes:
       - ../services/fleet-management-service:/app
       - ../schemas:/app/schemas
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8003 --reload
+    command: sh -c "uvicorn app.main:app --host 0.0.0.0 --port $${FLEET_SERVICE_PORT:-8003} --reload"
     environment:
-      - DATABASE_URL=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/fleet_db
-      - ROUTE_SERVICE_URL=http://route-service:8002
-      - KAFKA_BROKER_URL=broker:29092
+      FLEET_SERVICE_PORT: ${FLEET_SERVICE_PORT:-8003}
+      FLEET_DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/fleet_db
+      FLEET_ROUTE_SERVICE_URL: ${FLEET_ROUTE_SERVICE_URL:-http://route-service:8002}
+      FLEET_ROUTE_SERVICE_TIMEOUT_SECONDS: ${FLEET_ROUTE_SERVICE_TIMEOUT_SECONDS:-3.0}
+      FLEET_KAFKA_BROKER_URL: ${FLEET_KAFKA_BROKER_URL:-broker:29092}
+      FLEET_KAFKA_TRIP_LIFECYCLE_TOPIC: ${FLEET_KAFKA_TRIP_LIFECYCLE_TOPIC:-trip.lifecycle}
     networks:
       - ontime_network
     depends_on:
@@ -214,15 +234,29 @@ services:
     ports:
       - "8001:8001"
     environment:
-      MQTT_BROKER_HOST: mqtt-broker
-      MQTT_BROKER_PORT: 1883
-      MQTT_TOPIC_PATTERN: transport/bus/+/location
-      KAFKA_BROKER_URL: broker:29092
-      INGESTION_KAFKA_RAW_TOPIC: transport-telemetry-raw
-      INGESTION_KAFKA_DLQ_TOPIC: transport-telemetry-dlq
-      INGESTION_SERVICE_PORT: 8001
-      INGESTION_MIN_MESSAGE_INTERVAL_SECONDS: 3.0
-      INGESTION_DUPLICATE_CACHE_SIZE: 100
+      INGESTION_MQTT_BROKER_HOST: ${INGESTION_MQTT_BROKER_HOST:-mqtt-broker}
+      INGESTION_MQTT_BROKER_PORT: ${INGESTION_MQTT_BROKER_PORT:-1883}
+      INGESTION_MQTT_TOPIC_PATTERN: ${INGESTION_MQTT_TOPIC_PATTERN:-transport/bus/+/location}
+      INGESTION_MQTT_HEARTBEAT_TOPIC_PATTERN: ${INGESTION_MQTT_HEARTBEAT_TOPIC_PATTERN:-transport/bus/+/heartbeat}
+      INGESTION_MQTT_TLS_ENABLED: ${INGESTION_MQTT_TLS_ENABLED:-false}
+      INGESTION_MQTT_USERNAME: ${INGESTION_MQTT_USERNAME:-}
+      INGESTION_MQTT_PASSWORD: ${INGESTION_MQTT_PASSWORD:-}
+      INGESTION_MQTT_CLIENT_ID: ${INGESTION_MQTT_CLIENT_ID:-ontime-ingestion-service}
+      INGESTION_MQTT_CA_CERT_PATH: ${INGESTION_MQTT_CA_CERT_PATH:-}
+      INGESTION_KAFKA_BROKER_URL: ${INGESTION_KAFKA_BROKER_URL:-broker:29092}
+      INGESTION_KAFKA_RAW_TOPIC: ${INGESTION_KAFKA_RAW_TOPIC:-transport-telemetry-raw}
+      INGESTION_KAFKA_DLQ_TOPIC: ${INGESTION_KAFKA_DLQ_TOPIC:-transport-telemetry-dlq}
+      INGESTION_KAFKA_TRIP_LIFECYCLE_TOPIC: ${INGESTION_KAFKA_TRIP_LIFECYCLE_TOPIC:-trip.lifecycle}
+      INGESTION_TRIP_CACHE_CONSUMER_GROUP: ${INGESTION_TRIP_CACHE_CONSUMER_GROUP:-ingestion-trip-cache}
+      INGESTION_REQUIRE_ACTIVE_TRIP: ${INGESTION_REQUIRE_ACTIVE_TRIP:-true}
+      INGESTION_TRIP_CACHE_REBUILD_TIMEOUT_SECONDS: ${INGESTION_TRIP_CACHE_REBUILD_TIMEOUT_SECONDS:-60.0}
+      INGESTION_STARTUP_BUFFER_MAX_MESSAGES: ${INGESTION_STARTUP_BUFFER_MAX_MESSAGES:-1000}
+      INGESTION_SERVICE_PORT: ${INGESTION_SERVICE_PORT:-8001}
+      INGESTION_MIN_MESSAGE_INTERVAL_SECONDS: ${INGESTION_MIN_MESSAGE_INTERVAL_SECONDS:-3.0}
+      INGESTION_MIN_EVENT_INTERVAL_SECONDS: ${INGESTION_MIN_EVENT_INTERVAL_SECONDS:-1.0}
+      INGESTION_MAX_FUTURE_SKEW_SECONDS: ${INGESTION_MAX_FUTURE_SKEW_SECONDS:-30.0}
+      INGESTION_MAX_STALE_AGE_SECONDS: ${INGESTION_MAX_STALE_AGE_SECONDS:-86400.0}
+      INGESTION_DUPLICATE_CACHE_SIZE: ${INGESTION_DUPLICATE_CACHE_SIZE:-100}
     networks:
       - ontime_network
     depends_on:
@@ -255,9 +289,10 @@ services:
     volumes:
       - ../services/websocket-service:/app
     environment:
-      - REDIS_URL=redis://redis:6379
-      - FLEET_CHANNEL=fleet:live
-      - ETA_CHANNEL=eta:live
+      WEBSOCKET_SERVICE_PORT: ${WEBSOCKET_SERVICE_PORT:-8004}
+      WEBSOCKET_REDIS_URL: ${WEBSOCKET_REDIS_URL:-redis://redis:6379}
+      WEBSOCKET_FLEET_CHANNEL: ${WEBSOCKET_FLEET_CHANNEL:-fleet:live}
+      WEBSOCKET_ETA_CHANNEL: ${WEBSOCKET_ETA_CHANNEL:-eta:live}
     networks:
       - ontime_network
     depends_on:
@@ -273,11 +308,24 @@ services:
     ports:
       - "8081:8081"
     environment:
-      - |
-        FLINK_PROPERTIES=
+      FLINK_PROPERTIES: |
         jobmanager.rpc.address: flink-jobmanager
-      - KAFKA_BROKER_URL=broker:29092
-      - PYTHONPATH=/opt/flink/usrlib
+      STREAM_KAFKA_BROKER_URL: ${STREAM_KAFKA_BROKER_URL:-broker:29092}
+      STREAM_KAFKA_RAW_TOPIC: ${STREAM_KAFKA_RAW_TOPIC:-transport-telemetry-raw}
+      STREAM_KAFKA_CLEANED_TOPIC: ${STREAM_KAFKA_CLEANED_TOPIC:-transport-telemetry-cleaned}
+      STREAM_KAFKA_LIFECYCLE_TOPIC: ${STREAM_KAFKA_LIFECYCLE_TOPIC:-trip.lifecycle}
+      STREAM_KAFKA_CONSUMER_GROUP: ${STREAM_KAFKA_CONSUMER_GROUP:-stream-processing-group}
+      STREAM_KAFKA_LIFECYCLE_CONSUMER_GROUP: ${STREAM_KAFKA_LIFECYCLE_CONSUMER_GROUP:-stream-processing-lifecycle-group}
+      STREAM_REDIS_HOST: ${STREAM_REDIS_HOST:-redis}
+      STREAM_REDIS_PORT: ${STREAM_REDIS_PORT:-6379}
+      STREAM_REDIS_FLEET_LIVE_CHANNEL: ${STREAM_REDIS_FLEET_LIVE_CHANNEL:-fleet:live}
+      STREAM_INFLUXDB_URL: ${STREAM_INFLUXDB_URL:-http://influxdb:8086}
+      STREAM_INFLUXDB_TOKEN: ${STREAM_INFLUXDB_TOKEN:-super_secret_admin_token_123}
+      STREAM_INFLUXDB_ORG: ${STREAM_INFLUXDB_ORG:-ontime}
+      STREAM_INFLUXDB_BUCKET: ${STREAM_INFLUXDB_BUCKET:-telemetry}
+      STREAM_ROUTE_SERVICE_URL: ${STREAM_ROUTE_SERVICE_URL:-http://route-service:8002}
+      STREAM_FLINK_PARALLELISM: ${STREAM_FLINK_PARALLELISM:-1}
+      PYTHONPATH: /opt/flink/usrlib
     networks:
       - ontime_network
     depends_on:
@@ -294,12 +342,25 @@ services:
       flink-jobmanager:
         condition: service_started
     environment:
-      - |
-        FLINK_PROPERTIES=
+      FLINK_PROPERTIES: |
         jobmanager.rpc.address: flink-jobmanager
         taskmanager.numberOfTaskSlots: 2
-      - KAFKA_BROKER_URL=broker:29092
-      - PYTHONPATH=/opt/flink/usrlib
+      STREAM_KAFKA_BROKER_URL: ${STREAM_KAFKA_BROKER_URL:-broker:29092}
+      STREAM_KAFKA_RAW_TOPIC: ${STREAM_KAFKA_RAW_TOPIC:-transport-telemetry-raw}
+      STREAM_KAFKA_CLEANED_TOPIC: ${STREAM_KAFKA_CLEANED_TOPIC:-transport-telemetry-cleaned}
+      STREAM_KAFKA_LIFECYCLE_TOPIC: ${STREAM_KAFKA_LIFECYCLE_TOPIC:-trip.lifecycle}
+      STREAM_KAFKA_CONSUMER_GROUP: ${STREAM_KAFKA_CONSUMER_GROUP:-stream-processing-group}
+      STREAM_KAFKA_LIFECYCLE_CONSUMER_GROUP: ${STREAM_KAFKA_LIFECYCLE_CONSUMER_GROUP:-stream-processing-lifecycle-group}
+      STREAM_REDIS_HOST: ${STREAM_REDIS_HOST:-redis}
+      STREAM_REDIS_PORT: ${STREAM_REDIS_PORT:-6379}
+      STREAM_REDIS_FLEET_LIVE_CHANNEL: ${STREAM_REDIS_FLEET_LIVE_CHANNEL:-fleet:live}
+      STREAM_INFLUXDB_URL: ${STREAM_INFLUXDB_URL:-http://influxdb:8086}
+      STREAM_INFLUXDB_TOKEN: ${STREAM_INFLUXDB_TOKEN:-super_secret_admin_token_123}
+      STREAM_INFLUXDB_ORG: ${STREAM_INFLUXDB_ORG:-ontime}
+      STREAM_INFLUXDB_BUCKET: ${STREAM_INFLUXDB_BUCKET:-telemetry}
+      STREAM_ROUTE_SERVICE_URL: ${STREAM_ROUTE_SERVICE_URL:-http://route-service:8002}
+      STREAM_FLINK_PARALLELISM: ${STREAM_FLINK_PARALLELISM:-1}
+      PYTHONPATH: /opt/flink/usrlib
     networks:
       - ontime_network
 
@@ -323,11 +384,24 @@ services:
         exit 1
       '
     environment:
-      - |
-        FLINK_PROPERTIES=
+      FLINK_PROPERTIES: |
         jobmanager.rpc.address: flink-jobmanager
-      - KAFKA_BROKER_URL=broker:29092
-      - PYTHONPATH=/opt/flink/usrlib
+      STREAM_KAFKA_BROKER_URL: ${STREAM_KAFKA_BROKER_URL:-broker:29092}
+      STREAM_KAFKA_RAW_TOPIC: ${STREAM_KAFKA_RAW_TOPIC:-transport-telemetry-raw}
+      STREAM_KAFKA_CLEANED_TOPIC: ${STREAM_KAFKA_CLEANED_TOPIC:-transport-telemetry-cleaned}
+      STREAM_KAFKA_LIFECYCLE_TOPIC: ${STREAM_KAFKA_LIFECYCLE_TOPIC:-trip.lifecycle}
+      STREAM_KAFKA_CONSUMER_GROUP: ${STREAM_KAFKA_CONSUMER_GROUP:-stream-processing-group}
+      STREAM_KAFKA_LIFECYCLE_CONSUMER_GROUP: ${STREAM_KAFKA_LIFECYCLE_CONSUMER_GROUP:-stream-processing-lifecycle-group}
+      STREAM_REDIS_HOST: ${STREAM_REDIS_HOST:-redis}
+      STREAM_REDIS_PORT: ${STREAM_REDIS_PORT:-6379}
+      STREAM_REDIS_FLEET_LIVE_CHANNEL: ${STREAM_REDIS_FLEET_LIVE_CHANNEL:-fleet:live}
+      STREAM_INFLUXDB_URL: ${STREAM_INFLUXDB_URL:-http://influxdb:8086}
+      STREAM_INFLUXDB_TOKEN: ${STREAM_INFLUXDB_TOKEN:-super_secret_admin_token_123}
+      STREAM_INFLUXDB_ORG: ${STREAM_INFLUXDB_ORG:-ontime}
+      STREAM_INFLUXDB_BUCKET: ${STREAM_INFLUXDB_BUCKET:-telemetry}
+      STREAM_ROUTE_SERVICE_URL: ${STREAM_ROUTE_SERVICE_URL:-http://route-service:8002}
+      STREAM_FLINK_PARALLELISM: ${STREAM_FLINK_PARALLELISM:-1}
+      PYTHONPATH: /opt/flink/usrlib
     networks:
       - ontime_network
     depends_on:
@@ -346,11 +420,21 @@ services:
     ports:
       - "8006:8006"
     environment:
-      - KAFKA_BROKER_URL=broker:29092
-      - KAFKA_CLEANED_TOPIC=transport-telemetry-cleaned
-      - KAFKA_DLQ_TOPIC=transport-telemetry-dlq
-      - KAFKA_ANOMALY_TOPIC=transport-anomaly-alerts
-      - ROUTE_SERVICE_URL=http://route-service:8002
+      ANOMALY_SERVICE_PORT: ${ANOMALY_SERVICE_PORT:-8006}
+      ANOMALY_KAFKA_BROKER_URL: ${ANOMALY_KAFKA_BROKER_URL:-broker:29092}
+      ANOMALY_KAFKA_CLEANED_TOPIC: ${ANOMALY_KAFKA_CLEANED_TOPIC:-transport-telemetry-cleaned}
+      ANOMALY_KAFKA_DLQ_TOPIC: ${ANOMALY_KAFKA_DLQ_TOPIC:-transport-telemetry-dlq}
+      ANOMALY_KAFKA_ALERTS_TOPIC: ${ANOMALY_KAFKA_ALERTS_TOPIC:-transport-anomaly-alerts}
+      ANOMALY_KAFKA_CLEANED_GROUP_ID: ${ANOMALY_KAFKA_CLEANED_GROUP_ID:-anomaly-service-group}
+      ANOMALY_KAFKA_DLQ_GROUP_ID: ${ANOMALY_KAFKA_DLQ_GROUP_ID:-anomaly-service-dlq-group}
+      ANOMALY_ROUTE_SERVICE_URL: ${ANOMALY_ROUTE_SERVICE_URL:-http://route-service:8002}
+      ANOMALY_ROUTE_FETCH_TIMEOUT_SECONDS: ${ANOMALY_ROUTE_FETCH_TIMEOUT_SECONDS:-10.0}
+      ANOMALY_ROUTE_REFRESH_INTERVAL_SECONDS: ${ANOMALY_ROUTE_REFRESH_INTERVAL_SECONDS:-300}
+      ANOMALY_COMMUNICATION_LOSS_CHECK_INTERVAL_SECONDS: ${ANOMALY_COMMUNICATION_LOSS_CHECK_INTERVAL_SECONDS:-60}
+      ANOMALY_COMMUNICATION_LOSS_THRESHOLD_SECONDS: ${ANOMALY_COMMUNICATION_LOSS_THRESHOLD_SECONDS:-180}
+      ANOMALY_INACTIVE_TRIP_DLQ_THRESHOLD_COUNT: ${ANOMALY_INACTIVE_TRIP_DLQ_THRESHOLD_COUNT:-3}
+      ANOMALY_INACTIVE_TRIP_DLQ_WINDOW_SECONDS: ${ANOMALY_INACTIVE_TRIP_DLQ_WINDOW_SECONDS:-60}
+      ANOMALY_INACTIVE_TRIP_DLQ_COOLDOWN_SECONDS: ${ANOMALY_INACTIVE_TRIP_DLQ_COOLDOWN_SECONDS:-300}
     networks:
       - ontime_network
     depends_on:
