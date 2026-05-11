@@ -78,6 +78,11 @@ app = FastAPI(title="ETA Service", version="0.1.0", description="ETA computation
 app.include_router(eta_router)
 
 
+@app.get("/health")
+def health():
+    return {"status": "healthy"}
+
+
 @app.get("/")
 def root():
     return {"service": "eta-service", "status": "running"}
