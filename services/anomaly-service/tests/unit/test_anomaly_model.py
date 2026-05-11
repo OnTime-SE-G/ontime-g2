@@ -144,19 +144,34 @@ def test_detect_off_route(model):
     # Colpetty coordinates (6.91, 79.85)
     # Route geometry at Bambalapitiya (6.89, 79.85)
     route_geom = [(6.89, 79.85), (6.895, 79.85)]
-    telemetry = {
-        "busId": "B1",
-        "tripId": "T1",
-        "routeId": "R1",
-        "lat": 6.91,
-        "lon": 79.85,
-        "speed": 20.0,
+    
+    # 1. First ping: Off-route, but no alert yet (streak = 1)
+    telemetry1 = {
+        "busId": "B1", "tripId": "T1", "routeId": "R1",
+        "lat": 6.91, "lon": 79.85, "speed": 20.0,
         "timestamp": "2026-05-02T10:00:00Z"
     }
-    # Distance between 6.91 and 6.895 is ~1.6km, which is > 50m
-    alerts = model.detect(telemetry, route_geom)
-    print(f"\n>>> DETECTED {len(alerts)} ALERTS: {alerts}")
-    assert any(a["anomalyType"] == "OFF_ROUTE" for a in alerts)
+    alerts1 = model.detect(telemetry1, route_geom)
+    assert not any(a["anomalyType"] == "PERSISTENT_OFF_ROUTE" for a in alerts1)
+
+    # 2. Second ping: Still off-route, still no alert (streak = 2)
+    telemetry2 = {
+        "busId": "B1", "tripId": "T1", "routeId": "R1",
+        "lat": 6.91, "lon": 79.85, "speed": 20.0,
+        "timestamp": "2026-05-02T10:00:02Z"
+    }
+    alerts2 = model.detect(telemetry2, route_geom)
+    assert not any(a["anomalyType"] == "PERSISTENT_OFF_ROUTE" for a in alerts2)
+
+    # 3. Third ping: Persistent! Alert now (streak = 3)
+    telemetry3 = {
+        "busId": "B1", "tripId": "T1", "routeId": "R1",
+        "lat": 6.91, "lon": 79.85, "speed": 20.0,
+        "timestamp": "2026-05-02T10:00:04Z"
+    }
+    alerts3 = model.detect(telemetry3, route_geom)
+    print(f"\n>>> DETECTED {len(alerts3)} ALERTS: {alerts3}")
+    assert any(a["anomalyType"] == "PERSISTENT_OFF_ROUTE" for a in alerts3)
 
 def test_detect_stationary_bus(model):
     bus_id = "B1"

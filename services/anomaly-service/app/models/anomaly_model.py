@@ -78,6 +78,7 @@ class AnomalyModel:
             logger.debug("No isolation forest model loaded (optional)")
 
     def detect(self, telemetry: Dict[str, Any], route_geometry: List[Tuple[float, float]]) -> List[Dict[str, Any]]:
+        from app.config import settings
         alerts = []
         bus_id = telemetry["busId"]
         speed = telemetry.get("speed", 0.0)
@@ -97,14 +98,44 @@ class AnomalyModel:
             alerts.append(self._create_alert(bus_id, "INACTIVE_GPS", "GPS received for inactive trip", telemetry))
             return alerts # Stop further checks if inactive
 
-        # 3. Off-route deviation
-        if route_geometry:
-            dist = distance_to_polyline(lat, lon, route_geometry)
-            if dist > 50.0:
-                alerts.append(self._create_alert(bus_id, "OFF_ROUTE", f"Bus deviated by {round(dist)}m from route", telemetry))
+        # 3. Off-route deviation with streak
+        state = self.bus_states.get(bus_id, {})
+        off_route_streak = state.get("off_route_streak", 0)
+        last_off_route_ts = state.get("last_off_route_ts", 0)
+
+        # Use the onRoute flag from Flink if available, otherwise calculate manually
+        is_off_track = not telemetry.get("onRoute", True)
+        deviation = telemetry.get("routeDeviationMeters", 0.0)
+
+        if not is_off_track and route_geometry and "onRoute" not in telemetry:
+             # Fallback manual check if Flink didn't provide it (e.g. in unit tests)
+             deviation = distance_to_polyline(lat, lon, route_geometry)
+             is_off_track = deviation > settings.off_route_distance_threshold_m
+
+        if is_off_track:
+
+            # Check if this is part of a continuing streak (within window)
+            if current_time - last_off_route_ts <= settings.off_route_streak_window_seconds:
+                off_route_streak += 1
+            else:
+                off_route_streak = 1 # Start new streak
+            
+            state["last_off_route_ts"] = current_time
+            state["off_route_streak"] = off_route_streak
+
+            if off_route_streak >= settings.persistent_off_route_threshold:
+                alerts.append(self._create_alert(
+                    bus_id, 
+                    "PERSISTENT_OFF_ROUTE", 
+                    f"Bus persistently off-route by {round(deviation)}m", 
+                    telemetry
+                ))
+
+        else:
+            # Reset streak if on route
+            state["off_route_streak"] = 0
 
         # 4. Stationary Bus (>5 min at <2 km/h)
-        state = self.bus_states.get(bus_id, {})
         if speed < 2.0:
             if "stationary_start_time" not in state:
                 state["stationary_start_time"] = current_time
