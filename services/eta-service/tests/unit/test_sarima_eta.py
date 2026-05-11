@@ -21,10 +21,19 @@ from unittest.mock import MagicMock, patch
 
 def _make_fake_fitted_model(predict_value: float):
     """Return a mock SARIMAXResults-like object whose predict() returns a Series."""
-    import pandas as pd
+    class _FakeSeries:
+        def __init__(self, values):
+            self._values = values
+
+        @property
+        def iloc(self):
+            return self
+
+        def __getitem__(self, index):
+            return self._values[index]
 
     fake_result = MagicMock()
-    fake_result.predict.return_value = pd.Series([predict_value])
+    fake_result.predict.return_value = _FakeSeries([predict_value])
     return fake_result
 
 
@@ -103,14 +112,14 @@ class TestForecastEtaSarima:
         sarima_eta._ARTIFACT_DIR = str(tmp_path)
 
         try:
-            # Patch joblib.load at the module level — _load_artifact imports joblib
-            # lazily, so patching joblib.load covers both calls.
-            with patch("joblib.load", return_value=fake_model) as mock_load:
+            # _load_artifact imports joblib lazily, so inject a small fake module.
+            fake_joblib = types.SimpleNamespace(load=MagicMock(return_value=fake_model))
+            with patch.dict(sys.modules, {"joblib": fake_joblib}):
                 sarima_eta.forecast_eta_sarima("route_D", 7)
                 sarima_eta.forecast_eta_sarima("route_D", 7)
 
             # lru_cache hit on the second call means joblib.load is invoked once
-            assert mock_load.call_count == 1
+            assert fake_joblib.load.call_count == 1
         finally:
             sarima_eta._ARTIFACT_DIR = original
             self._clear_lru_cache()

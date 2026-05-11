@@ -216,6 +216,25 @@ def test_process_payload_falls_back_to_physics_when_xgboost_fails(monkeypatch):
     assert result["live_event"]["model_used"] == "physics"
 
 
+def test_process_payload_labels_physics_when_xgboost_artifact_missing(monkeypatch):
+    redis_client = FakeRedis()
+    consumer = EtaFeatureConsumer(redis_client, default_model="xgboost")
+
+    fake_module = SimpleNamespace(
+        predict_eta_xgb_with_fallback=lambda *args, **kwargs: (
+            SimpleNamespace(eta_seconds=120.0, speed_ms=1.95, clamped=False),
+            "physics",
+        )
+    )
+    monkeypatch.setitem(sys.modules, "models.ml_eta_xgb", fake_module)
+
+    result = consumer.process_payload(make_payload())
+
+    assert result["model_used"] == "physics"
+    assert result["snapshot"]["modelUsed"] == "physics"
+    assert result["live_event"]["model_used"] == "physics"
+
+
 def test_consume_forever_processes_kafka_messages_and_closes_consumer():
     redis_client = FakeRedis()
     processed_messages = []
