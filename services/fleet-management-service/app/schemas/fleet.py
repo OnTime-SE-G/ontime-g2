@@ -6,6 +6,7 @@ class FleetBusCreate(BaseModel):
     fleet_code: str
     plate_number: str
     capacity: int = Field(default=50, gt=0)
+    status: str = "active"
 
 
 class FleetBusResponse(BaseModel):
@@ -13,6 +14,7 @@ class FleetBusResponse(BaseModel):
     fleet_code: str
     plate_number: str
     capacity: int
+    status: str
     route_id: int | None
 
     model_config = ConfigDict(from_attributes=True)

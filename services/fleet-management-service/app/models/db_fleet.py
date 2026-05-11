@@ -17,6 +17,7 @@ class FleetBusORM(Base):
 
     # Static configuration
     capacity: Mapped[int] = mapped_column(Integer, default=50)
+    status: Mapped[str] = mapped_column(String(20), nullable=False, server_default="active")
 
     # Assignment (can be null if not assigned yet)
     route_id: Mapped[int] = mapped_column(Integer, nullable=True)
