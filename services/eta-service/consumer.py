@@ -15,7 +15,7 @@ import time
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 
-from models.eta import compute_eta
+from models.eta import EtaResult, compute_eta
 
 
 ETA_SNAPSHOT_KEY_PREFIX = "eta:trip"
@@ -185,6 +185,7 @@ class EtaFeatureConsumer:
         eta_result: Any,
         *,
         model_used: str,
+        stop_etas: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         return {
             "busId": event.bus_id,
@@ -200,6 +201,7 @@ class EtaFeatureConsumer:
             "effectiveSpeedMs": eta_result.speed_ms,
             "speedClamped": eta_result.clamped,
             "modelUsed": model_used,
+            "stopEtas": stop_etas or [],
         }
 
     def build_live_event(
@@ -208,6 +210,7 @@ class EtaFeatureConsumer:
         eta_result: Any,
         *,
         model_used: str,
+        stop_etas: list[dict[str, Any]] | None = None,
     ) -> dict[str, Any]:
         stop_name = next(
             (
@@ -228,8 +231,55 @@ class EtaFeatureConsumer:
             "model_used": model_used,
             "routeProgressPct": event.route_progress_pct,
             "distanceToNextStop": event.distance_to_next_stop,
+            "stop_etas": stop_etas or [],
             "timestamp": event.timestamp,
         }
+
+    def build_stop_etas(
+        self,
+        event: EtaFeatureMessage,
+        first_eta_result: Any,
+        *,
+        first_model_used: str,
+        model_name: str | None = None,
+    ) -> list[dict[str, Any]]:
+        stop_etas = []
+        for index, stop in enumerate(event.stops_ahead):
+            try:
+                stop_id = int(stop.get("stopId"))
+            except (TypeError, ValueError):
+                continue
+
+            distance_m = float(stop.get("distanceAlongRouteMeters", event.distance_to_next_stop))
+            if stop_id == event.next_stop_id:
+                eta_result = first_eta_result
+                model_used = first_model_used
+            else:
+                eta_result, model_used = self._predict_eta(
+                    distance_m,
+                    event.speed_ms,
+                    stops_remaining=index + 1,
+                    timestamp=event.timestamp,
+                    model_name=model_name,
+                    route_id=event.route_id,
+                    stop_id=stop_id,
+                )
+
+            stop_etas.append(
+                {
+                    "stop_id": stop_id,
+                    "stopId": stop_id,
+                    "stop_name": stop.get("stopName"),
+                    "stopName": stop.get("stopName"),
+                    "eta_seconds": eta_result.eta_seconds,
+                    "etaSeconds": eta_result.eta_seconds,
+                    "distance_m": distance_m,
+                    "distanceMeters": distance_m,
+                    "model_used": model_used,
+                    "modelUsed": model_used,
+                }
+            )
+        return stop_etas
 
     def _parse_timestamp(self, timestamp: str) -> dt_module.datetime | None:
         try:
@@ -245,9 +295,34 @@ class EtaFeatureConsumer:
         stops_remaining: int,
         timestamp: str,
         model_name: str | None = None,
+        route_id: str | None = None,
+        stop_id: int | None = None,
     ) -> tuple[Any, str]:
         selected_model = (model_name or self.default_model).lower().strip()
-        if selected_model == "xgboost":
+        parsed_timestamp = self._parse_timestamp(timestamp)
+
+        if selected_model == "sarima" and route_id and stop_id is not None:
+            try:
+                from models.sarima_eta import forecast_eta_sarima
+
+                sarima_seconds = forecast_eta_sarima(route_id, stop_id, parsed_timestamp)
+                if sarima_seconds is not None:
+                    physics = self.eta_computer(distance_m, speed_ms)
+                    return (
+                        EtaResult(
+                            eta_seconds=float(sarima_seconds),
+                            distance_m=max(0.0, distance_m),
+                            speed_ms=physics.speed_ms,
+                            clamped=physics.clamped,
+                        ),
+                        "sarima",
+                    )
+            except Exception as exc:
+                logging.getLogger(__name__).warning(
+                    "SARIMA ETA unavailable, falling back to XGBoost/physics: %s", exc
+                )
+
+        if selected_model in {"xgboost", "sarima"}:
             try:
                 from models.ml_eta_xgb import predict_eta_xgb_with_fallback
 
@@ -255,7 +330,7 @@ class EtaFeatureConsumer:
                     distance_m,
                     speed_ms,
                     stops_remaining=stops_remaining,
-                    dt=self._parse_timestamp(timestamp),
+                    dt=parsed_timestamp,
                 )
                 return result, model_used
             except Exception as exc:
@@ -299,10 +374,28 @@ class EtaFeatureConsumer:
             stops_remaining=event.stops_remaining,
             timestamp=event.timestamp,
             model_name=model_name,
+            route_id=event.route_id,
+            stop_id=event.next_stop_id,
         )
 
-        snapshot_payload = self.build_snapshot(event, eta_result, model_used=model_used)
-        live_event = self.build_live_event(event, eta_result, model_used=model_used)
+        stop_etas = self.build_stop_etas(
+            event,
+            eta_result,
+            first_model_used=model_used,
+            model_name=model_name,
+        )
+        snapshot_payload = self.build_snapshot(
+            event,
+            eta_result,
+            model_used=model_used,
+            stop_etas=stop_etas,
+        )
+        live_event = self.build_live_event(
+            event,
+            eta_result,
+            model_used=model_used,
+            stop_etas=stop_etas,
+        )
 
         snapshot_json = json.dumps(snapshot_payload, separators=(",", ":"), sort_keys=True)
         live_event_json = json.dumps(live_event, separators=(",", ":"), sort_keys=True)
