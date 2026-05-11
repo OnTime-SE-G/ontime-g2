@@ -41,12 +41,20 @@ def test_init_requires_producer():
         subscriber_module.MQTTSubscriber(producer=None)
 
 
-def test_connect_uses_configured_broker(subscriber_with_mocks):
+def test_connect_uses_configured_broker(subscriber_with_mocks, monkeypatch):
     subscriber, _, mock_client, _ = subscriber_with_mocks
+    
+    # Ensure settings are at defaults regardless of .env content
+    monkeypatch.setattr(subscriber_module.settings, "mqtt_username", None)
+    monkeypatch.setattr(subscriber_module.settings, "mqtt_password", None)
+    monkeypatch.setattr(subscriber_module.settings, "mqtt_tls_enabled", False)
+    monkeypatch.setattr(subscriber_module.settings, "mqtt_broker_host", "mqtt-broker")
+    monkeypatch.setattr(subscriber_module.settings, "mqtt_broker_port", 1883)
+
     subscriber.connect()
     mock_client.connect.assert_called_once_with(
-        subscriber_module.settings.mqtt_broker_host,
-        subscriber_module.settings.mqtt_broker_port,
+        "mqtt-broker",
+        1883,
         60,
     )
     mock_client.username_pw_set.assert_not_called()
