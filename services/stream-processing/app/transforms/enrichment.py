@@ -132,6 +132,7 @@ class EnrichmentFunction(KeyedProcessFunction):
             # Enrichment: Progress & Distance
             remaining_dist = 0.0
             progress_pct = 0.0
+            deviation_m = 0.0
             next_stop_id = None
             distance_to_next_stop = 0.0
             stops_remaining = 0
@@ -139,7 +140,7 @@ class EnrichmentFunction(KeyedProcessFunction):
 
             if route_id and route_id in self.route_geometries:
                 geom = self.route_geometries[route_id]
-                remaining_dist, progress_pct = calculate_route_progress(lat, lon, geom)
+                remaining_dist, progress_pct, deviation_m = calculate_route_progress(lat, lon, geom)
 
                 route_stops = self.route_stops.get(route_id, [])
                 if route_stops:
@@ -167,6 +168,8 @@ class EnrichmentFunction(KeyedProcessFunction):
                 "distanceToNextStop": round(distance_to_next_stop, 2),
                 "stopsRemaining": stops_remaining,
                 "stopsAhead": stops_ahead,
+                "onRoute": deviation_m < 50.0,
+                "routeDeviationMeters": round(deviation_m, 2),
             }
 
             yield json.dumps(enriched)
