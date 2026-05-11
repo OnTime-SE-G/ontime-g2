@@ -72,9 +72,9 @@ async def trigger_generation(target_date: date, db: Session = Depends(get_db)):
     return await trip_service.generate_daily_trips(db, target_date)
 
 @router.get("/planned-trips/today", response_model=List[PlannedTripResponse])
-def get_today_trips(db: Session = Depends(get_db)):
-    today = date.today()
-    return db.query(PlannedTripORM).filter(PlannedTripORM.date == today).all()
+def get_today_trips(target_date: date | None = None, db: Session = Depends(get_db)):
+    query_date = target_date or date.today()
+    return db.query(PlannedTripORM).filter(PlannedTripORM.date == query_date).all()
 
 @router.get("/planned-trips/{trip_id}", response_model=PlannedTripResponse)
 def get_trip_detail(trip_id: str, db: Session = Depends(get_db)):

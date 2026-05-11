@@ -235,14 +235,14 @@ async def generate_trips(target_date: date):
 
 
 @router.get("/planned-trips/today", response_model=List[PlannedTripResponse])
-async def today_trips():
+async def today_trips(target_date: date | None = None):
     """
-    Get today's full timetable.
+    Get the full timetable for today (or a specific date).
 
-    Admin only (admin view includes all trips and assigned resources).
+    Admin only.
     """
     try:
-        return await get_today_trips()
+        return await get_today_trips(str(target_date) if target_date else None)
     except HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
 

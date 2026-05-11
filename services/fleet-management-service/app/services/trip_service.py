@@ -15,15 +15,19 @@ async def generate_daily_trips(db: Session, target_date: date):
     """Generate PlannedTrip records from Schedules for a specific date."""
     day_of_week = target_date.isoweekday() % 7  # Sun=0, Mon=1, ..., Sat=6 (matches JS convention)
     
-    # Check if trips already exist for this date
-    existing = db.query(PlannedTripORM).filter(PlannedTripORM.date == target_date).first()
-    if existing:
-        return {"message": f"Trips for {target_date} already exist", "count": 0}
+    # Get existing trip schedule IDs for this date to avoid duplicates
+    existing_schedule_ids = {
+        t.schedule_id for t in db.query(PlannedTripORM.schedule_id)
+        .filter(PlannedTripORM.date == target_date).all()
+    }
 
     schedules = db.query(ScheduleORM).filter(ScheduleORM.day_of_week == day_of_week).all()
     
     new_trips = []
     for schedule in schedules:
+        if schedule.id in existing_schedule_ids:
+            continue
+
         trip_id = f"TRIP-{uuid.uuid4().hex[:8].upper()}"
         new_trip = PlannedTripORM(
             id=trip_id,
@@ -35,7 +39,7 @@ async def generate_daily_trips(db: Session, target_date: date):
         new_trips.append(new_trip)
     
     db.commit()
-    return {"message": f"Generated {len(new_trips)} trips for {target_date}", "count": len(new_trips)}
+    return {"message": f"Generated {len(new_trips)} new trips for {target_date}", "count": len(new_trips)}
 
 async def start_trip(db: Session, trip_id: str):
     """Transition a planned trip to EN_ROUTE and notify the system."""
