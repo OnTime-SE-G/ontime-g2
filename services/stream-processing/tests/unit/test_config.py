@@ -18,6 +18,7 @@ def test_stream_config_loads_defaults():
     assert settings.kafka_invalid_topic == "telemetry-invalid"
     assert settings.kafka_lifecycle_topic == "trip.lifecycle"
     assert settings.route_deviation_threshold_meters == 50.0
+    assert settings.fleet_service_url == "http://fleet-management-service:8003"
     assert settings.redis_host == "redis"
     assert settings.redis_fleet_live_channel == "fleet:live"
     assert settings.flink_parallelism == 1
@@ -27,9 +28,11 @@ def test_stream_config_accepts_service_specific_env(monkeypatch):
     monkeypatch.setenv("STREAM_KAFKA_BROKER_URL", "kafka:9092")
     monkeypatch.setenv("STREAM_REDIS_PORT", "6380")
     monkeypatch.setenv("STREAM_FLINK_PARALLELISM", "2")
+    monkeypatch.setenv("STREAM_FLEET_SERVICE_URL", "http://fleet:8003")
 
     settings = StreamSettings()
 
     assert settings.kafka_broker_url == "kafka:9092"
     assert settings.redis_port == 6380
     assert settings.flink_parallelism == 2
+    assert settings.fleet_service_url == "http://fleet:8003"
