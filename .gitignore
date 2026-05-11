@@ -25,3 +25,6 @@ htmlcov/
 # Database / OS
 *.sqlite3
 .DS_Store
+
+# Node.js
+node_modules/

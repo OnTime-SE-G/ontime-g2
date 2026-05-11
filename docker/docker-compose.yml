@@ -234,13 +234,13 @@ services:
     ports:
       - "8001:8001"
     environment:
-      INGESTION_MQTT_BROKER_HOST: ${INGESTION_MQTT_BROKER_HOST:-mqtt-broker}
-      INGESTION_MQTT_BROKER_PORT: ${INGESTION_MQTT_BROKER_PORT:-1883}
+      INGESTION_MQTT_BROKER_HOST: ${MQTT_BROKER_HOST:-mqtt-broker}
+      INGESTION_MQTT_BROKER_PORT: ${MQTT_BROKER_PORT:-1883}
       INGESTION_MQTT_TOPIC_PATTERN: ${INGESTION_MQTT_TOPIC_PATTERN:-transport/bus/+/location}
       INGESTION_MQTT_HEARTBEAT_TOPIC_PATTERN: ${INGESTION_MQTT_HEARTBEAT_TOPIC_PATTERN:-transport/bus/+/heartbeat}
-      INGESTION_MQTT_TLS_ENABLED: ${INGESTION_MQTT_TLS_ENABLED:-false}
-      INGESTION_MQTT_USERNAME: ${INGESTION_MQTT_USERNAME:-}
-      INGESTION_MQTT_PASSWORD: ${INGESTION_MQTT_PASSWORD:-}
+      INGESTION_MQTT_TLS_ENABLED: ${MQTT_TLS_ENABLED:-false}
+      INGESTION_MQTT_USERNAME: ${MQTT_USERNAME:-}
+      INGESTION_MQTT_PASSWORD: ${MQTT_PASSWORD:-}
       INGESTION_MQTT_CLIENT_ID: ${INGESTION_MQTT_CLIENT_ID:-ontime-ingestion-service}
       INGESTION_MQTT_CA_CERT_PATH: ${INGESTION_MQTT_CA_CERT_PATH:-}
       INGESTION_KAFKA_BROKER_URL: ${INGESTION_KAFKA_BROKER_URL:-broker:29092}
@@ -262,8 +262,6 @@ services:
     depends_on:
       kafka-init:
         condition: service_completed_successfully
-      mqtt-broker:
-        condition: service_healthy
     healthcheck:
       test:
         [
@@ -442,6 +440,27 @@ services:
         condition: service_completed_successfully
       route-service:
         condition: service_started
+
+  nodered:
+    image: nodered/node-red:latest
+    container_name: ontime_nodered
+    ports:
+      - "${NODERED_PORT:-1880}:1880"
+    volumes:
+      - ./nodered:/data
+      - ../data:/data/kml:ro
+    environment:
+      MQTT_BROKER_HOST: ${MQTT_BROKER_HOST}
+      MQTT_BROKER_PORT: ${MQTT_BROKER_PORT}
+      MQTT_USERNAME: ${MQTT_USERNAME}
+      MQTT_PASSWORD: ${MQTT_PASSWORD}
+      MQTT_TLS_ENABLED: ${MQTT_TLS_ENABLED}
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    networks:
+      - ontime_network
+    restart: unless-stopped
 
 networks:
   ontime_network:
