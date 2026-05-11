@@ -12,6 +12,7 @@ from services.ingestion.app.validator import (
     StatefulValidator,
     ValidationResult,
     validate_gps_location_payload,
+    validate_gps_schema_only_payload,
     validate_heartbeat_payload,
 )
 
@@ -118,17 +119,21 @@ class MQTTSubscriber:
         return topic.endswith("/heartbeat")
 
     def _process_payload(self, raw_payload: bytes, source_topic: str):
-        location_result = validate_gps_location_payload(raw_payload)
-        if not location_result.success or not location_result.location:
-            self._reject(raw_payload, source_topic, location_result)
-            return
-
-        # If stateless mode is enabled, forward the validated raw JSON payload
-        # directly to Kafka and skip enrichment / stateful validation.
-        if settings.stateless_mode:
+        # CR1 stateless mode: ingestion is a schema-only MQTT -> Kafka bridge.
+        # Physics and geographic validation belong to Flink.
+        if settings.stateless_mode and self.trip_cache is None:
+            schema_result = validate_gps_schema_only_payload(raw_payload)
+            if not schema_result.success:
+                self._reject(raw_payload, source_topic, schema_result)
+                return
             self.messages_validated += 1
             metrics.increment_validated()
             self.producer.publish_raw_bytes(raw_payload, source_topic)
+            return
+
+        location_result = validate_gps_location_payload(raw_payload)
+        if not location_result.success or not location_result.location:
+            self._reject(raw_payload, source_topic, location_result)
             return
 
         if self.trip_cache is not None and self.trip_cache.is_rebuilding:
