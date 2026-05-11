@@ -14,12 +14,7 @@ services:
     networks:
       - ontime_network
     healthcheck:
-      test:
-        [
-          "CMD-SHELL",
-          "pg_isready -U ${POSTGRES_USER:-postgres} -d
-            ${POSTGRES_DB:-ontime_db}",
-        ]
+      test: [ "CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-postgres} -d ${POSTGRES_DB:-ontime_db}" ]
       interval: 5s
       timeout: 5s
       retries: 5
@@ -210,19 +205,7 @@ services:
     networks:
       - ontime_network
     healthcheck:
-      test:
-        [
-          "CMD",
-          "mosquitto_sub",
-          "-t",
-          "$$SYS/#",
-          "-C",
-          "1",
-          "-i",
-          "healthcheck",
-          "-W",
-          "3",
-        ]
+      test: [ "CMD", "mosquitto_sub", "-t", "$$SYS/#", "-C", "1", "-i", "healthcheck", "-W", "3" ]
       interval: 10s
       timeout: 5s
       retries: 3
@@ -266,20 +249,12 @@ services:
       mqtt-broker:
         condition: service_healthy
     healthcheck:
-      test:
-        [
-          "CMD",
-          "python",
-          "-c",
-          "import urllib.request;
-            urllib.request.urlopen('http://127.0.0.1:8001/health/ready',
-            timeout=3)",
-        ]
+      test: [ "CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8001/health/ready', timeout=3)" ]
       interval: 15s
       timeout: 5s
       retries: 5
       start_period: 20s
-      
+
   websocket-service:
     build:
       context: ../services/websocket-service

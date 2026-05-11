@@ -6,7 +6,7 @@ def test_calculate_route_progress_exact_match():
     route_geom = [(6.0, 80.0), (7.0, 80.0)]
     lat, lon = 6.5, 80.0
 
-    remaining_dist, progress_pct = calculate_route_progress(lat, lon, route_geom)
+    remaining_dist, progress_pct, _ = calculate_route_progress(lat, lon, route_geom)
 
     print(f"\n>>> GEO EXACT MATCH: Bus at halfway point -> Progress: {progress_pct:.2f}%, Remaining: {remaining_dist:.2f}m")
 
@@ -18,14 +18,14 @@ def test_calculate_route_progress_exact_match():
 def test_calculate_route_progress_start():
     route_geom = [(6.0, 80.0), (7.0, 80.0)]
     lat, lon = 6.0, 80.0
-    remaining_dist, progress_pct = calculate_route_progress(lat, lon, route_geom)
+    remaining_dist, progress_pct, _ = calculate_route_progress(lat, lon, route_geom)
     print(f"\n>>> GEO START: Bus at start point -> Progress: {progress_pct:.2f}%, Remaining: {remaining_dist:.2f}m")
     assert progress_pct == pytest.approx(0.0, abs=0.1)
 
 def test_calculate_route_progress_end():
     route_geom = [(6.0, 80.0), (7.0, 80.0)]
     lat, lon = 7.0, 80.0
-    remaining_dist, progress_pct = calculate_route_progress(lat, lon, route_geom)
+    remaining_dist, progress_pct, _ = calculate_route_progress(lat, lon, route_geom)
     print(f"\n>>> GEO END: Bus at end point -> Progress: {progress_pct:.2f}%, Remaining: {remaining_dist:.2f}m")
     assert progress_pct == pytest.approx(100.0, abs=0.1)
     assert remaining_dist == pytest.approx(0.0, abs=1.0)
