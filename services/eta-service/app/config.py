@@ -43,9 +43,9 @@ class EtaSettings(BaseSettings):
         description="Kafka bootstrap server address",
     )
     kafka_topic: str = Field(
-        default="gps-cleaned",
+        default="transport-eta-features",
         validation_alias=AliasChoices("ETA_KAFKA_TOPIC"),
-        description="Kafka topic consumed by ETA Service (Flink gps-cleaned stream)",
+        description="Kafka topic consumed by ETA Service (Flink ETA features stream)",
     )
     kafka_consumer_group: str = Field(
         default="eta-service-group",
