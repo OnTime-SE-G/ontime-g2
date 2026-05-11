@@ -10,7 +10,7 @@ from app.services.fleet_client import (
     create_driver, get_driver as get_driver_from_fleet, update_driver as update_driver_in_fleet,
     list_drivers, deactivate_driver,
     create_schedule, list_schedules,
-    generate_planned_trips, get_today_trips, get_trips, get_trip_detail, assign_trip_resources,
+    generate_planned_trips, get_today_trips, get_trip_detail, assign_trip_resources,
     report_trip_delay, report_trip_incident
 )
 from app.services.keycloak_client import keycloak_client
