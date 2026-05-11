@@ -3,8 +3,8 @@ import logging
 from pyflink.datastream import KeyedProcessFunction, RuntimeContext
 from pyflink.datastream.state import ValueStateDescriptor, MapStateDescriptor
 from pyflink.common.typeinfo import Types
-from app.utils.geo import calculate_route_progress
-from app.utils.route_client import fetch_geometries_sync
+from app.utils.geo import calculate_route_progress, get_dist_along_route, haversine_distance
+from app.utils.route_client import fetch_geometries_sync, fetch_stops_sync
 
 logger = logging.getLogger(__name__)
 logger = logging.getLogger(__name__)
@@ -34,6 +34,8 @@ class EnrichmentFunction(KeyedProcessFunction):
     def __init__(self):
         self.trip_to_route_state = None
         self.route_geometries = {}
+        # {routeId: [{id, name, stop_order, lat, lon, dist_along_route}, ...]}
+        self.route_stops = {}
 
     def open(self, runtime_context: RuntimeContext):
         # State to store mapping of tripId to routeId for this bus
@@ -50,6 +52,29 @@ class EnrichmentFunction(KeyedProcessFunction):
         logger.info("Fetching route geometries for enrichment...")
         self.route_geometries = fetch_geometries_sync()
         logger.info(f"Loaded {len(self.route_geometries)} route geometries.")
+
+        # Load stop sequences for each route (used for stopsAhead computation)
+        logger.info("Fetching route stops for stopsAhead enrichment...")
+        for route_id, geom_points in self.route_geometries.items():
+            raw_stops = fetch_stops_sync(route_id)
+            enriched_stops = []
+            for stop in raw_stops:
+                stop_lat = stop.get("lat")
+                stop_lon = stop.get("lon")
+                if stop_lat is None or stop_lon is None:
+                    continue
+                dist_along = get_dist_along_route(stop_lat, stop_lon, geom_points)
+                enriched_stops.append({
+                    "id": stop["id"],
+                    "name": stop["name"],
+                    "stop_order": stop["stop_order"],
+                    "lat": stop_lat,
+                    "lon": stop_lon,
+                    "dist_along_route": dist_along,
+                })
+            enriched_stops.sort(key=lambda s: s["stop_order"])
+            self.route_stops[route_id] = enriched_stops
+        logger.info(f"Loaded stops for {len(self.route_stops)} routes.")
 
     def process_element(self, value, ctx: KeyedProcessFunction.Context):
         if not value or not value.strip():
@@ -107,16 +132,40 @@ class EnrichmentFunction(KeyedProcessFunction):
             # Enrichment: Progress & Distance
             remaining_dist = 0.0
             progress_pct = 0.0
+            next_stop_id = None
+            distance_to_next_stop = 0.0
+            stops_remaining = 0
+            stops_ahead = []
 
-            if route_id in self.route_geometries:
+            if route_id and route_id in self.route_geometries:
                 geom = self.route_geometries[route_id]
                 remaining_dist, progress_pct = calculate_route_progress(lat, lon, geom)
+
+                route_stops = self.route_stops.get(route_id, [])
+                if route_stops:
+                    bus_dist_along = get_dist_along_route(lat, lon, geom)
+                    for stop in route_stops:  # already sorted by stop_order
+                        if stop["dist_along_route"] >= bus_dist_along:
+                            dist_from_bus = haversine_distance(lat, lon, stop["lat"], stop["lon"])
+                            stops_ahead.append({
+                                "stopId": stop["id"],
+                                "stopName": stop["name"],
+                                "distanceFromBus": round(dist_from_bus, 2),
+                            })
+                    if stops_ahead:
+                        stops_remaining = len(stops_ahead)
+                        next_stop_id = stops_ahead[0]["stopId"]
+                        distance_to_next_stop = stops_ahead[0]["distanceFromBus"]
 
             enriched = {
                 **data,
                 "routeId": route_id,
                 "remainingDistanceToNextStops": round(remaining_dist, 2),
-                "routeProgressPct": round(progress_pct, 2)
+                "routeProgressPct": round(progress_pct, 2),
+                "nextStopId": next_stop_id,
+                "distanceToNextStop": round(distance_to_next_stop, 2),
+                "stopsRemaining": stops_remaining,
+                "stopsAhead": stops_ahead,
             }
 
             yield json.dumps(enriched)

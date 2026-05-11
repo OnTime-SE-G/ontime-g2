@@ -1,0 +1,71 @@
+from __future__ import annotations
+
+import logging
+import threading
+from contextlib import asynccontextmanager
+from typing import Optional
+
+from fastapi import FastAPI
+
+from consumer import EtaFeatureConsumer
+from routers.eta import router as eta_router
+
+
+logger = logging.getLogger("eta-service")
+
+
+def _make_redis_client():
+    try:
+        import redis
+
+        return redis.Redis(host="redis", port=6379, decode_responses=False)
+    except Exception:
+        # Fallback no-op redis-like client for local tests / missing deps
+        class _FakeRedis:
+            def setex(self, *args, **kwargs):
+                return None
+
+            def publish(self, *args, **kwargs):
+                return None
+
+        return _FakeRedis()
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    stop_event = threading.Event()
+    redis_client = _make_redis_client()
+
+    # Create consumer but only start the Kafka loop if kafka-python is installed.
+    consumer = EtaFeatureConsumer(redis_client)
+    consumer_thread: Optional[threading.Thread] = None
+
+    try:
+        # Attempt to import kafka to decide whether to run the loop here.
+        import kafka  # type: ignore
+
+        consumer_thread = threading.Thread(
+            target=consumer.consume_forever, args=(stop_event,), daemon=True
+        )
+        consumer_thread.start()
+        logger.info("ETA consumer thread started")
+    except Exception:
+        logger.warning("kafka-python not available; ETA consumer not started in this process")
+
+    yield
+
+    # Shutdown
+    stop_event.set()
+    if consumer_thread is not None:
+        consumer_thread.join(timeout=2.0)
+        logger.info("ETA consumer thread stopped")
+
+
+app = FastAPI(title="ETA Service", version="0.1.0", description="ETA computation service", lifespan=lifespan)
+
+app.include_router(eta_router)
+
+
+@app.get("/")
+def root():
+    return {"service": "eta-service", "status": "running"}
