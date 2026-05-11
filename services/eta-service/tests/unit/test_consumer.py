@@ -142,7 +142,7 @@ def test_create_kafka_consumer_uses_injected_factory():
     assert consumer.create_kafka_consumer() == "fake-consumer"
     assert calls[0]["bootstrap_servers"] == "broker:29092"
     assert calls[0]["group_id"] == "eta-service"
-    assert calls[0]["topic_name"] == "transport-eta-features"
+    assert calls[0]["topic_name"] == "gps-cleaned"
 
 
 def test_process_payload_supports_custom_snapshot_ttl():

@@ -90,25 +90,26 @@ class TestForecastEtaSarima:
         load the artifact from disk once (lru_cache hit on the second call)."""
         self._clear_lru_cache()
 
-        # Create a real (but minimal) .joblib file using a mock object
-        import joblib
+        from models import sarima_eta
 
         fake_model = _make_fake_fitted_model(99.0)
-        artifact_path = tmp_path / "route_D_7.joblib"
-        joblib.dump(fake_model, artifact_path)
 
-        from models import sarima_eta
+        # Create an empty file so os.path.exists returns True without needing
+        # to joblib.dump a MagicMock (MagicMock class is not picklable by joblib).
+        artifact_path = tmp_path / "route_D_7.joblib"
+        artifact_path.touch()
 
         original = sarima_eta._ARTIFACT_DIR
         sarima_eta._ARTIFACT_DIR = str(tmp_path)
 
         try:
-            with patch("joblib.load", wraps=joblib.load) as mock_load:
+            # Patch joblib.load at the module level — _load_artifact imports joblib
+            # lazily, so patching joblib.load covers both calls.
+            with patch("joblib.load", return_value=fake_model) as mock_load:
                 sarima_eta.forecast_eta_sarima("route_D", 7)
                 sarima_eta.forecast_eta_sarima("route_D", 7)
 
-            # joblib.load is called inside _load_artifact; lru_cache means
-            # the second call never reaches joblib.load
+            # lru_cache hit on the second call means joblib.load is invoked once
             assert mock_load.call_count == 1
         finally:
             sarima_eta._ARTIFACT_DIR = original
