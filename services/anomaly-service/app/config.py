@@ -3,6 +3,10 @@ from pathlib import Path
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+SERVICE_ROOT = Path(__file__).resolve().parent
+DEFAULT_ISOLATION_FOREST_ARTIFACT_PATH = (
+    SERVICE_ROOT / "models" / "training" / "isolation_forest.joblib"
+)
 
 try:
     REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -166,6 +170,32 @@ class AnomalySettings(BaseSettings):
             "PERSISTENT_OFF_ROUTE_THRESHOLD",
         ),
         description="Readings in the streak window before PERSISTENT_OFF_ROUTE is emitted",
+    )
+    sliding_window_size: int = Field(
+        default=20,
+        ge=2,
+        validation_alias=AliasChoices(
+            "ANOMALY_SLIDING_WINDOW_SIZE",
+            "SLIDING_WINDOW_SIZE",
+        ),
+        description="Number of recent telemetry pings used for Isolation Forest features",
+    )
+    sliding_window_min_size: int = Field(
+        default=10,
+        ge=2,
+        validation_alias=AliasChoices(
+            "ANOMALY_SLIDING_WINDOW_MIN_SIZE",
+            "SLIDING_WINDOW_MIN_SIZE",
+        ),
+        description="Minimum telemetry pings required before Isolation Forest inference",
+    )
+    isolation_forest_artifact_path: str = Field(
+        default=str(DEFAULT_ISOLATION_FOREST_ARTIFACT_PATH),
+        validation_alias=AliasChoices(
+            "ANOMALY_ISOLATION_FOREST_ARTIFACT_PATH",
+            "ISOLATION_FOREST_ARTIFACT_PATH",
+        ),
+        description="Path to the trained Isolation Forest .joblib artifact",
     )
 
     model_config = SettingsConfigDict(
