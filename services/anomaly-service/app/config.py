@@ -118,6 +118,24 @@ class AnomalySettings(BaseSettings):
         ),
         description="Cooldown after emitting inactive-trip DLQ alert",
     )
+    off_route_distance_threshold_m: float = Field(
+        default=50.0,
+        ge=1.0,
+        validation_alias=AliasChoices("ANOMALY_OFF_ROUTE_DISTANCE_THRESHOLD_M", "OFF_ROUTE_DISTANCE_THRESHOLD_M"),
+        description="Deviation threshold (metres) before considering a bus off-route",
+    )
+    persistent_off_route_threshold: int = Field(
+        default=3,
+        ge=1,
+        validation_alias=AliasChoices("ANOMALY_PERSISTENT_OFF_ROUTE_THRESHOLD", "PERSISTENT_OFF_ROUTE_THRESHOLD"),
+        description="Consecutive off-route pings before alerting",
+    )
+    off_route_streak_window_seconds: float = Field(
+        default=5.0,
+        ge=1.0,
+        validation_alias=AliasChoices("ANOMALY_OFF_ROUTE_STREAK_WINDOW_SECONDS", "OFF_ROUTE_STREAK_WINDOW_SECONDS"),
+        description="Maximum time gap between off-route pings to maintain a streak",
+    )
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILES,
