@@ -57,7 +57,7 @@ class EtaSettings(BaseSettings):
     default_model: str = Field(
         default="xgboost",
         validation_alias=AliasChoices("ETA_DEFAULT_MODEL"),
-        description="Default realtime ETA model: xgboost or physics",
+        description="Default realtime ETA model: sarima, xgboost, or physics",
     )
 
     # ------------------------------------------------------------------ #
