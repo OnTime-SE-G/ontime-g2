@@ -128,24 +128,10 @@ async def generate_planned_trips(target_date: str):
         return res.json()
 
 
-async def get_today_trips(driver_id: int | None = None):
+async def get_today_trips(target_date: str | None = None):
     async with httpx.AsyncClient() as client:
-        params = {}
-        if driver_id is not None:
-            params["driver_id"] = driver_id
+        params = {"target_date": target_date} if target_date else {}
         res = await client.get(f"{FLEET_SERVICE_URL}/api/v1/fleet/planned-trips/today", params=params)
-        res.raise_for_status()
-        return res.json()
-
-
-async def get_trips(
-    target_date: str | None = None,
-    driver_id: int | None = None,
-    status: str | None = None,
-):
-    async with httpx.AsyncClient() as client:
-        params = {k: v for k, v in {"target_date": target_date, "driver_id": driver_id, "status": status}.items() if v is not None}
-        res = await client.get(f"{FLEET_SERVICE_URL}/api/v1/fleet/planned-trips", params=params)
         res.raise_for_status()
         return res.json()
 

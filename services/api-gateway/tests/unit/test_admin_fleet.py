@@ -107,10 +107,3 @@ def test_assign_trip_resources():
         assert response.status_code == 200
         assert response.json()["bus_id"] == 1
 
-def test_query_planned_trips():
-    with patch("app.routers.admin_fleet.get_trips", new_callable=AsyncMock) as mock_query:
-        mock_query.return_value = [{"id": "trip1", "schedule_id": 1, "bus_id": 1, "driver_id": 1, "status": "EN_ROUTE", "date": "2026-05-10"}]
-        response = client.get("/api/v1/admin/fleet/planned-trips", params={"target_date": "2026-05-10", "driver_id": 1, "status": "EN_ROUTE"})
-        assert response.status_code == 200
-        assert len(response.json()) == 1
-        mock_query.assert_called_once_with(target_date="2026-05-10", driver_id=1, status="EN_ROUTE")
