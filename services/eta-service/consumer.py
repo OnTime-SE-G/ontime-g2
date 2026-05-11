@@ -85,7 +85,7 @@ class EtaFeatureConsumer:
         redis_client: Any,
         *,
         kafka_broker_url: str = "broker:29092",
-        topic_name: str = "gps-cleaned",
+        topic_name: str = "transport-eta-features",
         consumer_group_id: str = "eta-service",
         default_model: str = DEFAULT_MODEL_NAME,
         snapshot_ttl_seconds: int = DEFAULT_SNAPSHOT_TTL_SECONDS,
