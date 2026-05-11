@@ -190,7 +190,6 @@ services:
         kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic transport-telemetry-dlq --partitions 1 --replication-factor 1
         kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic transport-telemetry-cleaned --partitions 1 --replication-factor 1
         kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic transport-anomaly-alerts --partitions 1 --replication-factor 1
-        kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic gps-cleaned --partitions 1 --replication-factor 1
         kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic transport-eta-features --partitions 1 --replication-factor 1
 
   mqtt-broker:
@@ -419,7 +418,7 @@ services:
     environment:
       ETA_DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/eta_db
       ETA_KAFKA_BROKER_URL: ${ETA_KAFKA_BROKER_URL:-broker:29092}
-      ETA_KAFKA_TOPIC: ${ETA_KAFKA_TOPIC:-gps-cleaned}
+      ETA_KAFKA_TOPIC: ${ETA_KAFKA_TOPIC:-transport-eta-features}
       ETA_KAFKA_CONSUMER_GROUP: ${ETA_KAFKA_CONSUMER_GROUP:-eta-service-group}
       ETA_REDIS_HOST: ${ETA_REDIS_HOST:-redis}
       ETA_REDIS_PORT: ${ETA_REDIS_PORT:-6379}
