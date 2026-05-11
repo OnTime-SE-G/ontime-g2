@@ -21,8 +21,10 @@ def _get_redis_client():
     try:
         import redis
 
-        return redis.Redis(host="redis", port=6379)
-    except Exception:
+        from app.config import settings
+
+        return redis.Redis(host=settings.redis_host, port=settings.redis_port)
+    except ImportError:
         class _FakeRedis:
             def get(self, *args, **kwargs):
                 return None
