@@ -18,6 +18,7 @@ def test_config_loads_with_defaults():
     assert settings.require_active_trip is True
     assert settings.trip_cache_rebuild_timeout_seconds == 60.0
     assert settings.startup_buffer_max_messages == 1000
+    assert settings.stateless_mode is True
     assert "transport/bus/+/location" in settings.mqtt_topic_pattern
     assert settings.mqtt_heartbeat_topic_pattern == "transport/bus/+/heartbeat"
 
