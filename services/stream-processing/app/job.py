@@ -76,6 +76,7 @@ def run_telemetry_job():
     env = StreamExecutionEnvironment.get_execution_environment()
     env.set_runtime_mode(RuntimeExecutionMode.STREAMING)
     env.set_parallelism(settings.flink_parallelism)
+    env.enable_checkpointing(10000)  # flush Kafka sinks every 10 s
 
     # 2. Define Kafka Source for raw telemetry
     telemetry_source = KafkaSource.builder() \

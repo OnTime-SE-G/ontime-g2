@@ -41,6 +41,9 @@ jobs:
           - service: anomaly-service
             context: services/anomaly-service
             dockerfile: services/anomaly-service/Dockerfile
+          - service: eta-service
+            context: .
+            dockerfile: services/eta-service/Dockerfile
 
     steps:
       - name: Checkout repository
