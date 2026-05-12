@@ -47,6 +47,17 @@ async def redis_listener(app: FastAPI):
                     if message and message["type"] == "message":
                         logger.info(f"GOT DATA FROM REDIS: {message}")
                         data = json.loads(message["data"])
+
+                        # Normalise eta:live messages for frontend consumption.
+                        # consumer.py emits eta_seconds (float, seconds).
+                        # Frontend socketService reads raw.eta (number, minutes).
+                        # Inject `eta` = rounded minutes so the frontend never
+                        # receives undefined and defaults to 0.
+                        if message["channel"] == settings.eta_channel:
+                            eta_s = data.get("eta_seconds")
+                            if eta_s is not None:
+                                data["eta"] = round(float(eta_s) / 60, 1)
+
                         await manager.broadcast(data)
                     await asyncio.sleep(0.1)
         except Exception as e:
