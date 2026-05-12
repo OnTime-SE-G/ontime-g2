@@ -41,6 +41,11 @@ class WebSocketSettings(BaseSettings):
         validation_alias=AliasChoices("WEBSOCKET_ETA_CHANNEL", "ETA_CHANNEL"),
         description="Redis channel for live ETA updates",
     )
+    anomaly_channel: str = Field(
+        default="anomaly:live",
+        validation_alias=AliasChoices("WEBSOCKET_ANOMALY_CHANNEL", "ANOMALY_CHANNEL"),
+        description="Redis channel for live anomaly alerts",
+    )
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILES,

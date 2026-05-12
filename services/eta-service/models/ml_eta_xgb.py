@@ -14,7 +14,6 @@ from __future__ import annotations
 import datetime
 import os
 import logging
-from dataclasses import dataclass
 from functools import lru_cache
 from typing import Optional
 
@@ -25,7 +24,7 @@ from models.eta import compute_eta, EtaResult, _MIN_SPEED_MS
 
 logger = logging.getLogger(__name__)
 
-_ARTIFACT_PATH = os.path.join(
+_DEFAULT_ARTIFACT_PATH = os.path.join(
     os.path.dirname(__file__), "training", "eta_model_xgb.joblib"
 )
 
@@ -35,13 +34,14 @@ _CLAMP_RATIO = 0.80   # if |xgb - physics| / physics > 80%, fall back to physics
 @lru_cache(maxsize=1)
 def _load_model():
     """Load the joblib artifact once, cached for the process lifetime."""
-    if not os.path.exists(_ARTIFACT_PATH):
+    artifact_path = os.getenv("ETA_XGB_ARTIFACT_PATH", _DEFAULT_ARTIFACT_PATH)
+    if not os.path.exists(artifact_path):
         raise FileNotFoundError(
-            f"XGBoost artifact not found at {_ARTIFACT_PATH}. "
+            f"XGBoost artifact not found at {artifact_path}. "
             "Run models/training/train_xgb.py first."
         )
-    payload = joblib.load(_ARTIFACT_PATH)
-    logger.info("XGBoost ETA model loaded from %s", _ARTIFACT_PATH)
+    payload = joblib.load(artifact_path)
+    logger.info("XGBoost ETA model loaded from %s", artifact_path)
     return payload["model"], payload["features"]
 
 
@@ -51,8 +51,24 @@ def predict_eta_xgb(
     stops_remaining: int = 1,
     dt: Optional[datetime.datetime] = None,
 ) -> EtaResult:
+    """Backward-compatible XGBoost ETA API returning only the ETA result."""
+    result, _model_used = predict_eta_xgb_with_fallback(
+        distance_m,
+        speed_ms,
+        stops_remaining=stops_remaining,
+        dt=dt,
+    )
+    return result
+
+
+def predict_eta_xgb_with_fallback(
+    distance_m: float,
+    speed_ms: float,
+    stops_remaining: int = 1,
+    dt: Optional[datetime.datetime] = None,
+) -> tuple[EtaResult, str]:
     """
-    Predict ETA using XGBoost with physics sanity clamp.
+    Predict ETA using XGBoost with physics fallback metadata.
 
     Args:
         distance_m:       Metres from bus to target stop.
@@ -62,8 +78,8 @@ def predict_eta_xgb(
                           Defaults to datetime.datetime.now().
 
     Returns:
-        EtaResult with model_used="xgboost" if XGBoost was used,
-        or physics fallback with clamped=True if prediction was out of range.
+        (EtaResult, model_used), where model_used is the final model that
+        supplied the returned ETA: "xgboost" or "physics".
     """
     if distance_m < 0:
         distance_m = 0.0
@@ -76,7 +92,7 @@ def predict_eta_xgb(
             distance_m=0.0,
             speed_ms=effective_speed,
             clamped=(speed_ms < _MIN_SPEED_MS),
-        )
+        ), "physics"
 
     if dt is None:
         dt = datetime.datetime.now()
@@ -115,7 +131,7 @@ def predict_eta_xgb(
                     distance_m=distance_m,
                     speed_ms=effective_speed,
                     clamped=True,
-                )
+                ), "physics"
 
         xgb_seconds = max(0.0, xgb_seconds)
         return EtaResult(
@@ -123,11 +139,11 @@ def predict_eta_xgb(
             distance_m=distance_m,
             speed_ms=effective_speed,
             clamped=(speed_ms < _MIN_SPEED_MS),
-        )
+        ), "xgboost"
 
     except FileNotFoundError:
         logger.warning("XGBoost artifact missing — falling back to physics model")
-        return physics
+        return physics, "physics"
     except Exception as exc:
         logger.error("XGBoost prediction error: %s — falling back to physics model", exc)
-        return physics
+        return physics, "physics"
