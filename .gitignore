@@ -28,3 +28,6 @@ htmlcov/
 
 # Node.js
 node_modules/
+docker/nodered/.config*.json
+docker/nodered/*.backup
+docker/nodered/node_modules/

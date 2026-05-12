@@ -203,7 +203,7 @@ services:
     image: eclipse-mosquitto:2
     container_name: ontime_mqtt
     ports:
-      - "${MQTT_BROKER_PORT:-1883}:1883"
+      - "${LOCAL_MQTT_BROKER_PORT:-1883}:1883"
       - "9001:9001"
     volumes:
       - ./mosquitto/mosquitto.conf:/mosquitto/config/mosquitto.conf
@@ -508,11 +508,16 @@ services:
       - ./nodered:/data
       - ../data:/data/kml:ro
     environment:
-      MQTT_BROKER_HOST: ${MQTT_BROKER_HOST}
-      MQTT_BROKER_PORT: ${MQTT_BROKER_PORT}
-      MQTT_USERNAME: ${MQTT_USERNAME}
-      MQTT_PASSWORD: ${MQTT_PASSWORD}
-      MQTT_TLS_ENABLED: ${MQTT_TLS_ENABLED}
+      TZ: Asia/Colombo
+      FLOWS: flows.json
+      MQTT_BROKER_HOST: ${MQTT_BROKER_HOST:-}
+      MQTT_BROKER_PORT: ${MQTT_BROKER_PORT:-8883}
+      MQTT_USERNAME: ${MQTT_USERNAME:-}
+      MQTT_PASSWORD: ${MQTT_PASSWORD:-}
+      MQTT_TLS_ENABLED: ${MQTT_TLS_ENABLED:-true}
+      NODERED_MQTT_CLIENT_ID: ${NODERED_MQTT_CLIENT_ID:-ontime-sim-node-red}
+      SIM_BUS_ID: ${SIM_BUS_ID:-BUS001}
+      SIM_KML_PATH: ${SIM_KML_PATH:-/data/kml/202_gampaha_kirindiwela.kml}
     dns:
       - 8.8.8.8
       - 8.8.4.4
