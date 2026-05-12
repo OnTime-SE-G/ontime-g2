@@ -8,3 +8,5 @@ pytest-asyncio
 sqlalchemy>=2.0
 psycopg2-binary
 redis>=5.0
+scikit-learn>=1.3
+joblib>=1.3
