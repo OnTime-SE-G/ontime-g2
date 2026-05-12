@@ -12,7 +12,7 @@ from app.config import settings
 from consumer import EtaFeatureConsumer, render_prometheus_metrics
 from routers.eta import router as eta_router
 
-
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger("eta-service")
 
 
