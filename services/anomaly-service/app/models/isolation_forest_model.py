@@ -32,6 +32,13 @@ import os
 from functools import lru_cache
 from typing import Optional
 
+try:
+    import joblib
+    import numpy as np
+except ImportError:  # not installed — feature degrades gracefully
+    joblib = None  # type: ignore[assignment]
+    np = None  # type: ignore[assignment]
+
 logger = logging.getLogger(__name__)
 
 # Overridable at startup via env var / app.config
@@ -55,8 +62,9 @@ def _load_model():
         logger.debug("No IsolationForest artifact at %s — rule-based fallback active", path)
         return None
     try:
-        import joblib
-
+        if joblib is None:
+            logger.warning("joblib not installed — IsolationForest unavailable")
+            return None
         model = joblib.load(path)
         logger.info("Loaded IsolationForest artifact from %s", path)
         return model
@@ -120,8 +128,9 @@ def predict(
     )
 
     try:
-        import numpy as np
-
+        if np is None:
+            logger.warning("numpy not installed — IsolationForest unavailable")
+            return None
         X = np.array([features])
         label = int(model.predict(X)[0])          # 1 = normal, -1 = anomaly
         score = float(model.decision_function(X)[0])  # lower = more anomalous
