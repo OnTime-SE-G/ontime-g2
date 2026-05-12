@@ -63,6 +63,25 @@
         "y": 60,
         "wires": [
             [
+                "config_init_fn"
+            ]
+        ]
+    },
+    {
+        "id": "config_init_fn",
+        "type": "function",
+        "z": "tab_simulation",
+        "name": "Init Config",
+        "func": "let config = global.get(\"simConfig\");\nif (!config) {\n    config = {\n        busId: \"21\",\n        kmlFile: \"/data/kml/Homagama_138_Pettah.kml\",\n        speedMin: 0,\n        speedMax: 60\n    };\n    global.set(\"simConfig\", config);\n    node.status({fill:\"green\",shape:\"dot\",text:\"Config initialized\"});\n} else {\n    node.status({fill:\"blue\",shape:\"dot\",text:\"Config loaded\"});\n}\nmsg.filename = config.kmlFile;\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 300,
+        "y": 60,
+        "wires": [
+            [
                 "kml_reader"
             ]
         ]
@@ -72,13 +91,13 @@
         "type": "file in",
         "z": "tab_simulation",
         "name": "Read KML",
-        "filename": "/data/kml/202_gampaha_kirindiwela.kml",
+        "filename": "",
         "format": "utf8",
         "chunk": false,
         "sendError": false,
         "encoding": "none",
         "allProps": false,
-        "x": 300,
+        "x": 480,
         "y": 60,
         "wires": [
             [
@@ -94,7 +113,7 @@
         "property": "payload",
         "attr": "",
         "chr": "",
-        "x": 470,
+        "x": 650,
         "y": 60,
         "wires": [
             [
@@ -107,13 +126,13 @@
         "type": "function",
         "z": "tab_simulation",
         "name": "Extract Coordinates",
-        "func": "let kml = msg.payload;\nlet coordinatesStr = \"\";\ntry {\n    let document = kml.kml.Document[0];\n    let folder = document.Folder.find(f => f.Placemark && f.Placemark[0].LineString);\n    if (!folder && document.Folder[1]) folder = document.Folder[1];\n\n    let placemark = folder.Placemark[0];\n    coordinatesStr = placemark.LineString[0].coordinates[0];\n} catch (e) {\n    node.error(\"Failed to parse KML: \" + e.message);\n    return null;\n}\n\nlet coords = coordinatesStr.trim().split(/\\s+/).map(c => {\n    let parts = c.split(',');\n    return {\n        lon: parseFloat(parts[0]),\n        lat: parseFloat(parts[1])\n    };\n}).filter(p => !isNaN(p.lat) && !isNaN(p.lon));\n\nflow.set(\"coordinates\", coords);\nflow.set(\"index\", 0);\nnode.status({fill:\"green\",shape:\"dot\",text:\"Loaded \" + coords.length + \" points\"});\nreturn { payload: \"KML Loaded: \" + coords.length + \" points\" };",
+        "func": "let kml = msg.payload;\nlet coordinatesStr = \"\";\ntry {\n    let document = kml.kml.Document[0];\n\n    function findCoordinates(obj) {\n        if (!obj || typeof obj !== 'object') return null;\n        if (obj.LineString && obj.LineString[0] && obj.LineString[0].coordinates) {\n            return obj.LineString[0].coordinates[0];\n        }\n        for (let key of Object.keys(obj)) {\n            let items = Array.isArray(obj[key]) ? obj[key] : [obj[key]];\n            for (let item of items) {\n                let result = findCoordinates(item);\n                if (result) return result;\n            }\n        }\n        return null;\n    }\n\n    coordinatesStr = findCoordinates(document);\n    if (!coordinatesStr) throw new Error(\"No LineString coordinates found in KML\");\n} catch (e) {\n    node.error(\"Failed to parse KML: \" + e.message);\n    return null;\n}\n\nlet coords = coordinatesStr.trim().split(/\\s+/).map(c => {\n    let parts = c.split(',');\n    return {\n        lon: parseFloat(parts[0]),\n        lat: parseFloat(parts[1])\n    };\n}).filter(p => !isNaN(p.lat) && !isNaN(p.lon));\n\nflow.set(\"coordinates\", coords);\nflow.set(\"index\", 0);\nnode.status({fill:\"green\",shape:\"dot\",text:\"Loaded \" + coords.length + \" points\"});\nreturn { payload: \"KML Loaded: \" + coords.length + \" points\" };",
         "outputs": 1,
         "noerr": 0,
         "initialize": "",
         "finalize": "",
         "libs": [],
-        "x": 680,
+        "x": 840,
         "y": 60,
         "wires": [
             [
@@ -151,7 +170,7 @@
         "type": "function",
         "z": "tab_simulation",
         "name": "GPS Simulator",
-        "func": "let coords = flow.get(\"coordinates\");\nlet index = flow.get(\"index\") || 0;\n\nif (!coords || coords.length === 0) {\n    node.status({fill:\"red\",shape:\"ring\",text:\"No coordinates loaded\"});\n    return null;\n}\n\nlet point = coords[index];\nlet nextIndex = (index + 1) % coords.length;\nflow.set(\"index\", nextIndex);\n\nlet heading = 0;\nif (index > 0) {\n    let prev = coords[index - 1];\n    heading = Math.atan2(point.lon - prev.lon, point.lat - prev.lat) * 180 / Math.PI;\n    if (heading < 0) heading += 360;\n}\n\nmsg.payload = {\n    busId: \"BUS001\",\n    lat: point.lat,\n    lon: point.lon,\n    speed: 40.0 + Math.random() * 10,\n    heading: Math.round(heading),\n    timestamp: new Date().toISOString()\n};\n\nmsg.topic = \"transport/bus/BUS001/location\";\nnode.status({fill:\"blue\",shape:\"dot\",text:\"Point \" + index + \"/\" + coords.length});\nreturn msg;",
+        "func": "let config = global.get(\"simConfig\") || { busId: \"21\", speedMax: 60 };\nlet coords = flow.get(\"coordinates\");\nlet index = flow.get(\"index\") || 0;\n\nif (!coords || coords.length === 0) {\n    node.status({fill:\"red\",shape:\"ring\",text:\"No coordinates loaded\"});\n    return null;\n}\n\nlet point = coords[index];\nflow.set(\"index\", (index + 1) % coords.length);\n\n// Restore persistent state\nlet speed     = flow.get(\"speed\") || 0;\nlet state     = flow.get(\"state\") || \"ACCELERATING\";\nlet stopTicks = flow.get(\"stopTicks\") || 0;\nlet target    = flow.get(\"targetSpeed\") || 35;\nlet nextEvent = flow.get(\"nextEvent\") || (10 + Math.floor(Math.random() * 10));\nlet maxSpeed  = (config.speedMax) || 60;\n\nfunction bearing(a, b) {\n    let h = Math.atan2(b.lon - a.lon, b.lat - a.lat) * 180 / Math.PI;\n    return h < 0 ? h + 360 : h;\n}\n\nlet heading = 0, turnAngle = 0;\nif (index > 0) {\n    heading = bearing(coords[index - 1], point);\n    if (index > 1) {\n        let ph = bearing(coords[index - 2], coords[index - 1]);\n        turnAngle = Math.abs(heading - ph);\n        if (turnAngle > 180) turnAngle = 360 - turnAngle;\n    }\n}\n\n// ---- State machine ----\nif (state === \"STOPPED\") {\n    speed = 0;\n    stopTicks--;\n    if (stopTicks <= 0) {\n        state = \"ACCELERATING\";\n        target = 28 + Math.random() * (maxSpeed - 28);\n    }\n} else {\n    // Road event trigger (traffic light / bus stop / jam)\n    if (index >= nextEvent && (state === \"CRUISING\" || state === \"ACCELERATING\")) {\n        let roll = Math.random();\n        if (roll < 0.40) {\n            // Traffic light — full stop 25-75 s (5-15 ticks)\n            stopTicks = 5 + Math.floor(Math.random() * 11);\n            target = 0; state = \"BRAKING\";\n        } else if (roll < 0.68) {\n            // Bus stop — shorter stop 10-35 s (2-7 ticks)\n            stopTicks = 2 + Math.floor(Math.random() * 6);\n            target = 0; state = \"BRAKING\";\n        } else if (roll < 0.85) {\n            // Traffic jam — crawl at 3-15 km/h\n            stopTicks = 0;\n            target = 3 + Math.random() * 12; state = \"BRAKING\";\n        } else {\n            // Sudden hard brake (pedestrian / hazard)\n            stopTicks = 1;\n            target = 0; state = \"BRAKING\";\n        }\n        nextEvent = index + 10 + Math.floor(Math.random() * 22);\n    }\n\n    // Turn-based speed cap\n    if (state !== \"STOPPED\" && state !== \"BRAKING\") {\n        if (turnAngle > 55) {\n            target = Math.min(target, 15); state = \"BRAKING\"; stopTicks = 0;\n        } else if (turnAngle > 28) {\n            target = Math.min(target, 28);\n            if (speed > target + 2) state = \"BRAKING\";\n        }\n    }\n\n    if (state === \"BRAKING\") {\n        let rate = (target === 0) ? 12 : 6;\n        speed = Math.max(target, speed - rate);\n        if (speed <= 0 && target === 0) {\n            speed = 0;\n            if (stopTicks > 0) state = \"STOPPED\";\n            else { state = \"ACCELERATING\"; target = 28 + Math.random() * (maxSpeed - 28); }\n        } else if (speed <= target + 1) {\n            state = \"CRUISING\";\n        }\n    } else if (state === \"ACCELERATING\") {\n        speed = Math.min(target, speed + 4 + Math.random() * 2);\n        if (speed >= target * 0.97) state = \"CRUISING\";\n    } else {\n        // CRUISING: natural micro-variation\n        speed += (Math.random() - 0.48) * 3;\n        speed = Math.max(target - 5, Math.min(target + 5, speed));\n        // Occasional cruise speed drift\n        if (Math.random() < 0.08) {\n            target = Math.max(20, Math.min(maxSpeed, target + (Math.random() - 0.5) * 10));\n        }\n    }\n\n    speed = Math.max(0, speed);\n}\n\nflow.set(\"speed\", speed);\nflow.set(\"state\", state);\nflow.set(\"stopTicks\", stopTicks);\nflow.set(\"targetSpeed\", target);\nflow.set(\"nextEvent\", nextEvent);\n\nmsg.payload = {\n    busId: config.busId,\n    lat: point.lat,\n    lon: point.lon,\n    speed: Math.round(speed * 10) / 10,\n    heading: Math.round(heading),\n    timestamp: new Date().toISOString()\n};\nmsg.topic = \"transport/bus/\" + config.busId + \"/location\";\n\nlet colors = { STOPPED:\"red\", BRAKING:\"yellow\", ACCELERATING:\"green\", CRUISING:\"blue\" };\nlet icons  = { STOPPED:\"■\", BRAKING:\"▼\", ACCELERATING:\"▲\", CRUISING:\"→\" };\nnode.status({ fill: colors[state]||\"blue\", shape:\"dot\",\n    text: (icons[state]||\"\")+\" \"+Math.round(speed)+\" km/h  \"+state });\nreturn msg;",
         "outputs": 1,
         "noerr": 0,
         "initialize": "",
@@ -214,7 +233,7 @@
         "type": "function",
         "z": "tab_simulation",
         "name": "Heartbeat",
-        "func": "msg.payload = {\n    busId: \"BUS001\",\n    timestamp: new Date().toISOString()\n};\nmsg.topic = \"transport/bus/BUS001/heartbeat\";\nreturn msg;",
+        "func": "let config = global.get(\"simConfig\") || { busId: \"21\" };\nmsg.payload = {\n    busId: config.busId,\n    timestamp: new Date().toISOString()\n};\nmsg.topic = \"transport/bus/\" + config.busId + \"/heartbeat\";\nreturn msg;",
         "outputs": 1,
         "noerr": 0,
         "initialize": "",
@@ -258,5 +277,149 @@
                 "debug_out"
             ]
         ]
+    },
+    {
+        "id": "http_get_config_in",
+        "type": "http in",
+        "z": "tab_simulation",
+        "name": "GET /sim/config",
+        "url": "/sim/config",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 150,
+        "y": 420,
+        "wires": [
+            [
+                "http_get_config_fn"
+            ]
+        ]
+    },
+    {
+        "id": "http_get_config_fn",
+        "type": "function",
+        "z": "tab_simulation",
+        "name": "Get Config",
+        "func": "let config = global.get(\"simConfig\") || {\n    busId: \"21\",\n    kmlFile: \"/data/kml/Homagama_138_Pettah.kml\",\n    speedMin: 40,\n    speedMax: 50\n};\nmsg.payload = config;\nmsg.statusCode = 200;\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 360,
+        "y": 420,
+        "wires": [
+            [
+                "http_get_config_res"
+            ]
+        ]
+    },
+    {
+        "id": "http_get_config_res",
+        "type": "http response",
+        "z": "tab_simulation",
+        "name": "",
+        "statusCode": "",
+        "headers": {},
+        "x": 550,
+        "y": 420,
+        "wires": []
+    },
+    {
+        "id": "http_get_status_in",
+        "type": "http in",
+        "z": "tab_simulation",
+        "name": "GET /sim/status",
+        "url": "/sim/status",
+        "method": "get",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 150,
+        "y": 480,
+        "wires": [
+            [
+                "http_get_status_fn"
+            ]
+        ]
+    },
+    {
+        "id": "http_get_status_fn",
+        "type": "function",
+        "z": "tab_simulation",
+        "name": "Get Status",
+        "func": "let config = global.get(\"simConfig\") || {};\nlet coords = flow.get(\"coordinates\") || [];\nlet index = flow.get(\"index\") || 0;\nmsg.payload = {\n    running: coords.length > 0,\n    totalPoints: coords.length,\n    currentIndex: index,\n    config: config\n};\nmsg.statusCode = 200;\nreturn msg;",
+        "outputs": 1,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 360,
+        "y": 480,
+        "wires": [
+            [
+                "http_get_status_res"
+            ]
+        ]
+    },
+    {
+        "id": "http_get_status_res",
+        "type": "http response",
+        "z": "tab_simulation",
+        "name": "",
+        "statusCode": "",
+        "headers": {},
+        "x": 550,
+        "y": 480,
+        "wires": []
+    },
+    {
+        "id": "http_post_config_in",
+        "type": "http in",
+        "z": "tab_simulation",
+        "name": "POST /sim/config",
+        "url": "/sim/config",
+        "method": "post",
+        "upload": false,
+        "swaggerDoc": "",
+        "x": 150,
+        "y": 560,
+        "wires": [
+            [
+                "http_post_config_fn"
+            ]
+        ]
+    },
+    {
+        "id": "http_post_config_fn",
+        "type": "function",
+        "z": "tab_simulation",
+        "name": "Update Config",
+        "func": "let body = msg.payload;\nlet config = global.get(\"simConfig\") || {\n    busId: \"21\",\n    kmlFile: \"/data/kml/Homagama_138_Pettah.kml\",\n    speedMin: 40,\n    speedMax: 50\n};\n\nlet kmlChanged = false;\n\nif (body.busId !== undefined) config.busId = String(body.busId);\nif (body.kmlFile !== undefined) {\n    kmlChanged = body.kmlFile !== config.kmlFile;\n    config.kmlFile = body.kmlFile;\n}\nif (body.speedMin !== undefined) config.speedMin = parseFloat(body.speedMin);\nif (body.speedMax !== undefined) config.speedMax = parseFloat(body.speedMax);\n\nglobal.set(\"simConfig\", config);\n\nmsg.payload = { success: true, config: config, reloading: kmlChanged };\nmsg.statusCode = 200;\n\nif (kmlChanged) {\n    let reloadMsg = { payload: Date.now() };\n    reloadMsg.filename = config.kmlFile;\n    return [msg, reloadMsg];\n}\nreturn [msg, null];",
+        "outputs": 2,
+        "noerr": 0,
+        "initialize": "",
+        "finalize": "",
+        "libs": [],
+        "x": 370,
+        "y": 560,
+        "wires": [
+            [
+                "http_post_config_res"
+            ],
+            [
+                "kml_reader"
+            ]
+        ]
+    },
+    {
+        "id": "http_post_config_res",
+        "type": "http response",
+        "z": "tab_simulation",
+        "name": "",
+        "statusCode": "",
+        "headers": {},
+        "x": 570,
+        "y": 560,
+        "wires": []
     }
 ]
