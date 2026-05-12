@@ -43,7 +43,7 @@ def test_init_requires_producer():
 
 def test_connect_uses_configured_broker(subscriber_with_mocks, monkeypatch):
     subscriber, _, mock_client, _ = subscriber_with_mocks
-    
+
     # Ensure settings are at defaults regardless of .env content
     monkeypatch.setattr(subscriber_module.settings, "mqtt_username", None)
     monkeypatch.setattr(subscriber_module.settings, "mqtt_password", None)
