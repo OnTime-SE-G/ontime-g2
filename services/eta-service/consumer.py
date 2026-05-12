@@ -458,7 +458,7 @@ class EtaFeatureConsumer:
             self.topic_name,
             bootstrap_servers=self.kafka_broker_url,
             group_id=self.consumer_group_id,
-            auto_offset_reset="latest",
+            auto_offset_reset="earliest",
             enable_auto_commit=True,
             value_deserializer=lambda value: value.decode("utf-8"),
         )
