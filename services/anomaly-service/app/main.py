@@ -39,7 +39,7 @@ def route_geometry_to_points(route: dict) -> list[tuple[float, float]]:
 
 class AnomalyService:
     def __init__(self):
-        self.model = AnomalyModel()
+        self.model = AnomalyModel(artifact_path=settings.if_artifact_path)
         self.route_geometries = {}
         self.redis_client = None
         try:

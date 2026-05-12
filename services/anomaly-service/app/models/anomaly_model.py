@@ -8,6 +8,8 @@ from typing import Any, Dict, List, Tuple
 from app.config import settings
 from .training.feature_extraction import build_summary_vector
 
+from models.isolation_forest_model import predict as if_predict
+
 logger = logging.getLogger(__name__)
 
 def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
@@ -58,8 +60,9 @@ def distance_to_polyline(lat: float, lon: float, polyline: List[Tuple[float, flo
 
 
 class AnomalyModel:
-    def __init__(self):
+    def __init__(self, artifact_path: str = ""):
         self.version = "rules-v1"
+        self.artifact_path = artifact_path
         self.bus_states = {}  # { busId: { last_timestamp, last_telemetry, stationary_start_time } }
         self.inactive_trip_states = {}  # { busId: { timestamps, last_alert_timestamp } }
         self.off_route_states = {}  # { busId: { count, window_start_ts, alerted } }
@@ -92,6 +95,34 @@ class AnomalyModel:
         route_id = telemetry.get("routeId")
 
         current_time = self._parse_timestamp(ts_str)
+
+        # --- IsolationForest ML scoring (pre-rule, unsupervised) ---
+        dist_to_route = distance_to_polyline(lat, lon, route_geometry) if route_geometry else 0.0
+        prev_state = self.bus_states.get(bus_id, {})
+        prev_heading = (prev_state.get("last_telemetry") or {}).get("heading", telemetry.get("heading", 0.0))
+        curr_heading = telemetry.get("heading", 0.0)
+        heading_delta = abs(curr_heading - prev_heading) % 360
+        heading_delta = min(heading_delta, 360 - heading_delta)
+        route_progress = telemetry.get("routeProgressPct", 0.0) or 0.0
+        hour_of_day = datetime.now(timezone.utc).hour
+        if self.artifact_path:
+            speed_ms = speed / 3.6 if speed > 10 else speed  # convert km/h → m/s
+            if_result = if_predict(
+                speed_ms=speed_ms,
+                distance_to_route_m=dist_to_route,
+                heading_delta_deg=heading_delta,
+                route_progress_pct=route_progress,
+                hour_of_day=hour_of_day,
+            )
+            if if_result is not None:
+                is_anomaly, if_score = if_result
+                if is_anomaly:
+                    alerts.append(self._create_alert(
+                        bus_id, "ML_ANOMALY",
+                        f"IsolationForest anomaly score {if_score:.3f}",
+                        telemetry,
+                        extra={"if_score": if_score},
+                    ))
 
         # 1. Unrealistic Speed
         if speed > 120.0:
