@@ -1,6 +1,7 @@
 import pytest
 from datetime import datetime, timezone
 
+import app.models.anomaly_model as anomaly_model_module
 from app.models.anomaly_model import AnomalyModel
 
 @pytest.fixture
@@ -158,6 +159,47 @@ def test_detect_off_route(model):
     print(f"\n>>> DETECTED {len(alerts)} ALERTS: {alerts}")
     assert any(a["anomalyType"] == "OFF_ROUTE" for a in alerts)
 
+
+def test_detect_off_route_uses_flink_flag_without_geometry(model):
+    telemetry = {
+        "busId": "B1",
+        "tripId": "T1",
+        "routeId": "R1",
+        "lat": 6.91,
+        "lon": 79.85,
+        "speed": 20.0,
+        "timestamp": "2026-05-02T10:00:00Z",
+        "offRoute": True,
+        "offRouteDistanceM": 83.4,
+    }
+
+    alerts = model.detect(telemetry, [])
+
+    assert any(a["anomalyType"] == "OFF_ROUTE" for a in alerts)
+
+
+def test_detect_persistent_off_route_after_streak(model):
+    base = {
+        "busId": "B1",
+        "tripId": "T1",
+        "routeId": "R1",
+        "lat": 6.91,
+        "lon": 79.85,
+        "speed": 20.0,
+        "offRoute": True,
+        "offRouteDistanceM": 83.4,
+    }
+
+    first = model.detect({**base, "timestamp": "2026-05-02T10:00:00Z"}, [])
+    second = model.detect({**base, "timestamp": "2026-05-02T10:00:01Z"}, [])
+    third = model.detect({**base, "timestamp": "2026-05-02T10:00:02Z"}, [])
+
+    assert not any(a["anomalyType"] == "PERSISTENT_OFF_ROUTE" for a in first)
+    assert not any(a["anomalyType"] == "PERSISTENT_OFF_ROUTE" for a in second)
+    persistent = [a for a in third if a["anomalyType"] == "PERSISTENT_OFF_ROUTE"]
+    assert len(persistent) == 1
+    assert persistent[0]["streakCount"] == 3
+
 def test_detect_stationary_bus(model):
     bus_id = "B1"
     route_geom = [(6.9, 79.9), (6.91, 79.91)]
@@ -254,3 +296,75 @@ def test_off_route_accuracy(model):
     # Old logic would see distance to (6.0, 80.0) as 5500m -> OFF_ROUTE!
     # New logic sees distance to road as 11m -> OK!
     assert not any(a["anomalyType"] == "OFF_ROUTE" for a in alerts)
+
+
+def test_behavioral_detection_waits_for_minimum_window(monkeypatch):
+    monkeypatch.setattr(anomaly_model_module.settings, "sliding_window_size", 4)
+    monkeypatch.setattr(anomaly_model_module.settings, "sliding_window_min_size", 3)
+
+    model = AnomalyModel()
+
+    class FakeIsolationModel:
+        def __init__(self):
+            self.calls = []
+
+        def predict(self, rows):
+            self.calls.append(rows[0])
+            return [-1]
+
+    fake_model = FakeIsolationModel()
+    model.isolation_model = fake_model
+
+    base = {
+        "busId": "B1",
+        "tripId": "T1",
+        "routeId": "R1",
+        "lat": 6.9,
+        "lon": 79.9,
+        "heading": 10.0,
+    }
+
+    first = model.detect({**base, "speed": 10.0, "timestamp": "2026-05-02T10:00:00Z"}, [])
+    second = model.detect({**base, "speed": 12.0, "timestamp": "2026-05-02T10:00:01Z"}, [])
+    third = model.detect({**base, "speed": 30.0, "timestamp": "2026-05-02T10:00:02Z"}, [])
+
+    assert not any(a["anomalyType"] == "ERRATIC_DRIVING" for a in first)
+    assert not any(a["anomalyType"] == "ERRATIC_DRIVING" for a in second)
+    assert any(a["anomalyType"] == "ERRATIC_DRIVING" for a in third)
+    assert len(fake_model.calls) == 1
+    assert len(fake_model.calls[0]) == 6
+
+
+def test_behavioral_detection_keeps_sliding_window_bounded(monkeypatch):
+    monkeypatch.setattr(anomaly_model_module.settings, "sliding_window_size", 3)
+    monkeypatch.setattr(anomaly_model_module.settings, "sliding_window_min_size", 2)
+
+    model = AnomalyModel()
+
+    class NormalIsolationModel:
+        def predict(self, rows):
+            return [1]
+
+    model.isolation_model = NormalIsolationModel()
+
+    base = {
+        "busId": "B2",
+        "tripId": "T1",
+        "routeId": "R1",
+        "lat": 6.9,
+        "lon": 79.9,
+        "heading": 10.0,
+    }
+
+    for index in range(6):
+        model.detect(
+            {
+                **base,
+                "speed": 10.0 + index,
+                "timestamp": f"2026-05-02T10:00:0{index}Z",
+            },
+            [],
+        )
+
+    assert len(model.telemetry_windows["B2"]) == 3
+    assert model.telemetry_windows["B2"][0]["timestamp"] == "2026-05-02T10:00:03Z"

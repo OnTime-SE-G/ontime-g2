@@ -52,6 +52,7 @@ def main():
     print(f"  DLQ Topic:    {settings.kafka_dlq_topic}")
     print(f"  Trip Topic:   {settings.kafka_trip_lifecycle_topic}")
     print(f"  Config Topic: {settings.kafka_device_config_topic}")
+    print(f"  Stateless:    {settings.stateless_mode}")
     print(f"  Health Port:  {settings.service_port}")
     print("=" * 50)
 
@@ -67,9 +68,13 @@ def main():
     print("Initializing MQTT subscriber...")
     if producer is not None:
         try:
-            trip_cache = ActiveTripCache(initial_status="rebuilding")
-            trip_consumer = TripLifecycleConsumer(trip_cache)
-            trip_consumer.start()
+            if settings.stateless_mode:
+                trip_cache = None
+                trip_consumer = None
+            else:
+                trip_cache = ActiveTripCache(initial_status="rebuilding")
+                trip_consumer = TripLifecycleConsumer(trip_cache)
+                trip_consumer.start()
             subscriber = MQTTSubscriber(producer, trip_cache=trip_cache)
             subscriber.connect()
             print("MQTT subscriber initialized.")

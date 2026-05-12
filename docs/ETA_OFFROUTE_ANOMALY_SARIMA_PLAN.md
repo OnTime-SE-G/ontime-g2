@@ -1,14 +1,16 @@
 # Plan: Off-Route Detection · Persistent Anomaly · ETA Persistence · SARIMA Forecasting
 
 **Authors:** Kusal (Lead)  
-**Status:** Awaiting Approval (Chamodh, Janidu)  
+**Status:** Approved — Amendments applied per JPabasara review (PR #101)  
 **Relates to:** ETA pipeline (`ETA` branch, PR #92), Inc 2
+
+> **Review amendments (2026-05-08):** (1) SARIMA minimum threshold = 48 h (2 seasonal cycles). (2) All threshold/retention constants moved to `app/config.py` as env vars — no hardcoded numbers. (3) `eta_records` retention via PostgreSQL monthly table partitioning (not cron DELETE). (4) Anomaly L3 Isolation Forest re-specified with sliding-window feature extraction.
 
 ---
 
 ## Problem Statement
 
-The existing `gps-cleaned` Kafka topic feeds the ETA Service directly from the Flink
+The existing `transport-eta-features` Kafka topic feeds the ETA Service directly from the Flink
 EnrichmentFunction. However:
 
 1. **Flink already detects off-route positions** (via route geometry projection) but discards
@@ -31,7 +33,7 @@ Flink EnrichmentFunction
   └── NEW: expose it as offRoute (bool) + offRouteDistanceM (float) on every enriched message
         ↓
   transport-telemetry-cleaned  (existing consumers unaffected — additive field)
-  gps-cleaned                  (ETA Service consumer)
+  transport-eta-features         (ETA Service consumer)
         ↓
   ┌──────────────────────────────────────────────────┐
   │  Anomaly Service                                 │
@@ -97,7 +99,7 @@ iterated on every message.
 - `offRoute: true` when projection distance > **50 m** (same threshold already used by the
   Anomaly Service `OFF_ROUTE` check — consistency).
 - When `routeId` is `null` (bus not on a trip): `offRoute: false`, `offRouteDistanceM: 0.0`.
-- **Both** `transport-telemetry-cleaned` and `gps-cleaned` carry these fields automatically
+- **Both** `transport-telemetry-cleaned` and `transport-eta-features` carry these fields automatically
   because both sinks consume the same `processed_ds` — no extra sink code needed.
 
 ### Backward compatibility
@@ -113,43 +115,135 @@ and ignore unknown fields — no breaking change.
 
 | File | Change |
 |------|--------|
-| `services/anomaly-service/app/models/anomaly_model.py` | `off_route_streak_start_time` dict + time window logic |
-| `services/anomaly-service/app/config.py` | `OFF_ROUTE_STREAK_WINDOW_SEC: int = 5` loaded as Env Var |
-| `services/anomaly-service/tests/` | Streak unit tests |
+| `services/anomaly-service/app/models/anomaly_model.py` | `off_route_streak` dict + streak logic + sliding-window feature extractor for L3 |
+| `services/anomaly-service/app/main.py` | All thresholds loaded from `Settings` (env vars, no hardcoded numbers) |
+| `services/anomaly-service/app/config.py` | Add `OFF_ROUTE_STREAK_WINDOW_SECONDS`, `OFF_ROUTE_DISTANCE_THRESHOLD_M`, `PERSISTENT_OFF_ROUTE_THRESHOLD`, `SLIDING_WINDOW_SIZE` |
+| `services/anomaly-service/tests/` | Streak unit tests + sliding-window feature-extraction tests |
 
 ### Logic
 
+All thresholds are loaded from `app/config.py` / environment variables — no hardcoded numbers.
+
 ```
-detect(telemetry, geometry):
+# app/config.py (env vars, all overridable)
+OFF_ROUTE_DISTANCE_THRESHOLD_M   = int(os.getenv("OFF_ROUTE_DISTANCE_THRESHOLD_M",  "50"))
+OFF_ROUTE_STREAK_WINDOW_SECONDS  = int(os.getenv("OFF_ROUTE_STREAK_WINDOW_SECONDS", "5"))
+PERSISTENT_OFF_ROUTE_THRESHOLD   = int(os.getenv("PERSISTENT_OFF_ROUTE_THRESHOLD",  "3"))
+
+detect(telemetry, geometry, settings):
   # use precomputed flag if Flink provides it; else compute locally (backward-compat)
-  is_off = telemetry.get("offRoute") ?? (distance_to_polyline(...) > 50)
-  current_time = telemetry.get("timestamp")
+  is_off = telemetry.get("offRoute") ?? (distance_to_polyline(...) > settings.OFF_ROUTE_DISTANCE_THRESHOLD_M)
+
+  bus_id = telemetry["busId"]
+  ts     = telemetry["timestamp"]          # ISO 8601 UTC
 
   if is_off:
-    if bus_id not in streak_start:
-      streak_start[bus_id] = current_time
-      emit OFF_ROUTE alert         # existing single-hit alert (unchanged)
-    
-    elapsed = current_time - streak_start[bus_id]
-    if elapsed >= OFF_ROUTE_STREAK_WINDOW_SEC:
+    # time-based window: only count if within the configured streak window
+    first_off_ts = streak_start_time.get(bus_id)
+    if first_off_ts is None or (ts - first_off_ts) > settings.OFF_ROUTE_STREAK_WINDOW_SECONDS:
+      streak_start_time[bus_id] = ts       # start a new window
+      streak[bus_id] = 0
+    streak[bus_id] += 1
+    if streak[bus_id] == 1:
+      emit OFF_ROUTE alert                 # existing single-hit alert (unchanged)
+    if streak[bus_id] >= settings.PERSISTENT_OFF_ROUTE_THRESHOLD:
       emit PERSISTENT_OFF_ROUTE alert
   else:
-    streak_start.pop(bus_id, None) # reset on any on-route reading
+    streak[bus_id] = 0                     # reset on any on-route reading
+    streak_start_time.pop(bus_id, None)
 ```
 
-**Why a 5-second time window?**  
-A fixed time window is more robust than a strict count of pings (which assumes a perfect 1Hz frequency). 5 seconds of continuous off-route readings guarantees the bus genuinely deviated and avoids firing on fleeting GPS noise. Constant is stored in `app/config.py`.
+**Why time-based window?**  
+GPS fixes arrive ~1/s but are not guaranteed to be exactly 1 s apart. Using a configurable
+time window (default 5 s) rather than a raw count makes the policy independent of GPS frequency
+and easier to tune via environment variable without redeployment.
 
 ### New alert type
 
 ```json
 {
   "anomalyType": "PERSISTENT_OFF_ROUTE",
-  "message": "Bus off-route for 3 consecutive readings (≥150 m deviation streak)",
+  "message": "Bus off-route for 3 readings within 5 s window",
   "busId": "BUS-007",
   "tripId": "TRIP-2026-001",
   "routeId": "1",
-  "streakCount": 3
+  "streakCount": 3,
+  "windowSeconds": 5
+}
+```
+
+---
+
+## Anomaly L3 — Isolation Forest with Sliding-Window Feature Extraction
+
+> Added per JPabasara review: Isolation Forest requires a summary feature vector, not raw GPS pings.
+
+### Sliding Window Design
+
+| Parameter | Config Key | Default | Description |
+|-----------|-----------|---------|-------------|
+| Window size | `SLIDING_WINDOW_SIZE` | 20 | Number of recent GPS pings to include |
+| Min window for inference | `SLIDING_WINDOW_MIN_SIZE` | 10 | Minimum pings before running model |
+| Artifact path | `ISOLATION_FOREST_ARTIFACT_PATH` | `anomaly_model_iso.joblib` | Loaded at service startup |
+
+### Feature Extraction from Window
+
+Every time a new GPS ping arrives, the Anomaly Service looks at the last `SLIDING_WINDOW_SIZE`
+pings and extracts a **summary vector**:
+
+```python
+def extract_window_features(window: list[dict]) -> np.ndarray:
+    speeds   = [p["speed"] for p in window]       # km/h
+    headings = [p.get("heading", 0) for p in window]
+    # acceleration: speed delta between consecutive pings (km/h/s)
+    accels   = [speeds[i] - speeds[i-1] for i in range(1, len(speeds))]
+
+    return np.array([
+        max(accels),              # max_acceleration  — flooring the gas
+        min(accels),              # min_acceleration  — slamming the brakes
+        np.var(speeds),           # speed_variance    — erratic speed
+        np.var(headings),         # heading_variance  — swerving
+        np.mean(speeds),          # mean_speed        — general pace
+        max(speeds) - min(speeds) # speed_range       — swing magnitude
+    ])
+```
+
+### Offline Training
+
+```
+1. Extract summary vectors from millions of normal 10–20-ping windows in historical data
+2. Fit IsolationForest(n_estimators=200, contamination=0.01)
+3. Save artifact: anomaly_model_iso.joblib
+```
+
+### Real-Time Inference
+
+```python
+def detect_erratic_driving(window, model, settings):
+    if len(window) < settings.SLIDING_WINDOW_MIN_SIZE:
+        return None   # not enough data yet
+    features = extract_window_features(window[-settings.SLIDING_WINDOW_SIZE:])
+    prediction = model.predict(features.reshape(1, -1))  # 1=normal, -1=anomaly
+    if prediction[0] == -1:
+        emit ERRATIC_DRIVING alert
+```
+
+### New alert type: `ERRATIC_DRIVING`
+
+```json
+{
+  "anomalyType": "ERRATIC_DRIVING",
+  "message": "Isolation Forest detected erratic driving pattern (speed_variance=12.5, heading_variance=45.0)",
+  "busId": "BUS-007",
+  "tripId": "TRIP-2026-001",
+  "features": {
+    "max_acceleration": 4.2,
+    "min_acceleration": -5.1,
+    "speed_variance": 12.5,
+    "heading_variance": 45.0,
+    "mean_speed": 28.3,
+    "speed_range": 18.6
+  }
 }
 ```
 
@@ -163,7 +257,7 @@ A fixed time window is more robust than a strict count of pings (which assumes a
 |------|--------|
 | `docker/init/01-databases.sql` | Add `CREATE DATABASE eta_db;` |
 | `docker/docker-compose.yml` | Add `ETA_DATABASE_URL` env to `eta-service` block |
-| `docker/docker-compose.yml` `kafka-init` | Add `gps-cleaned` Kafka topic (currently missing from init) |
+| `docker/docker-compose.yml` `kafka-init` | Ensure `transport-eta-features` Kafka topic is listed in init |
 
 ### `docker/init/01-databases.sql` addition
 
@@ -193,11 +287,14 @@ ETA_DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-p
 
 ### `eta_records` table schema
 
-To efficiently manage high-frequency telemetry storage without heavy cron `DELETE` jobs, the table uses PostgreSQL partitioning by month. This is defined via a lightweight Alembic setup specifically inside `services/eta-service/`.
+> **Retention strategy (per JPabasara review):** Use PostgreSQL declarative table partitioning by
+> month. This is vastly more efficient for high-frequency telemetry than a cron DELETE job:
+> dropping a partition is an O(1) metadata operation vs. a full table scan DELETE.
 
 ```sql
+-- Parent partitioned table (no rows stored directly)
 CREATE TABLE eta_records (
-  id            SERIAL,
+  id            BIGSERIAL,
   trip_id       TEXT        NOT NULL,
   bus_id        TEXT        NOT NULL,
   route_id      TEXT,
@@ -209,16 +306,27 @@ CREATE TABLE eta_records (
   clamped       BOOLEAN     NOT NULL DEFAULT false,
   off_route     BOOLEAN     NOT NULL DEFAULT false,
   timestamp     TIMESTAMPTZ NOT NULL,  -- from GPS message
-  recorded_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  PRIMARY KEY (id, timestamp)
-) PARTITION BY RANGE (timestamp);
+  recorded_at   TIMESTAMPTZ NOT NULL DEFAULT NOW()
+) PARTITION BY RANGE (recorded_at);
 
--- Example partition creation (managed by automation/Alembic)
-CREATE TABLE eta_records_y2026m05 PARTITION OF eta_records 
-    FOR VALUES FROM ('2026-05-01') TO ('2026-06-01');
+-- Monthly partitions — new ones created automatically by maintenance script
+CREATE TABLE eta_records_2026_05 PARTITION OF eta_records
+  FOR VALUES FROM ('2026-05-01') TO ('2026-06-01');
+CREATE TABLE eta_records_2026_06 PARTITION OF eta_records
+  FOR VALUES FROM ('2026-06-01') TO ('2026-07-01');
 
-CREATE INDEX eta_records_route_stop_idx ON eta_records (route_id, stop_id, timestamp);
-CREATE INDEX eta_records_trip_idx       ON eta_records (trip_id, timestamp);
+-- Indexes defined on parent; PostgreSQL propagates to all partitions
+CREATE INDEX eta_records_route_stop_idx ON eta_records (route_id, stop_id, recorded_at);
+CREATE INDEX eta_records_trip_idx       ON eta_records (trip_id, recorded_at);
+
+-- Retention: drop month partitions older than configured retention window
+-- No DELETE scan needed — DROP TABLE eta_records_YYYY_MM is instant
+```
+
+**Retention config (app/config.py):**
+
+```python
+ETA_RECORDS_RETENTION_MONTHS = int(os.getenv("ETA_RECORDS_RETENTION_MONTHS", "6"))
 ```
 
 ### Off-route guard in `consumer.py`
@@ -276,8 +384,6 @@ therefore better suited when the input is a temporal sequence rather than a feat
 
 ### `train_sarima.py` workflow
 
-All constants like minimum training threshold are loaded as environment variables via `app/config.py` (e.g., `SARIMA_MIN_THRESHOLD_HOURS=48`). We keep the 48-hour requirement to ensure 2 full seasonal cycles and avoid skew from single-day anomalies like public holidays.
-
 ```
 1. SELECT trip_id, stop_id, route_id, eta_seconds, timestamp
    FROM eta_records
@@ -286,13 +392,24 @@ All constants like minimum training threshold are loaded as environment variable
 
 2. Group by (route_id, stop_id)
 
-3. For each group with ≥ 48 hours of data (SARIMA_MIN_THRESHOLD_HOURS):
+3. For each group with ≥ SARIMA_MIN_HOURS hourly samples (default 48 h = 2 full seasonal cycles of S=24):
    a. Resample to hourly mean ETA
    b. Fit SARIMA(1,1,1)(1,1,1,24)
    c. Save: sarima_artifacts/{route_id}_{stop_id}.joblib
    d. Print AIC, RMSE on hold-out last 24 h
 
 4. Exit 0 on success; exit 1 if any group fails to converge
+
+**Why 48 h (not 24 h)?**  
+A single 24-hour day may be a public holiday, an incident day, or an atypical weekday — all of
+which would skew the seasonal baseline. Two complete cycles (48 h) guarantees the model has
+seen at least one full weekday pattern and reduces the risk of a holiday biasing the estimate.
+
+**Config key (app/config.py):**
+
+```python
+SARIMA_MIN_HOURS = int(os.getenv("SARIMA_MIN_HOURS", "48"))
+```
 ```
 
 ### `sarima_eta.forecast_eta_sarima(route_id, stop_id, dt)`
@@ -332,7 +449,7 @@ Response 200 (no artifact — graceful fallback):
 
 ### Phase 1 — `offRoute` field
 - [ ] `pytest services/stream-processing/tests/unit/test_enrichment.py -v` → all pass (incl. `offRoute` tests)
-- [ ] Enriched message on `gps-cleaned` contains `offRoute`, `offRouteDistanceM`
+- [ ] Enriched message on `transport-eta-features` contains `offRoute`, `offRouteDistanceM`
 
 ### Phase 2 — Anomaly streak
 - [ ] `pytest services/anomaly-service/tests/ -v` → streak tests pass
@@ -350,6 +467,24 @@ Response 200 (no artifact — graceful fallback):
 
 ---
 
+## Configuration Reference
+
+All constants that were previously hardcoded are now environment variables loaded via `app/config.py`:
+
+| Env Var | Service | Default | Description |
+|---------|---------|---------|-------------|
+| `OFF_ROUTE_DISTANCE_THRESHOLD_M` | anomaly-service | `50` | Metres from polyline before bus is considered off-route |
+| `OFF_ROUTE_STREAK_WINDOW_SECONDS` | anomaly-service | `5` | Time window for consecutive off-route readings |
+| `PERSISTENT_OFF_ROUTE_THRESHOLD` | anomaly-service | `3` | Min readings in window to trigger PERSISTENT_OFF_ROUTE |
+| `SLIDING_WINDOW_SIZE` | anomaly-service | `20` | GPS pings in sliding window for L3 Isolation Forest |
+| `SLIDING_WINDOW_MIN_SIZE` | anomaly-service | `10` | Min pings before L3 inference runs |
+| `ISOLATION_FOREST_ARTIFACT_PATH` | anomaly-service | `anomaly_model_iso.joblib` | L3 model artifact |
+| `SARIMA_MIN_HOURS` | eta-service | `48` | Min hours of hourly ETA history before SARIMA trains |
+| `ETA_RECORDS_RETENTION_MONTHS` | eta-service | `6` | Monthly partitions older than this are dropped |
+| `ETA_DATABASE_URL` | eta-service | (required) | PostgreSQL connection string for eta_db |
+
+---
+
 ## Scope Boundaries
 
 - `transport-telemetry-cleaned` consumers (Anomaly Service, InfluxDB) are **not broken** — `offRoute` is additive.
@@ -360,10 +495,18 @@ Response 200 (no artifact — graceful fallback):
 
 ---
 
-## Resolved Questions (from CR1 Review)
+## Open Questions for Review
 
-1. **`eta_records` retention policy**: We will use **Postgres table partitioning by month**. This is vastly more efficient for high-frequency telemetry than a cron `DELETE` job.
-2. **SARIMA minimum sample threshold**: Kept at **48 hours (2 cycles)** to avoid skewed models from single-day anomalies (e.g., public holidays). Configured via Env Var.
-3. **Off-route streak threshold**: A **time-based 5-second sliding window** is used instead of a fixed ping count. Configured via Env Var.
-4. **`eta_db` schema ownership**: Will use a **lightweight Alembic** configuration placed directly inside `services/eta-service/`.
-5. **Hardcoded Numbers**: All constants (thresholds, windows, retention logic) must be moved to `app/config.py` and loaded dynamically via Environment Variables.
+1. **`eta_records` retention policy** — With 1 GPS fix/s per bus across many trips, the table grows
+   quickly. Should we add `DELETE WHERE recorded_at < NOW() - INTERVAL '90 days'` as a cron job,
+   or rely on Postgres partitioning by month? Preference?
+
+2. **SARIMA minimum sample threshold (48)** — Is 48 h of data (2 seasonal cycles) a reasonable
+   minimum before the model activates, or should it be lower (e.g., 24 h for one cycle)?
+
+3. **Off-route streak threshold (3)** — GPS fixes arrive ~1 s apart in our simulator. Should the
+   threshold be a count (3 readings) or a time window (e.g., 5 s of consecutive off-route)?
+
+4. **`eta_db` schema ownership** — Using `create_all()` at startup is simple but means rollbacks
+   require manual `DROP TABLE`. Should we add a lightweight Alembic setup inside
+   `services/eta-service/` instead (consistent with how route-service uses the root Alembic)?

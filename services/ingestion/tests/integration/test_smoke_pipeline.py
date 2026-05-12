@@ -8,7 +8,7 @@ from pathlib import Path
 import httpx
 import paho.mqtt.client as mqtt
 import pytest
-from kafka import KafkaConsumer, KafkaProducer
+from kafka import KafkaConsumer
 
 
 pytestmark = pytest.mark.integration
@@ -21,7 +21,6 @@ MQTT_PORT = 18884
 KAFKA_BOOTSTRAP = "127.0.0.1:19092"
 RAW_TOPIC = "transport-telemetry-raw"
 DLQ_TOPIC = "transport-telemetry-dlq"
-TRIP_LIFECYCLE_TOPIC = "trip.lifecycle"
 
 
 def docker_is_available() -> bool:
@@ -122,47 +121,6 @@ def publish_smoke_messages(valid_payload: dict, invalid_payload: bytes) -> None:
         client.disconnect()
 
 
-def publish_trip_started(bus_id: str, trip_id: str, route_id: str = "ROUTE_SMOKE_001") -> None:
-    producer = KafkaProducer(
-        bootstrap_servers=KAFKA_BOOTSTRAP,
-        value_serializer=lambda value: json.dumps(value).encode("utf-8"),
-        key_serializer=lambda key: key.encode("utf-8"),
-        request_timeout_ms=30000,
-        api_version_auto_timeout_ms=5000,
-    )
-    try:
-        event = {
-            "event": "TRIP_STARTED",
-            "busId": bus_id,
-            "tripId": trip_id,
-            "routeId": route_id,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-        producer.send(TRIP_LIFECYCLE_TOPIC, key=bus_id, value=event).get(timeout=20)
-        producer.flush(timeout=20)
-    finally:
-        producer.close()
-
-
-def wait_for_active_trip_cache(bus_id: str, timeout_seconds: int = 30) -> None:
-    deadline = time.time() + timeout_seconds
-    last_payload = "no response"
-    while time.time() < deadline:
-        try:
-            response = httpx.get("http://127.0.0.1:18001/health", timeout=3.0)
-            last_payload = response.text
-            if response.status_code == 200:
-                payload = response.json()
-                cache_ready = payload["dependencies"]["trip_cache"] == "ready"
-                active_trip_present = payload["counters"]["active_trip_count"] >= 1
-                if cache_ready and active_trip_present:
-                    return
-        except httpx.HTTPError as error:
-            last_payload = str(error)
-        time.sleep(1)
-    raise AssertionError(f"ingestion did not ready active trip cache for {bus_id}: {last_payload}")
-
-
 def wait_for_message(topic: str, predicate, timeout_seconds: int = 60):
     consumer = KafkaConsumer(
         topic,
@@ -198,7 +156,6 @@ def test_mqtt_to_kafka_smoke_pipeline():
         pytest.skip("Docker daemon is not reachable. Start Docker to run ingestion smoke tests.")
 
     project_name = f"ingestionsmoke{uuid.uuid4().hex[:8]}"
-    trip_id = "TRIP_SMOKE_001"
     valid_payload = {
         "busId": f"BUS_SMOKE_{uuid.uuid4().hex[:8].upper()}",
         "lat": 6.9271,
@@ -212,8 +169,6 @@ def test_mqtt_to_kafka_smoke_pipeline():
         run_compose(project_name, "up", "-d", "--build")
         wait_for_kafka()
         wait_for_readiness()
-        publish_trip_started(valid_payload["busId"], trip_id)
-        wait_for_active_trip_cache(valid_payload["busId"])
         publish_smoke_messages(valid_payload, b"bad_data")
 
         raw_message = wait_for_message(
@@ -227,7 +182,8 @@ def test_mqtt_to_kafka_smoke_pipeline():
             and message.value["error_type"] == "JSON_PARSE",
         )
 
-        assert raw_message.value["tripId"] == trip_id
+        assert "tripId" not in raw_message.value
+        assert "trip_id" not in raw_message.value
         assert raw_message.value["lat"] == valid_payload["lat"]
         assert raw_message.value["lon"] == valid_payload["lon"]
         assert dlq_message.value["source"] == "mqtt"

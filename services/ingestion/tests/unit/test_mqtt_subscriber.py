@@ -392,3 +392,26 @@ def test_full_startup_buffer_rejects_with_trip_cache_rebuilding(subscriber_with_
     mock_producer.publish_to_dlq.assert_called_once()
     _, kwargs = mock_producer.publish_to_dlq.call_args
     assert kwargs["error_type"] == "TRIP_CACHE_REBUILDING"
+
+
+def test_stateless_mode_forwards_physics_violations_to_flink(monkeypatch):
+    collector = MetricsCollector()
+    monkeypatch.setattr(subscriber_module, "metrics", collector)
+    monkeypatch.setattr(subscriber_module.settings, "stateless_mode", True)
+    mock_producer = MagicMock()
+    subscriber = subscriber_module.MQTTSubscriber(producer=mock_producer, trip_cache=None)
+
+    payload = json.dumps(
+        {
+            "busId": "B1",
+            "lat": 0.0,
+            "lon": 0.0,
+            "speed": 260.0,
+            "timestamp": "2026-05-02T10:00:00Z",
+        }
+    ).encode("utf-8")
+
+    subscriber._process_payload(payload, "transport/bus/B1/location")
+
+    mock_producer.publish_raw_bytes.assert_called_once_with(payload, "transport/bus/B1/location")
+    mock_producer.publish_to_dlq.assert_not_called()

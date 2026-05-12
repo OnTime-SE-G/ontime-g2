@@ -33,8 +33,13 @@ async def redis_listener(app: FastAPI):
             logger.info("REDIS PING SUCCESSFUL")
             
             async with redis.pubsub() as pubsub:
-                logger.info(f"SUBSCRIBING TO: {settings.fleet_channel}, {settings.eta_channel}")
-                await pubsub.subscribe(settings.fleet_channel, settings.eta_channel)
+                logger.info(
+                    "SUBSCRIBING TO: %s, %s, %s",
+                    settings.fleet_channel,
+                    settings.eta_channel,
+                    settings.anomaly_channel,
+                )
+                await pubsub.subscribe(settings.fleet_channel, settings.eta_channel, settings.anomaly_channel)
                 logger.info("SUBSCRIBE COMMAND SENT")
                 
                 while True:

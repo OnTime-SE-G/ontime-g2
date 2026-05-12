@@ -33,6 +33,11 @@ class StreamSettings(BaseSettings):
         validation_alias=AliasChoices("STREAM_KAFKA_CLEANED_TOPIC", "KAFKA_CLEANED_TOPIC"),
         description="Cleaned/enriched GPS topic",
     )
+    kafka_invalid_topic: str = Field(
+        default="telemetry-invalid",
+        validation_alias=AliasChoices("STREAM_KAFKA_INVALID_TOPIC", "KAFKA_INVALID_TOPIC"),
+        description="Physics-invalid telemetry topic for observability",
+    )
     kafka_eta_features_topic: str = Field(
         default="transport-eta-features",
         validation_alias=AliasChoices("STREAM_KAFKA_ETA_FEATURES_TOPIC", "KAFKA_ETA_FEATURES_TOPIC"),
@@ -108,6 +113,20 @@ class StreamSettings(BaseSettings):
         default="http://route-service:8002",
         validation_alias=AliasChoices("STREAM_ROUTE_SERVICE_URL", "ROUTE_SERVICE_URL"),
         description="Private Route Service base URL",
+    )
+    fleet_service_url: str = Field(
+        default="http://fleet-management-service:8003",
+        validation_alias=AliasChoices("STREAM_FLEET_SERVICE_URL", "FLEET_SERVICE_URL"),
+        description="Private Fleet Service base URL for active-trip bootstrap",
+    )
+    route_deviation_threshold_meters: float = Field(
+        default=50.0,
+        ge=0.0,
+        validation_alias=AliasChoices(
+            "STREAM_ROUTE_DEVIATION_THRESHOLD_METERS",
+            "ROUTE_DEVIATION_THRESHOLD_METERS",
+        ),
+        description="Distance from route polyline before telemetry is classified off-route",
     )
     flink_parallelism: int = Field(
         default=1,

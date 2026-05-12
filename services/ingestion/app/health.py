@@ -8,6 +8,8 @@ from services.ingestion.app.metrics import REJECTION_REASONS, metrics
 
 
 def _trip_cache_ready(snapshot: dict) -> bool:
+    if settings.stateless_mode:
+        return True
     if not settings.require_active_trip:
         return True
     return snapshot["trip_cache_status"] == "ready"

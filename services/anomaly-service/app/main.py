@@ -2,7 +2,11 @@ import asyncio
 import json
 import logging
 import httpx
-from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
+try:
+    from aiokafka import AIOKafkaConsumer, AIOKafkaProducer
+except ImportError:  # pragma: no cover - local tests can inject producer/consumer fakes
+    AIOKafkaConsumer = None
+    AIOKafkaProducer = None
 from app.config import settings
 from app.models.anomaly_model import AnomalyModel
 
@@ -37,6 +41,20 @@ class AnomalyService:
     def __init__(self):
         self.model = AnomalyModel()
         self.route_geometries = {}
+        self.redis_client = None
+        try:
+            import redis
+
+            self.redis_client = redis.Redis(host=settings.redis_host, port=settings.redis_port, decode_responses=True)
+        except Exception as exc:
+            logger.warning("Redis anomaly live publisher unavailable: %s", exc)
+
+        try:
+            from app.models.anomaly_db import init_db
+
+            init_db()
+        except Exception as exc:
+            logger.warning("anomaly_db init failed (non-fatal in dev): %s", exc)
 
     async def fetch_route_geometries(self):
         logger.info("Fetching route geometries...")
@@ -75,6 +93,17 @@ class AnomalyService:
                 settings.kafka_anomaly_topic,
                 json.dumps(alert).encode('utf-8')
             )
+            if self.redis_client is not None:
+                try:
+                    self.redis_client.publish(settings.redis_anomaly_live_channel, json.dumps(alert))
+                except Exception as exc:
+                    logger.error("Redis anomaly publish failed (non-fatal): %s", exc)
+            try:
+                from app.models.anomaly_db import insert_alert
+
+                insert_alert(alert)
+            except Exception as exc:
+                logger.error("anomaly_db insert failed (non-fatal): %s", exc)
 
     async def process_cleaned_message(self, raw_value: bytes | str, producer: AIOKafkaProducer):
         telemetry = self._decode_json(raw_value)
@@ -117,6 +146,9 @@ class AnomalyService:
                 logger.error(f"DLQ processing error: {e}")
 
     async def run(self):
+        if AIOKafkaConsumer is None or AIOKafkaProducer is None:
+            raise RuntimeError("aiokafka is required to run the anomaly Kafka service")
+
         await self.fetch_route_geometries()
 
         cleaned_consumer = AIOKafkaConsumer(
