@@ -127,6 +127,9 @@ jobs:
           kubectl set image deployment/transit-platform-g2-anomaly-service \
             anomaly-service="ghcr.io/${repo}/anomaly-service:sha-${sha:0:7}" \
             -n transit-platform
+          kubectl set image deployment/transit-platform-g2-eta-service \
+            eta-service="ghcr.io/${repo}/eta-service:sha-${sha:0:7}" \
+            -n transit-platform
           kubectl rollout status deployment/transit-platform-g2-api-gateway \
             -n transit-platform --timeout=120s
           kubectl rollout status deployment/transit-platform-g2-ingestion \
@@ -134,6 +137,8 @@ jobs:
           kubectl rollout status deployment/transit-platform-g2-stream-processing \
             -n transit-platform --timeout=120s
           kubectl rollout status deployment/transit-platform-g2-anomaly-service \
+            -n transit-platform --timeout=120s
+          kubectl rollout status deployment/transit-platform-g2-eta-service \
             -n transit-platform --timeout=120s
 
       - name: Skip deploy (missing kubeconfig)
