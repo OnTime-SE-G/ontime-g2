@@ -1,5 +1,6 @@
 pytest
 kafka-python>=2.0.2
+redis>=4.6
 pytest-asyncio
 httpx
 fastapi

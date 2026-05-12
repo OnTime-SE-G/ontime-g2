@@ -39,7 +39,15 @@ async def fetch_buses_by_route(route_id: str):
     Useful for tracking the number of active vehicles on a given route.
     """
     try:
-        return await get_route_buses(route_id)
+        buses = await get_route_buses(route_id)
+        return [
+            {
+                **b,
+                "id": str(b["id"]),
+                "route_id": str(b["route_id"]) if b.get("route_id") is not None else None,
+            }
+            for b in buses
+        ]
     except HTTPStatusError as e:
         raise HTTPException(status_code=e.response.status_code, detail=e.response.text)
 
