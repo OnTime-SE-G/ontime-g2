@@ -83,3 +83,42 @@ def build_summary_vector(window: Iterable[Dict[str, Any]]) -> Dict[str, float]:
         "average_speed": mean(speeds) if speeds else 0.0,
         "sample_count": float(len(speeds)),
     }
+
+
+# ---------------------------------------------------------------------------
+# Spatial feature extraction (for off-route + stuck anomaly detection)
+# ---------------------------------------------------------------------------
+
+SPATIAL_FEATURE_COLUMNS: List[str] = [
+    "route_deviation_meters",
+    "speed_kmh",
+    "stationary_duration_sec",
+    "distance_to_next_stop_m",
+    "route_progress_pct",
+]
+
+
+def build_spatial_vector(
+    telemetry: Dict[str, Any],
+    stationary_duration_sec: float = 0.0,
+) -> Dict[str, float]:
+    """Extract a single spatial-context feature vector from one telemetry reading.
+
+    Features are derived from fields already present in the Flink-enriched
+    telemetry message so no additional computation is required at inference time.
+    """
+    return {
+        "route_deviation_meters": float(
+            telemetry.get("routeDeviationMeters")
+            or telemetry.get("offRouteDistanceM")
+            or 0.0
+        ),
+        "speed_kmh": float(telemetry.get("speed") or 0.0),
+        "stationary_duration_sec": float(stationary_duration_sec),
+        "distance_to_next_stop_m": float(
+            telemetry.get("distanceToNextStop") or 0.0
+        ),
+        "route_progress_pct": float(
+            telemetry.get("routeProgressPct") or 0.0
+        ),
+    }

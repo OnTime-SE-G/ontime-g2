@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Tuple
 
 from app.config import settings
-from .training.feature_extraction import build_summary_vector
+from .training.feature_extraction import build_spatial_vector, build_summary_vector
 
 logger = logging.getLogger(__name__)
 
@@ -82,6 +82,23 @@ class AnomalyModel:
             # model not available in this environment; continue with rule-based checks
             logger.debug("No isolation forest model loaded (optional)")
 
+        # Spatial Isolation Forest (off-route + stuck context — STUCK_OFF_ROUTE)
+        self.spatial_model = None
+        self.spatial_model_path = None
+        try:
+            import joblib
+
+            spatial_candidate = os.path.join(
+                os.path.dirname(__file__), "training", "isolation_forest_spatial.joblib"
+            )
+            if os.path.exists(spatial_candidate):
+                self.spatial_model = joblib.load(spatial_candidate)
+                self.spatial_model_path = spatial_candidate
+                self.version = "spatial-if-v1"
+                logger.info("Loaded spatial isolation forest model from %s", spatial_candidate)
+        except Exception:
+            logger.debug("No spatial isolation forest model loaded (optional)")
+
     def detect(self, telemetry: Dict[str, Any], route_geometry: List[Tuple[float, float]]) -> List[Dict[str, Any]]:
         alerts = []
         bus_id = telemetry["busId"]
@@ -128,6 +145,26 @@ class AnomalyModel:
         state["last_telemetry"] = dict(telemetry)
         state["communication_loss_alerted"] = False
         self.bus_states[bus_id] = state
+
+        # Spatial anomaly detection: off-route + stuck context -> IsolationForest
+        stationary_duration_sec = 0.0
+        if "stationary_start_time" in state:
+            stationary_duration_sec = current_time - state["stationary_start_time"]
+        try:
+            svec = build_spatial_vector(telemetry, stationary_duration_sec)
+            pred = self.predict_spatial_anomaly(svec)
+            if pred is not None and pred == -1:
+                alerts.append(
+                    self._create_alert(
+                        bus_id,
+                        "STUCK_OFF_ROUTE",
+                        f"Spatial anomaly: {round(svec['route_deviation_meters'])}m off route, "
+                        f"stationary {round(stationary_duration_sec)}s",
+                        telemetry,
+                    )
+                )
+        except Exception:
+            logger.debug("Spatial anomaly prediction skipped")
 
         # Behavioral anomaly detection via summary-vector -> IsolationForest
         behavioral_alert = self._detect_behavioral_anomaly(bus_id, telemetry)
@@ -249,6 +286,27 @@ class AnomalyModel:
             return int(pred[0])
         except Exception:
             logger.exception("Isolation forest prediction failed")
+            return None
+
+    def predict_spatial_anomaly(self, spatial_vector: Dict[str, float]):
+        """Return spatial IsolationForest prediction if model available, else None.
+
+        IsolationForest convention: -1 => STUCK_OFF_ROUTE anomaly, 1 => normal.
+        """
+        if self.spatial_model is None:
+            return None
+        try:
+            features = [
+                spatial_vector.get("route_deviation_meters", 0.0),
+                spatial_vector.get("speed_kmh", 0.0),
+                spatial_vector.get("stationary_duration_sec", 0.0),
+                spatial_vector.get("distance_to_next_stop_m", 0.0),
+                spatial_vector.get("route_progress_pct", 0.0),
+            ]
+            pred = self.spatial_model.predict([features])
+            return int(pred[0])
+        except Exception:
+            logger.exception("Spatial isolation forest prediction failed")
             return None
 
     def detect_inactive_trip_dlq(
