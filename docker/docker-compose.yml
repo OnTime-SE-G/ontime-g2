@@ -492,7 +492,11 @@ services:
       mlflow:
         condition: service_started
 
+  # Optional MLOps stack — not required for live pipeline / ETA / anomaly.
+  # Start with: docker compose --profile mlops up -d mlflow airflow-webserver airflow-scheduler
+  # Lighter alternative: GitHub Actions workflow train_intelligence.yml (manual retrain, no Airflow RAM).
   airflow-init:
+    profiles: ["mlops"]
     image: apache/airflow:2.9.1
     container_name: ontime_airflow_init
     environment:
@@ -518,6 +522,7 @@ services:
         condition: service_healthy
 
   airflow-webserver:
+    profiles: ["mlops"]
     image: apache/airflow:2.9.1
     container_name: ontime_airflow_webserver
     ports:
@@ -544,6 +549,7 @@ services:
         condition: service_completed_successfully
 
   airflow-scheduler:
+    profiles: ["mlops"]
     image: apache/airflow:2.9.1
     container_name: ontime_airflow_scheduler
     environment:
