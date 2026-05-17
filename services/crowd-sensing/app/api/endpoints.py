@@ -5,6 +5,7 @@ from kafka import KafkaProducer
 from app.config import settings
 from app.schemas.crowd import CrowdReportRequest, CrowdPredictionResponse
 from app.prediction.hybrid_predictor import predictor
+from app.utils.validation import validate_route_stop
 
 router = APIRouter(prefix="/api/v1/crowd", tags=["Crowd Sensing"])
 
@@ -25,6 +26,9 @@ def submit_crowd_report(report: CrowdReportRequest):
     if report.occupancy_score < 0 or report.occupancy_score > 100:
         raise HTTPException(status_code=400, detail="occupancy_score must be between 0 and 100")
     
+    # Enforce database integrity using internal Route Service
+    validate_route_stop(report.route_id, report.stop_id)
+    
     if producer:
         try:
             producer.send(settings.kafka_reports_topic, report.dict())
@@ -44,6 +48,9 @@ def get_crowd_prediction(
     datetime_param: str = Query(..., alias="datetime")
 ):
     """Predict occupancy for a future trip segment using the hybrid model."""
+    # Enforce logical integrity using internal Route Service
+    validate_route_stop(route_id, stop_id)
+    
     try:
         dt = datetime.fromisoformat(datetime_param.replace("Z", "+00:00"))
     except ValueError:
