@@ -20,7 +20,10 @@ class PassengerProfile(Base):
     __tablename__ = "passenger_profiles"
 
     passenger_id = Column(String(128), primary_key=True, index=True)
+    # User's dynamic reputation score, calibrated dynamically by consensus
     trust_score = Column(Float, default=0.8, nullable=False)
+    # Total historical crowd reports submitted by this passenger
     total_reports = Column(Integer, default=0, nullable=False)
+    # Reports that matched or were close to the running passenger consensus
     verified_reports = Column(Integer, default=0, nullable=False)
     created_at = Column(DateTime, server_default=func.now())
