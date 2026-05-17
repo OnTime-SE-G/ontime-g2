@@ -8,6 +8,8 @@ Pub/Sub channel.
 from __future__ import annotations
 
 import json
+import collections
+import dataclasses
 import datetime as dt_module
 import logging
 import threading
@@ -107,6 +109,9 @@ class EtaFeatureConsumer:
         self.snapshot_key_prefix = snapshot_key_prefix
         self.eta_computer = eta_computer
         self.consumer_factory = consumer_factory
+        self.smoothing_window_size = settings.eta_smoothing_window_size
+        self.smoothing_ttl_seconds = settings.eta_smoothing_ttl_seconds
+        self.trip_speed_history = collections.defaultdict(lambda: collections.deque(maxlen=self.smoothing_window_size))
 
     def snapshot_key(self, trip_id: str) -> str:
         return f"{self.snapshot_key_prefix}:{trip_id}:snapshot"
@@ -220,11 +225,29 @@ class EtaFeatureConsumer:
         *,
         model_name: str | None = None,
     ) -> dict[str, Any]:
+        if payload.get("event") == "TRIP_ENDED" or payload.get("eventType") == "TRIP_ENDED":
+            trip_id = str(payload.get("tripId", ""))
+            if trip_id in self.trip_speed_history:
+                del self.trip_speed_history[trip_id]
+            return {"skipped": True, "reason": "trip_ended"}
+
         if payload.get("offRoute") is True:
             return {"skipped": True, "reason": "off_route"}
 
         event = EtaFeatureMessage.from_payload(payload)
         segment_mode = str(payload.get("segmentMode", "urban"))
+        
+        # Moving Average & TTL filtering
+        now_ts = self._parse_timestamp(event.timestamp) or dt_module.datetime.now(dt_module.timezone.utc)
+        history = self.trip_speed_history[event.trip_id]
+        history.append((now_ts, event.speed_ms))
+        
+        cutoff = now_ts - dt_module.timedelta(seconds=self.smoothing_ttl_seconds)
+        while history and history[0][0] < cutoff:
+            history.popleft()
+            
+        smoothed_speed = sum(s for _, s in history) / len(history) if history else event.speed_ms
+        event = dataclasses.replace(event, speed_ms=smoothed_speed)
         outcome = self._predict_eta(
             event.distance_to_next_stop,
             event.speed_ms,
