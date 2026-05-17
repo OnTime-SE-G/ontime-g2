@@ -536,8 +536,8 @@ services:
 
   crowd-sensing:
     build:
-      context: ..
-      dockerfile: services/crowd-sensing/Dockerfile
+      context: ../services/crowd-sensing
+      dockerfile: Dockerfile
     container_name: ontime_crowd_sensing
     ports:
       - "8007:8007"
