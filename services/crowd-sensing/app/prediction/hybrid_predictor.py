@@ -11,6 +11,8 @@ from app.utils.occupancy import score_to_label, label_to_score
 
 logger = logging.getLogger(__name__)
 
+DEFAULT_TRUST_SCORE = 0.8
+
 class HybridPredictor:
     def __init__(self):
         self.model = None
@@ -72,7 +74,7 @@ class HybridPredictor:
             
             results = []
             for score, p_id in rows:
-                trust = 0.8  # default baseline trust
+                trust = DEFAULT_TRUST_SCORE
                 if p_id:
                     profile = db.query(PassengerProfile).filter(PassengerProfile.passenger_id == p_id).first()
                     if profile:
