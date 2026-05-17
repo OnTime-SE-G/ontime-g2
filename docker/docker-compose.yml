@@ -601,8 +601,8 @@ services:
 
   crowd-sensing:
     build:
-      context: ../services/crowd-sensing
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: services/crowd-sensing/Dockerfile
     container_name: ontime_crowd_sensing
     ports:
       - "8007:8007"
@@ -612,7 +612,6 @@ services:
       CROWD_KAFKA_BROKER_URL: ${CROWD_KAFKA_BROKER_URL:-broker:29092}
       CROWD_KAFKA_REPORTS_TOPIC: ${CROWD_KAFKA_REPORTS_TOPIC:-crowd-reports}
       CROWD_KAFKA_CONSUMER_GROUP: ${CROWD_KAFKA_CONSUMER_GROUP:-crowd-sensing-group}
-      CROWD_MLFLOW_TRACKING_URI: ${CROWD_MLFLOW_TRACKING_URI:-http://mlflow:5000}
       MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI:-http://mlflow:5000}
     volumes:
       - ../services/crowd-sensing:/app

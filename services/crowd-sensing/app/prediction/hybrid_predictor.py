@@ -21,11 +21,13 @@ class HybridPredictor:
 
     def _load_model(self):
         try:
-            import mlflow.xgboost
-            mlflow.set_tracking_uri(settings.mlflow_tracking_uri)
-            model_uri = "models:/CrowdOccupancyModel/latest"
-            logger.info(f"Loading ML model from {model_uri}")
-            self.model = mlflow.xgboost.load_model(model_uri)
+            from ml.loader import load_predictor
+            logger.info("Loading ML model from MLflow via ml.loader")
+            
+            # Since crowd occupancy might not have a fallback joblib in main yet, we just try to load from mlflow
+            res = load_predictor("CrowdOccupancyModel", stage="Production")
+            self.model = res.model
+            
             # Default feature columns for XGBoost
             self.features = ['route_id', 'direction_id', 'stop_id', 'stop_sequence', 'hour_of_day', 'day_of_week', 'is_weekend']
             logger.info("Successfully loaded ML model")

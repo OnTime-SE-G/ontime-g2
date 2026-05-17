@@ -6,7 +6,6 @@ class Settings(BaseSettings):
     kafka_broker_url: str = "broker:29092"
     kafka_reports_topic: str = "crowd-reports"
     kafka_consumer_group: str = "crowd-sensing-group"
-    mlflow_tracking_uri: str = "http://mlflow:5000"
     route_service_url: str = "http://route-service:8002"
 
     class Config:

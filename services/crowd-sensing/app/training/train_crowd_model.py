@@ -74,10 +74,7 @@ def fetch_data(db_url: str):
 def train_and_log(df: pd.DataFrame):
     import mlflow
     import mlflow.xgboost
-
-    tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", settings.mlflow_tracking_uri)
-    mlflow.set_tracking_uri(tracking_uri)
-    mlflow.set_experiment("crowd_occupancy_prediction")
+    from ml.tracking import start_run, log_params, log_metrics
 
     features = ['route_id', 'direction_id', 'stop_id', 'stop_sequence', 'hour_of_day', 'day_of_week', 'is_weekend']
     X = df[features]
@@ -85,7 +82,7 @@ def train_and_log(df: pd.DataFrame):
 
     X_train, X_test, y_train, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
 
-    with mlflow.start_run():
+    with start_run("crowd_occupancy_prediction"):
         params = {
             "objective": "multi:softmax",
             "num_class": 3,
@@ -94,7 +91,7 @@ def train_and_log(df: pd.DataFrame):
             "n_estimators": 100,
             "random_state": 42
         }
-        mlflow.log_params(params)
+        log_params(params)
 
         model = xgb.XGBClassifier(**params)
         model.fit(X_train, y_train)
@@ -103,8 +100,7 @@ def train_and_log(df: pd.DataFrame):
         acc = accuracy_score(y_test, preds)
         f1 = f1_score(y_test, preds, average='weighted')
 
-        mlflow.log_metric("accuracy", acc)
-        mlflow.log_metric("f1_score", f1)
+        log_metrics({"accuracy": acc, "f1_score": f1})
         logger.info(f"Test Accuracy: {acc:.4f}, F1: {f1:.4f}")
 
         mlflow.xgboost.log_model(

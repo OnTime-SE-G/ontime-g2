@@ -6,13 +6,15 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     build-essential \
     libpq-dev \
+    libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
-COPY requirements.txt .
+COPY services/crowd-sensing/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY . .
+COPY services/crowd-sensing /app
 
-ENV PYTHONPATH=/app
+COPY ml /opt/ontime/ml
+ENV PYTHONPATH=/app:/opt/ontime
 
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8007"]
