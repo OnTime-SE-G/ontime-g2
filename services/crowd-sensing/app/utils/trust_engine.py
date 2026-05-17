@@ -30,6 +30,7 @@ def adjust_trust_scores(db: Session, route_id: int, stop_id: int, new_report_sco
     if not passenger_id:
         return
         
+    logger.info(f"Evaluating trust score consensus for passenger {passenger_id} at stop {stop_id}")
     profile = get_or_create_profile(db, passenger_id)
     profile.total_reports += 1
     
