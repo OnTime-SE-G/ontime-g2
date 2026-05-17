@@ -14,6 +14,12 @@ if str(_REPO_ROOT) not in sys.path:
 
 
 def load_isolation_model(registered_name: str, *, fallback_path: Path) -> tuple[object | None, str | None]:
+    """Prefer bundled joblib artifact; MLflow registry is optional upgrade path."""
+    if fallback_path.exists():
+        import joblib
+
+        return joblib.load(fallback_path), f"joblib:{fallback_path.name}"
+
     try:
         from ml.loader import load_predictor
 
@@ -22,8 +28,4 @@ def load_isolation_model(registered_name: str, *, fallback_path: Path) -> tuple[
         return loaded.model, version
     except Exception as exc:
         logger.debug("MLflow load failed for %s: %s", registered_name, exc)
-        if fallback_path.exists():
-            import joblib
-
-            return joblib.load(fallback_path), f"joblib:{fallback_path.name}"
         return None, None

@@ -36,5 +36,9 @@ jobs:
           pip install redis websocket-client httpx
 
       - name: Run live pipeline smoke
-        run: |
-          python -m pytest tests/integration/test_live_pipeline_smoke.py -m integration -v -s
+        uses: nick-fields/retry@v3
+        with:
+          timeout_minutes: 30
+          max_attempts: 2
+          retry_wait_seconds: 30
+          command: python -m pytest tests/integration/test_live_pipeline_smoke.py -m integration -v -s

@@ -189,6 +189,24 @@ class AnomalySettings(BaseSettings):
         ),
         description="Minimum telemetry pings required before Isolation Forest inference",
     )
+    behavioral_fallback_speed_variance: float = Field(
+        default=8.0,
+        ge=0.0,
+        validation_alias=AliasChoices("ANOMALY_BEHAVIORAL_FALLBACK_SPEED_VARIANCE"),
+        description="Rule fallback: minimum speed variance for ERRATIC_DRIVING",
+    )
+    behavioral_fallback_heading_variance: float = Field(
+        default=5.0,
+        ge=0.0,
+        validation_alias=AliasChoices("ANOMALY_BEHAVIORAL_FALLBACK_HEADING_VARIANCE"),
+        description="Rule fallback: minimum heading variance for ERRATIC_DRIVING",
+    )
+    behavioral_fallback_max_acceleration: float = Field(
+        default=3.0,
+        ge=0.0,
+        validation_alias=AliasChoices("ANOMALY_BEHAVIORAL_FALLBACK_MAX_ACCELERATION"),
+        description="Rule fallback: max acceleration threshold (m/s^2) for ERRATIC_DRIVING",
+    )
     isolation_forest_artifact_path: str = Field(
         default=str(DEFAULT_ISOLATION_FOREST_ARTIFACT_PATH),
         validation_alias=AliasChoices(

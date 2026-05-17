@@ -64,30 +64,48 @@ class AnomalyModel:
         self.inactive_trip_states = {}  # { busId: { timestamps, last_alert_timestamp } }
         self.off_route_states = {}  # { busId: { count, window_start_ts, alerted } }
         self.telemetry_windows = {}  # { busId: [recent telemetry dicts] }
-        # Isolation Forest model for behavioral anomaly detection (optional).
+        # Isolation Forest is the primary behavioral detector; rules are fallback only.
         self.isolation_model = None
         self.isolation_model_path = settings.isolation_forest_artifact_path
         self.isolation_model_version = None
+        self._load_isolation_forest()
+        if self.isolation_model is not None:
+            self.version = self.isolation_model_version or "isolation-forest-v1"
+        else:
+            logger.warning(
+                "Isolation Forest artifact not loaded; ERRATIC_DRIVING will use rule fallback only"
+            )
+
+    def _load_isolation_forest(self) -> None:
+        from pathlib import Path
+
+        from .model_loader import load_isolation_model
+
+        canonical = Path(__file__).resolve().parent / "training" / "isolation_forest.joblib"
+        configured = Path(self.isolation_model_path)
+        fallback = canonical if canonical.exists() else configured
+        if not fallback.is_absolute():
+            fallback = canonical
         try:
-            from pathlib import Path
-
-            from .model_loader import load_isolation_model
-
-            fallback = Path(self.isolation_model_path)
-            if not fallback.is_absolute():
-                fallback = Path(__file__).resolve().parent / "training" / "isolation_forest.joblib"
             self.isolation_model, self.isolation_model_version = load_isolation_model(
                 "ontime-anomaly-if-behavioral",
                 fallback_path=fallback,
             )
-            if self.isolation_model is not None:
-                self.isolation_model_path = str(fallback)
-                logger.info(
-                    "Loaded behavioral isolation forest (%s)",
-                    self.isolation_model_version,
-                )
-        except Exception:
-            logger.debug("No isolation forest model loaded (optional)")
+        except Exception as exc:
+            logger.warning("Failed to load isolation forest from %s: %s", fallback, exc)
+            return
+
+        if self.isolation_model is not None:
+            self.isolation_model_path = str(fallback)
+            logger.info(
+                "Loaded behavioral isolation forest (%s) from %s",
+                self.isolation_model_version,
+                fallback,
+            )
+        elif fallback.exists():
+            logger.warning("Isolation forest artifact exists at %s but could not be loaded", fallback)
+        else:
+            logger.warning("Isolation forest artifact missing at %s", fallback)
 
     def detect(self, telemetry: Dict[str, Any], route_geometry: List[Tuple[float, float]]) -> List[Dict[str, Any]]:
         alerts = []
@@ -159,19 +177,43 @@ class AnomalyModel:
 
         try:
             summary = build_summary_vector(window[-settings.sliding_window_size:])
-            pred = self.predict_behavioral_anomaly(summary)
-            if pred is not None and pred == -1:
-                return self._create_alert(
-                    bus_id,
-                    "ERRATIC_DRIVING",
-                    "Behavioral anomaly detected",
-                    telemetry,
-                    extra={"features": summary},
-                )
         except Exception:
-            logger.debug("Behavioral anomaly prediction skipped due to missing model or invalid window")
+            logger.debug("Behavioral summary vector skipped due to invalid window")
+            return None
 
-        return None
+        detection_method = None
+        if self.isolation_model is not None:
+            pred = self.predict_behavioral_anomaly(summary)
+            if pred == -1:
+                detection_method = "isolation_forest"
+        if detection_method is None and self._behavioral_rules_match(summary):
+            detection_method = "rules_fallback"
+
+        if detection_method is None:
+            return None
+
+        message = (
+            "Behavioral anomaly detected (Isolation Forest)"
+            if detection_method == "isolation_forest"
+            else "Behavioral anomaly detected (rule fallback)"
+        )
+        return self._create_alert(
+            bus_id,
+            "ERRATIC_DRIVING",
+            message,
+            telemetry,
+            extra={"features": summary, "detectionMethod": detection_method},
+        )
+
+    def _behavioral_rules_match(self, summary: Dict[str, float]) -> bool:
+        """Heuristic fallback when the Isolation Forest artifact is unavailable."""
+        speed_var = summary.get("speed_variance", 0.0)
+        heading_var = summary.get("heading_variance", 0.0)
+        max_accel = summary.get("max_acceleration", 0.0)
+        return (
+            speed_var >= settings.behavioral_fallback_speed_variance
+            and heading_var >= settings.behavioral_fallback_heading_variance
+        ) or max_accel >= settings.behavioral_fallback_max_acceleration
 
     def _off_route_status(
         self,
