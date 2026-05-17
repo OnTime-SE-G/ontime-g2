@@ -92,7 +92,8 @@ class DwellCalculator:
             else:
                 # Still at the same stop, update dwell
                 dwell_current = current_state.update_dwell(timestamp)
-                dwell_prev = cached.get("previous", {}).get("dwell_seconds")
+                prev_state = cached.get("previous")
+                dwell_prev = prev_state.dwell_seconds if prev_state is not None else None
         else:
             # First time tracking this vehicle+trip
             new_state = VehicleStopState(

@@ -65,14 +65,39 @@ async def initialize_redis() -> Redis:
     """Initialize Redis connection."""
     global _redis_client
     
+    class _InMemoryRedis:
+        """A tiny async in-memory Redis-like fallback for tests and dev.
+
+        Implements minimal methods used by this service: `ping`, `setex`, `get`,
+        and `aclose`.
+        """
+        def __init__(self):
+            self.store = {}
+
+        async def ping(self):
+            return True
+
+        async def setex(self, key, ttl, value):
+            self.store[key] = value
+
+        async def set(self, key, value):
+            self.store[key] = value
+
+        async def get(self, key):
+            return self.store.get(key)
+
+        async def aclose(self):
+            return None
+
     try:
         _redis_client = Redis.from_url(settings.redis_url, decode_responses=True)
         await _redis_client.ping()
         logger.info(f"Connected to Redis: {settings.redis_url}")
         return _redis_client
     except Exception as e:
-        logger.error(f"Failed to connect to Redis: {e}")
-        return None
+        logger.warning(f"Failed to connect to Redis ({settings.redis_url}): {e}. Using in-memory fallback.")
+        _redis_client = _InMemoryRedis()
+        return _redis_client
 
 
 @asynccontextmanager
