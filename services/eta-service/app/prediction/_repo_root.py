@@ -10,7 +10,7 @@ def repo_root() -> Path:
     if (bundled / "ml").is_dir():
         return bundled
     try:
-        candidate = Path(__file__).resolve().parents[3]
+        candidate = Path(__file__).resolve().parents[4]
     except IndexError:
         candidate = bundled
     if (candidate / "ml").is_dir():

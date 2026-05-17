@@ -17,15 +17,16 @@ from typing import Optional
 import numpy as np
 
 from app.prediction._repo_root import repo_root
+
+_REPO_ROOT = repo_root()
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
 from app.prediction.eta import compute_eta, EtaResult, _MIN_SPEED_MS
 from ml.contracts import ETA_XGB_FEATURES
 from ml.loader import ModelLoadResult, load_predictor
 
 logger = logging.getLogger(__name__)
-
-_REPO_ROOT = repo_root()
-if str(_REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(_REPO_ROOT))
 
 _ARTIFACT_PATH = Path(__file__).resolve().parent / "training" / "eta_model_xgb.joblib"
 _CLAMP_RATIO = 0.80
