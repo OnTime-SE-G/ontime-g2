@@ -60,7 +60,7 @@ def _load_tuple(trained_model):
 @pytest.fixture(autouse=True)
 def patch_load_model(trained_model):
     """Replace the cached _load_model with our tiny in-memory model."""
-    import models.ml_eta_xgb as m
+    import app.prediction.ml_eta_xgb as m
     m._load_model.cache_clear()
     with patch.object(m, "_load_model", return_value=_load_tuple(trained_model)):
         yield
@@ -139,7 +139,7 @@ class TestMinSpeedClamping:
 class TestPhysicsFallback:
     def test_artifact_missing_falls_back_to_physics(self):
         """When _load_model raises FileNotFoundError, physics result is returned."""
-        import models.ml_eta_xgb as m
+        import app.prediction.ml_eta_xgb as m
         m._load_model.cache_clear()
         with patch.object(m, "_load_model", side_effect=FileNotFoundError("no artifact")):
             from app.prediction.ml_eta_xgb import predict_eta_xgb
@@ -150,7 +150,7 @@ class TestPhysicsFallback:
 
     def test_exception_in_model_falls_back_to_physics(self):
         """Any unexpected exception in predict → physics fallback, no crash."""
-        import models.ml_eta_xgb as m
+        import app.prediction.ml_eta_xgb as m
         m._load_model.cache_clear()
         with patch.object(m, "_load_model", side_effect=RuntimeError("boom")):
             from app.prediction.ml_eta_xgb import predict_eta_xgb
@@ -164,7 +164,7 @@ class TestSanityClamp:
         Monkey-patch the model to return a ridiculous value (10× physics).
         Expect the clamp to activate and return the physics estimate.
         """
-        import models.ml_eta_xgb as m
+        import app.prediction.ml_eta_xgb as m
         dist, speed = 500.0, 5.0  # physics = 100s
 
         class _FakeModel:

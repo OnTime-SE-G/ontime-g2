@@ -102,7 +102,7 @@ def test_get_eta_supports_xgboost_model(patch_redis, monkeypatch):
 
     fake_result = SimpleNamespace(eta_seconds=88.0, speed_ms=1.95, clamped=False)
     monkeypatch.setattr(
-        "routers.eta.route_predict",
+        "app.api.endpoints.route_predict",
         lambda *args, **kwargs: InferenceOutcome(
             result=fake_result, model_used="xgboost", segment_mode="urban"
         ),
@@ -149,7 +149,7 @@ def test_get_eta_parses_bytes_snapshot(patch_redis, monkeypatch):
     from app.prediction.inference_router import InferenceOutcome
 
     monkeypatch.setattr(
-        "routers.eta.route_predict",
+        "app.api.endpoints.route_predict",
         lambda *args, **kwargs: InferenceOutcome(
             result=SimpleNamespace(eta_seconds=33.0, speed_ms=1.4, clamped=True),
             model_used="physics",
@@ -188,7 +188,7 @@ def test_get_eta_uses_xgboost_model_when_requested(patch_redis, monkeypatch):
 
     fake_eta = SimpleNamespace(eta_seconds=77.0, speed_ms=2.0, clamped=False)
     monkeypatch.setattr(
-        "routers.eta.route_predict",
+        "app.api.endpoints.route_predict",
         lambda *args, **kwargs: InferenceOutcome(
             result=fake_eta, model_used="xgboost", segment_mode="urban"
         ),
