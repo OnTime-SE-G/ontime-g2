@@ -83,7 +83,6 @@ services:
       - "8000:8000"
     volumes:
       - ../services/api-gateway:/app
-    command: sh -c "uvicorn app.main:app --host 0.0.0.0 --port $${API_GATEWAY_SERVICE_PORT:-8000} --reload"
     environment:
       API_GATEWAY_SERVICE_PORT: ${API_GATEWAY_SERVICE_PORT:-8000}
       API_GATEWAY_ROUTE_SERVICE_URL: ${API_GATEWAY_ROUTE_SERVICE_URL:-http://route-service:8002}
@@ -194,10 +193,8 @@ services:
         kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic trip.lifecycle --partitions 1 --replication-factor 1
         kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic transport-telemetry-raw --partitions 1 --replication-factor 1
         kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic transport-telemetry-dlq --partitions 1 --replication-factor 1
-        kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic telemetry-invalid --partitions 1 --replication-factor 1
         kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic transport-telemetry-cleaned --partitions 1 --replication-factor 1
         kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic transport-anomaly-alerts --partitions 1 --replication-factor 1
-        kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic transport-eta-features --partitions 1 --replication-factor 1
 
   mqtt-broker:
     image: eclipse-mosquitto:2
@@ -237,13 +234,13 @@ services:
     ports:
       - "8001:8001"
     environment:
-      INGESTION_MQTT_BROKER_HOST: ${INGESTION_MQTT_BROKER_HOST:-mqtt-broker}
-      INGESTION_MQTT_BROKER_PORT: ${INGESTION_MQTT_BROKER_PORT:-1883}
+      INGESTION_MQTT_BROKER_HOST: ${MQTT_BROKER_HOST:-mqtt-broker}
+      INGESTION_MQTT_BROKER_PORT: ${MQTT_BROKER_PORT:-1883}
       INGESTION_MQTT_TOPIC_PATTERN: ${INGESTION_MQTT_TOPIC_PATTERN:-transport/bus/+/location}
       INGESTION_MQTT_HEARTBEAT_TOPIC_PATTERN: ${INGESTION_MQTT_HEARTBEAT_TOPIC_PATTERN:-transport/bus/+/heartbeat}
-      INGESTION_MQTT_TLS_ENABLED: ${INGESTION_MQTT_TLS_ENABLED:-false}
-      INGESTION_MQTT_USERNAME: ${INGESTION_MQTT_USERNAME:-}
-      INGESTION_MQTT_PASSWORD: ${INGESTION_MQTT_PASSWORD:-}
+      INGESTION_MQTT_TLS_ENABLED: ${MQTT_TLS_ENABLED:-false}
+      INGESTION_MQTT_USERNAME: ${MQTT_USERNAME:-}
+      INGESTION_MQTT_PASSWORD: ${MQTT_PASSWORD:-}
       INGESTION_MQTT_CLIENT_ID: ${INGESTION_MQTT_CLIENT_ID:-ontime-ingestion-service}
       INGESTION_MQTT_CA_CERT_PATH: ${INGESTION_MQTT_CA_CERT_PATH:-}
       INGESTION_KAFKA_BROKER_URL: ${INGESTION_KAFKA_BROKER_URL:-broker:29092}
@@ -260,14 +257,11 @@ services:
       INGESTION_MAX_FUTURE_SKEW_SECONDS: ${INGESTION_MAX_FUTURE_SKEW_SECONDS:-30.0}
       INGESTION_MAX_STALE_AGE_SECONDS: ${INGESTION_MAX_STALE_AGE_SECONDS:-86400.0}
       INGESTION_DUPLICATE_CACHE_SIZE: ${INGESTION_DUPLICATE_CACHE_SIZE:-100}
-      INGESTION_STATELESS_MODE: ${INGESTION_STATELESS_MODE:-true}
     networks:
       - ontime_network
     depends_on:
       kafka-init:
         condition: service_completed_successfully
-      mqtt-broker:
-        condition: service_healthy
     healthcheck:
       test:
         [
@@ -297,7 +291,6 @@ services:
       WEBSOCKET_REDIS_URL: ${WEBSOCKET_REDIS_URL:-redis://redis:6379}
       WEBSOCKET_FLEET_CHANNEL: ${WEBSOCKET_FLEET_CHANNEL:-fleet:live}
       WEBSOCKET_ETA_CHANNEL: ${WEBSOCKET_ETA_CHANNEL:-eta:live}
-      WEBSOCKET_ANOMALY_CHANNEL: ${WEBSOCKET_ANOMALY_CHANNEL:-anomaly:live}
     networks:
       - ontime_network
     depends_on:
@@ -318,7 +311,6 @@ services:
       STREAM_KAFKA_BROKER_URL: ${STREAM_KAFKA_BROKER_URL:-broker:29092}
       STREAM_KAFKA_RAW_TOPIC: ${STREAM_KAFKA_RAW_TOPIC:-transport-telemetry-raw}
       STREAM_KAFKA_CLEANED_TOPIC: ${STREAM_KAFKA_CLEANED_TOPIC:-transport-telemetry-cleaned}
-      STREAM_KAFKA_INVALID_TOPIC: ${STREAM_KAFKA_INVALID_TOPIC:-telemetry-invalid}
       STREAM_KAFKA_LIFECYCLE_TOPIC: ${STREAM_KAFKA_LIFECYCLE_TOPIC:-trip.lifecycle}
       STREAM_KAFKA_CONSUMER_GROUP: ${STREAM_KAFKA_CONSUMER_GROUP:-stream-processing-group}
       STREAM_KAFKA_LIFECYCLE_CONSUMER_GROUP: ${STREAM_KAFKA_LIFECYCLE_CONSUMER_GROUP:-stream-processing-lifecycle-group}
@@ -330,7 +322,6 @@ services:
       STREAM_INFLUXDB_ORG: ${STREAM_INFLUXDB_ORG:-ontime}
       STREAM_INFLUXDB_BUCKET: ${STREAM_INFLUXDB_BUCKET:-telemetry}
       STREAM_ROUTE_SERVICE_URL: ${STREAM_ROUTE_SERVICE_URL:-http://route-service:8002}
-      STREAM_FLEET_SERVICE_URL: ${STREAM_FLEET_SERVICE_URL:-http://fleet-management-service:8003}
       STREAM_FLINK_PARALLELISM: ${STREAM_FLINK_PARALLELISM:-1}
       PYTHONPATH: /opt/flink/usrlib
     networks:
@@ -355,7 +346,6 @@ services:
       STREAM_KAFKA_BROKER_URL: ${STREAM_KAFKA_BROKER_URL:-broker:29092}
       STREAM_KAFKA_RAW_TOPIC: ${STREAM_KAFKA_RAW_TOPIC:-transport-telemetry-raw}
       STREAM_KAFKA_CLEANED_TOPIC: ${STREAM_KAFKA_CLEANED_TOPIC:-transport-telemetry-cleaned}
-      STREAM_KAFKA_INVALID_TOPIC: ${STREAM_KAFKA_INVALID_TOPIC:-telemetry-invalid}
       STREAM_KAFKA_LIFECYCLE_TOPIC: ${STREAM_KAFKA_LIFECYCLE_TOPIC:-trip.lifecycle}
       STREAM_KAFKA_CONSUMER_GROUP: ${STREAM_KAFKA_CONSUMER_GROUP:-stream-processing-group}
       STREAM_KAFKA_LIFECYCLE_CONSUMER_GROUP: ${STREAM_KAFKA_LIFECYCLE_CONSUMER_GROUP:-stream-processing-lifecycle-group}
@@ -367,7 +357,6 @@ services:
       STREAM_INFLUXDB_ORG: ${STREAM_INFLUXDB_ORG:-ontime}
       STREAM_INFLUXDB_BUCKET: ${STREAM_INFLUXDB_BUCKET:-telemetry}
       STREAM_ROUTE_SERVICE_URL: ${STREAM_ROUTE_SERVICE_URL:-http://route-service:8002}
-      STREAM_FLEET_SERVICE_URL: ${STREAM_FLEET_SERVICE_URL:-http://fleet-management-service:8003}
       STREAM_FLINK_PARALLELISM: ${STREAM_FLINK_PARALLELISM:-1}
       PYTHONPATH: /opt/flink/usrlib
     networks:
@@ -398,7 +387,6 @@ services:
       STREAM_KAFKA_BROKER_URL: ${STREAM_KAFKA_BROKER_URL:-broker:29092}
       STREAM_KAFKA_RAW_TOPIC: ${STREAM_KAFKA_RAW_TOPIC:-transport-telemetry-raw}
       STREAM_KAFKA_CLEANED_TOPIC: ${STREAM_KAFKA_CLEANED_TOPIC:-transport-telemetry-cleaned}
-      STREAM_KAFKA_INVALID_TOPIC: ${STREAM_KAFKA_INVALID_TOPIC:-telemetry-invalid}
       STREAM_KAFKA_LIFECYCLE_TOPIC: ${STREAM_KAFKA_LIFECYCLE_TOPIC:-trip.lifecycle}
       STREAM_KAFKA_CONSUMER_GROUP: ${STREAM_KAFKA_CONSUMER_GROUP:-stream-processing-group}
       STREAM_KAFKA_LIFECYCLE_CONSUMER_GROUP: ${STREAM_KAFKA_LIFECYCLE_CONSUMER_GROUP:-stream-processing-lifecycle-group}
@@ -410,7 +398,6 @@ services:
       STREAM_INFLUXDB_ORG: ${STREAM_INFLUXDB_ORG:-ontime}
       STREAM_INFLUXDB_BUCKET: ${STREAM_INFLUXDB_BUCKET:-telemetry}
       STREAM_ROUTE_SERVICE_URL: ${STREAM_ROUTE_SERVICE_URL:-http://route-service:8002}
-      STREAM_FLEET_SERVICE_URL: ${STREAM_FLEET_SERVICE_URL:-http://fleet-management-service:8003}
       STREAM_FLINK_PARALLELISM: ${STREAM_FLINK_PARALLELISM:-1}
       PYTHONPATH: /opt/flink/usrlib
     networks:
@@ -423,28 +410,41 @@ services:
       flink-taskmanager:
         condition: service_started
 
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.12.1
+    container_name: ontime_mlflow
+    ports:
+      - "${MLFLOW_PORT:-5000}:5000"
+    volumes:
+      - mlflow_artifacts:/mlflow
+    command: >
+      mlflow server
+      --host 0.0.0.0
+      --port 5000
+      --backend-store-uri sqlite:////mlflow/mlflow.db
+      --default-artifact-root /mlflow/artifacts
+    networks:
+      - ontime_network
+
   eta-service:
     build:
       context: ..
       dockerfile: services/eta-service/Dockerfile
     container_name: ontime_eta_service
     ports:
-      - "8005:8005"
+      - "${ETA_SERVICE_PORT:-8005}:8005"
     environment:
       ETA_DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/eta_db
-      ETA_KAFKA_BROKER_URL: ${ETA_KAFKA_BROKER_URL:-broker:29092}
-      ETA_KAFKA_TOPIC: ${ETA_KAFKA_TOPIC:-transport-eta-features}
-      ETA_KAFKA_CONSUMER_GROUP: ${ETA_KAFKA_CONSUMER_GROUP:-eta-service-group}
       ETA_DEFAULT_MODEL: ${ETA_DEFAULT_MODEL:-xgboost}
-      ETA_REDIS_HOST: ${ETA_REDIS_HOST:-redis}
-      ETA_REDIS_PORT: ${ETA_REDIS_PORT:-6379}
-      ETA_LIVE_CHANNEL: ${ETA_LIVE_CHANNEL:-eta:live}
-      ETA_SNAPSHOT_TTL_SECONDS: ${ETA_SNAPSHOT_TTL_SECONDS:-300}
-      ETA_SERVICE_PORT: ${ETA_SERVICE_PORT:-8005}
-      ETA_SARIMA_MIN_HOURS: ${ETA_SARIMA_MIN_HOURS:-48}
-      ETA_SARIMA_ARTIFACT_DIR: ${ETA_SARIMA_ARTIFACT_DIR:-/app/sarima_artifacts}
-      ETA_XGB_ARTIFACT_PATH: ${ETA_XGB_ARTIFACT_PATH:-/app/models/training/eta_model_xgb.joblib}
-      ETA_RECORDS_RETENTION_MONTHS: ${ETA_RECORDS_RETENTION_MONTHS:-6}
+      ETA_KAFKA_BROKER_URL: ${ETA_KAFKA_BROKER_URL:-broker:29092}
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_MODEL_ETA: ontime-eta-xgb
+      MLFLOW_MODEL_ETA_URBAN: ontime-eta-xgb-urban
+      MLFLOW_MODEL_ETA_EXPRESSWAY: ontime-eta-xgb-expressway
+      MODEL_STAGE: ${MODEL_STAGE:-Production}
+    volumes:
+      - ../services/eta-service:/app
+      - ../ml:/opt/ontime/ml
     networks:
       - ontime_network
     depends_on:
@@ -454,18 +454,16 @@ services:
         condition: service_healthy
       kafka-init:
         condition: service_completed_successfully
-    restart: unless-stopped
 
   anomaly-service:
     build:
-      context: ../services/anomaly-service
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: services/anomaly-service/Dockerfile
     container_name: ontime_anomaly_service
     ports:
       - "8006:8006"
     environment:
       ANOMALY_SERVICE_PORT: ${ANOMALY_SERVICE_PORT:-8006}
-      ANOMALY_DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/anomaly_db
       ANOMALY_KAFKA_BROKER_URL: ${ANOMALY_KAFKA_BROKER_URL:-broker:29092}
       ANOMALY_KAFKA_CLEANED_TOPIC: ${ANOMALY_KAFKA_CLEANED_TOPIC:-transport-telemetry-cleaned}
       ANOMALY_KAFKA_DLQ_TOPIC: ${ANOMALY_KAFKA_DLQ_TOPIC:-transport-telemetry-dlq}
@@ -475,49 +473,120 @@ services:
       ANOMALY_ROUTE_SERVICE_URL: ${ANOMALY_ROUTE_SERVICE_URL:-http://route-service:8002}
       ANOMALY_ROUTE_FETCH_TIMEOUT_SECONDS: ${ANOMALY_ROUTE_FETCH_TIMEOUT_SECONDS:-10.0}
       ANOMALY_ROUTE_REFRESH_INTERVAL_SECONDS: ${ANOMALY_ROUTE_REFRESH_INTERVAL_SECONDS:-300}
-      ANOMALY_REDIS_HOST: ${ANOMALY_REDIS_HOST:-redis}
-      ANOMALY_REDIS_PORT: ${ANOMALY_REDIS_PORT:-6379}
-      ANOMALY_REDIS_LIVE_CHANNEL: ${ANOMALY_REDIS_LIVE_CHANNEL:-anomaly:live}
       ANOMALY_COMMUNICATION_LOSS_CHECK_INTERVAL_SECONDS: ${ANOMALY_COMMUNICATION_LOSS_CHECK_INTERVAL_SECONDS:-60}
       ANOMALY_COMMUNICATION_LOSS_THRESHOLD_SECONDS: ${ANOMALY_COMMUNICATION_LOSS_THRESHOLD_SECONDS:-180}
       ANOMALY_INACTIVE_TRIP_DLQ_THRESHOLD_COUNT: ${ANOMALY_INACTIVE_TRIP_DLQ_THRESHOLD_COUNT:-3}
       ANOMALY_INACTIVE_TRIP_DLQ_WINDOW_SECONDS: ${ANOMALY_INACTIVE_TRIP_DLQ_WINDOW_SECONDS:-60}
       ANOMALY_INACTIVE_TRIP_DLQ_COOLDOWN_SECONDS: ${ANOMALY_INACTIVE_TRIP_DLQ_COOLDOWN_SECONDS:-300}
-      ANOMALY_OFF_ROUTE_DISTANCE_THRESHOLD_M: ${ANOMALY_OFF_ROUTE_DISTANCE_THRESHOLD_M:-50}
-      ANOMALY_OFF_ROUTE_STREAK_WINDOW_SECONDS: ${ANOMALY_OFF_ROUTE_STREAK_WINDOW_SECONDS:-5}
-      ANOMALY_PERSISTENT_OFF_ROUTE_THRESHOLD: ${ANOMALY_PERSISTENT_OFF_ROUTE_THRESHOLD:-3}
-      ANOMALY_SLIDING_WINDOW_SIZE: ${ANOMALY_SLIDING_WINDOW_SIZE:-20}
-      ANOMALY_SLIDING_WINDOW_MIN_SIZE: ${ANOMALY_SLIDING_WINDOW_MIN_SIZE:-10}
-      ANOMALY_ISOLATION_FOREST_ARTIFACT_PATH: ${ANOMALY_ISOLATION_FOREST_ARTIFACT_PATH:-/opt/anomaly-service/app/models/training/isolation_forest.joblib}
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MODEL_STAGE: ${MODEL_STAGE:-Production}
+    volumes:
+      - ../ml:/opt/ontime/ml
+    networks:
+      - ontime_network
+    depends_on:
+      kafka-init:
+        condition: service_completed_successfully
+      route-service:
+        condition: service_started
+      mlflow:
+        condition: service_started
+
+  airflow-init:
+    image: apache/airflow:2.9.1
+    container_name: ontime_airflow_init
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/airflow_db
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      _AIRFLOW_DB_MIGRATE: "true"
+      _AIRFLOW_WWW_USER_CREATE: "true"
+      _AIRFLOW_WWW_USER_USERNAME: ${AIRFLOW_USERNAME:-admin}
+      _AIRFLOW_WWW_USER_PASSWORD: ${AIRFLOW_PASSWORD:-admin}
+    volumes:
+      - ../airflow/dags:/opt/airflow/dags
+      - ../ml:/opt/ontime/ml
+      - ..:/opt/ontime/repo
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - airflow db migrate
     networks:
       - ontime_network
     depends_on:
       postgres:
         condition: service_healthy
-      kafka-init:
-        condition: service_completed_successfully
-      redis:
-        condition: service_healthy
-      route-service:
-        condition: service_started
 
-  node-red:
-    image: nodered/node-red:latest
-    container_name: ontime_nodered
-    environment:
-      - TZ=Asia/Colombo
-      - NODE_RED_CREDENTIAL_SECRET=ontime_secret
+  airflow-webserver:
+    image: apache/airflow:2.9.1
+    container_name: ontime_airflow_webserver
     ports:
-      - "1880:1880"
+      - "${AIRFLOW_PORT:-8080}:8080"
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/airflow_db
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      ETA_DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/eta_db
+      INFLUXDB_URL: http://influxdb:8086
+      INFLUXDB_TOKEN: ${INFLUXDB_ADMIN_TOKEN:-super_secret_admin_token_123}
+      INFLUXDB_ORG: ${INFLUXDB_INIT_ORG:-ontime}
+      INFLUXDB_BUCKET: ${INFLUXDB_INIT_BUCKET:-telemetry}
+    volumes:
+      - ../airflow/dags:/opt/airflow/dags
+      - ../ml:/opt/ontime/ml
+      - ..:/opt/ontime/repo
+    command: webserver
     networks:
       - ontime_network
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-scheduler:
+    image: apache/airflow:2.9.1
+    container_name: ontime_airflow_scheduler
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/airflow_db
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      ETA_DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/eta_db
+      INFLUXDB_URL: http://influxdb:8086
+      INFLUXDB_TOKEN: ${INFLUXDB_ADMIN_TOKEN:-super_secret_admin_token_123}
+      INFLUXDB_ORG: ${INFLUXDB_INIT_ORG:-ontime}
+      INFLUXDB_BUCKET: ${INFLUXDB_INIT_BUCKET:-telemetry}
+    volumes:
+      - ../airflow/dags:/opt/airflow/dags
+      - ../ml:/opt/ontime/ml
+      - ..:/opt/ontime/repo
+    command: scheduler
+    networks:
+      - ontime_network
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+  nodered:
+    image: nodered/node-red:latest
+    container_name: ontime_nodered
+    ports:
+      - "${NODERED_PORT:-1880}:1880"
     volumes:
       - ./nodered:/data
-    depends_on:
-      mqtt-broker:
-        condition: service_healthy
-      api-gateway:
-        condition: service_started
+      - ../data:/data/kml:ro
+    environment:
+      MQTT_BROKER_HOST: ${MQTT_BROKER_HOST}
+      MQTT_BROKER_PORT: ${MQTT_BROKER_PORT}
+      MQTT_USERNAME: ${MQTT_USERNAME}
+      MQTT_PASSWORD: ${MQTT_PASSWORD}
+      MQTT_TLS_ENABLED: ${MQTT_TLS_ENABLED}
+    dns:
+      - 8.8.8.8
+      - 8.8.4.4
+    networks:
+      - ontime_network
+    restart: unless-stopped
 
 networks:
   ontime_network:
@@ -525,6 +594,7 @@ networks:
 
 volumes:
   postgres_data:
+  mlflow_artifacts:
   influxdb_data:
   influxdb_config:
   mosquitto_data:

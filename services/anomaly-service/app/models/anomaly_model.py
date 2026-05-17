@@ -3,10 +3,10 @@ import logging
 import math
 import os
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any, Dict, List, Tuple
 
-from app.config import settings
-from .training.feature_extraction import build_summary_vector
+from .training.feature_extraction import build_spatial_vector, build_summary_vector
 
 logger = logging.getLogger(__name__)
 
@@ -62,25 +62,35 @@ class AnomalyModel:
         self.version = "rules-v1"
         self.bus_states = {}  # { busId: { last_timestamp, last_telemetry, stationary_start_time } }
         self.inactive_trip_states = {}  # { busId: { timestamps, last_alert_timestamp } }
-        self.off_route_states = {}  # { busId: { count, window_start_ts, alerted } }
-        self.telemetry_windows = {}  # { busId: [recent telemetry dicts] }
-        # Isolation Forest model for behavioral anomaly detection (optional).
-        self.isolation_model = None
-        self.isolation_model_path = settings.isolation_forest_artifact_path
-        try:
-            # load an optional model artifact if present
-            import joblib
 
-            candidate = self.isolation_model_path
-            if not os.path.isabs(candidate):
-                candidate = os.path.abspath(candidate)
-            if os.path.exists(candidate):
-                self.isolation_model = joblib.load(candidate)
-                self.isolation_model_path = candidate
-                logger.info("Loaded isolation forest model from %s", candidate)
-        except Exception:
-            # model not available in this environment; continue with rule-based checks
-            logger.debug("No isolation forest model loaded (optional)")
+        from .model_loader import load_isolation_model
+
+        training_dir = os.path.join(os.path.dirname(__file__), "training")
+        behavioral_path = os.path.join(training_dir, "isolation_forest.joblib")
+        spatial_path = os.path.join(training_dir, "isolation_forest_spatial.joblib")
+
+        self.isolation_model = None
+        self.isolation_model_path = None
+        self.isolation_model_version = None
+        self.isolation_model, self.isolation_model_version = load_isolation_model(
+            "ontime-anomaly-if-behavioral",
+            fallback_path=Path(behavioral_path),
+        )
+        if self.isolation_model is not None:
+            self.isolation_model_path = behavioral_path
+            logger.info("Loaded behavioral isolation forest (%s)", self.isolation_model_version)
+
+        self.spatial_model = None
+        self.spatial_model_path = None
+        self.spatial_model_version = None
+        self.spatial_model, self.spatial_model_version = load_isolation_model(
+            "ontime-anomaly-if-spatial",
+            fallback_path=Path(spatial_path),
+        )
+        if self.spatial_model is not None:
+            self.spatial_model_path = spatial_path
+            self.version = "spatial-if-v1"
+            logger.info("Loaded spatial isolation forest (%s)", self.spatial_model_version)
 
     def detect(self, telemetry: Dict[str, Any], route_geometry: List[Tuple[float, float]]) -> List[Dict[str, Any]]:
         alerts = []
@@ -102,16 +112,11 @@ class AnomalyModel:
             alerts.append(self._create_alert(bus_id, "INACTIVE_GPS", "GPS received for inactive trip", telemetry))
             return alerts # Stop further checks if inactive
 
-        # 3. Off-route deviation. Prefer Flink's CR1 classification when present,
-        # and fall back to local geometry for backward compatibility.
-        off_route, dist = self._off_route_status(telemetry, route_geometry)
-        if off_route:
-            alerts.append(self._create_alert(bus_id, "OFF_ROUTE", f"Bus deviated by {round(dist)}m from route", telemetry))
-            persistent_alert = self._update_off_route_streak(bus_id, current_time, telemetry, dist)
-            if persistent_alert:
-                alerts.append(persistent_alert)
-        else:
-            self.off_route_states.pop(bus_id, None)
+        # 3. Off-route deviation
+        if route_geometry:
+            dist = distance_to_polyline(lat, lon, route_geometry)
+            if dist > 50.0:
+                alerts.append(self._create_alert(bus_id, "OFF_ROUTE", f"Bus deviated by {round(dist)}m from route", telemetry))
 
         # 4. Stationary Bus (>5 min at <2 km/h)
         state = self.bus_states.get(bus_id, {})
@@ -124,131 +129,88 @@ class AnomalyModel:
             if "stationary_start_time" in state:
                 del state["stationary_start_time"]
 
+        # Compute how long the bus has been stationary (used for spatial feature)
+        stationary_duration_sec = 0.0
+        if "stationary_start_time" in state:
+            stationary_duration_sec = current_time - state["stationary_start_time"]
+
         state["last_timestamp"] = current_time
         state["last_telemetry"] = dict(telemetry)
         state["communication_loss_alerted"] = False
         self.bus_states[bus_id] = state
 
-        # Behavioral anomaly detection via summary-vector -> IsolationForest
-        behavioral_alert = self._detect_behavioral_anomaly(bus_id, telemetry)
-        if behavioral_alert:
-            alerts.append(behavioral_alert)
-
-        return alerts
-
-    def _detect_behavioral_anomaly(
-        self,
-        bus_id: str,
-        telemetry: Dict[str, Any],
-    ) -> Dict[str, Any] | None:
-        window = self.telemetry_windows.setdefault(bus_id, [])
-        window.append(dict(telemetry))
-        max_window_size = max(settings.sliding_window_size, settings.sliding_window_min_size)
-        if len(window) > max_window_size:
-            del window[:-max_window_size]
-
-        if len(window) < settings.sliding_window_min_size:
-            return None
-
+        # Spatial anomaly detection: off-route + stuck context -> IsolationForest
         try:
-            summary = build_summary_vector(window[-settings.sliding_window_size:])
+            svec = build_spatial_vector(telemetry, stationary_duration_sec)
+            pred = self.predict_spatial_anomaly(svec)
+            if pred is not None and pred == -1:
+                alerts.append(
+                    self._create_alert(
+                        bus_id,
+                        "STUCK_OFF_ROUTE",
+                        f"Spatial anomaly: {round(svec['route_deviation_meters'])}m off route, "
+                        f"stationary {round(stationary_duration_sec)}s",
+                        telemetry,
+                    )
+                )
+        except Exception:
+            logger.debug("Spatial anomaly prediction skipped")
+
+        # Behavioral anomaly detection via summary-vector -> IsolationForest
+        try:
+            window = []
+            last = state.get("last_telemetry")
+            if last:
+                window = [last, telemetry]
+            summary = build_summary_vector(window)
             pred = self.predict_behavioral_anomaly(summary)
             if pred is not None and pred == -1:
-                return self._create_alert(
-                    bus_id,
-                    "ERRATIC_DRIVING",
-                    "Behavioral anomaly detected",
-                    telemetry,
-                    extra={"features": summary},
-                )
+                alerts.append(self._create_alert(bus_id, "ERRATIC_DRIVING", "Behavioral anomaly detected", telemetry))
         except Exception:
             logger.debug("Behavioral anomaly prediction skipped due to missing model or invalid window")
 
-        return None
-
-    def _off_route_status(
-        self,
-        telemetry: Dict[str, Any],
-        route_geometry: List[Tuple[float, float]],
-    ) -> tuple[bool, float]:
-        if "offRoute" in telemetry:
-            return bool(telemetry["offRoute"]), self._route_deviation_meters(telemetry)
-        if "on_route" in telemetry:
-            return not bool(telemetry["on_route"]), self._route_deviation_meters(telemetry)
-        if "onRoute" in telemetry:
-            return not bool(telemetry["onRoute"]), self._route_deviation_meters(telemetry)
-
-        if not route_geometry:
-            return False, 0.0
-
-        dist = distance_to_polyline(telemetry.get("lat", 0.0), telemetry.get("lon", 0.0), route_geometry)
-        return dist > settings.off_route_distance_threshold_m, dist
-
-    def _route_deviation_meters(self, telemetry: Dict[str, Any]) -> float:
-        for field in ("offRouteDistanceM", "routeDeviationMeters", "route_deviation_meters"):
-            try:
-                return float(telemetry.get(field, 0.0))
-            except (TypeError, ValueError):
-                continue
-        return 0.0
-
-    def _update_off_route_streak(
-        self,
-        bus_id: str,
-        current_time: float,
-        telemetry: Dict[str, Any],
-        distance_m: float,
-    ) -> Dict[str, Any] | None:
-        state = self.off_route_states.get(bus_id)
-        if (
-            state is None
-            or current_time - state["window_start_ts"] > settings.off_route_streak_window_seconds
-        ):
-            state = {"count": 0, "window_start_ts": current_time, "alerted": False}
-
-        state["count"] += 1
-        self.off_route_states[bus_id] = state
-
-        if state["count"] < settings.persistent_off_route_threshold or state["alerted"]:
-            return None
-
-        state["alerted"] = True
-        return self._create_alert(
-            bus_id,
-            "PERSISTENT_OFF_ROUTE",
-            (
-                "Bus remained off-route for "
-                f"{state['count']} readings within {settings.off_route_streak_window_seconds}s"
-            ),
-            telemetry,
-            extra={
-                "streakCount": state["count"],
-                "windowSeconds": settings.off_route_streak_window_seconds,
-                "offRouteDistanceM": round(distance_m, 2),
-            },
-        )
+        return alerts
 
     def predict_behavioral_anomaly(self, summary_vector: Dict[str, float]):
-        """Return IsolationForest prediction if model available, else None.
+        """Return behavioral IsolationForest prediction if model available, else None.
 
-        The IsolationForest convention: -1 => anomaly, 1 => normal.
+        IsolationForest convention: -1 => anomaly, 1 => normal.
         """
         if self.isolation_model is None:
             return None
         try:
-            # model expects a 2D array-like
             features = [
                 summary_vector.get("max_acceleration", 0.0),
                 summary_vector.get("min_acceleration", 0.0),
                 summary_vector.get("speed_variance", 0.0),
                 summary_vector.get("heading_variance", 0.0),
                 summary_vector.get("average_speed", 0.0),
-                summary_vector.get("sample_count", 0.0),
             ]
             pred = self.isolation_model.predict([features])
             return int(pred[0])
         except Exception:
-            logger.exception("Isolation forest prediction failed")
+            logger.exception("Behavioral isolation forest prediction failed")
+            return None
+
+    def predict_spatial_anomaly(self, spatial_vector: Dict[str, float]):
+        """Return spatial IsolationForest prediction if model available, else None.
+
+        IsolationForest convention: -1 => anomaly (STUCK_OFF_ROUTE), 1 => normal.
+        """
+        if self.spatial_model is None:
+            return None
+        try:
+            features = [
+                spatial_vector.get("route_deviation_meters", 0.0),
+                spatial_vector.get("speed_kmh", 0.0),
+                spatial_vector.get("stationary_duration_sec", 0.0),
+                spatial_vector.get("distance_to_next_stop_m", 0.0),
+                spatial_vector.get("route_progress_pct", 0.0),
+            ]
+            pred = self.spatial_model.predict([features])
+            return int(pred[0])
+        except Exception:
+            logger.exception("Spatial isolation forest prediction failed")
             return None
 
     def detect_inactive_trip_dlq(
@@ -418,11 +380,9 @@ class AnomalyModel:
         source: str | None = None,
         extra: Dict[str, Any] | None = None,
     ) -> Dict[str, Any]:
-        severity = "HIGH" if type in {"OFF_ROUTE", "PERSISTENT_OFF_ROUTE", "UNREALISTIC_SPEED"} else "MEDIUM"
         alert = {
             "busId": bus_id,
             "anomalyType": type,
-            "severity": severity,
             "message": message,
             "tripId": telemetry.get("tripId"),
             "routeId": telemetry.get("routeId"),

@@ -71,7 +71,7 @@ def calculate_route_progress(lat: float, lon: float, points: List[Tuple[float, f
 
 
 def distance_to_route(lat: float, lon: float, points: List[Tuple[float, float]]) -> float:
-    """Return the shortest distance in metres from a coordinate to a route polyline."""
+    """Shortest distance from a point to a route polyline in metres."""
     if not points:
         return 0.0
     if len(points) == 1:
@@ -85,16 +85,13 @@ def distance_to_route(lat: float, lon: float, points: List[Tuple[float, float]])
         if seg_len == 0:
             min_dist = min(min_dist, haversine_distance(lat, lon, p1[0], p1[1]))
             continue
-
         d1 = haversine_distance(lat, lon, p1[0], p1[1])
         d2 = haversine_distance(lat, lon, p2[0], p2[1])
-        t = (d1 ** 2 + seg_len ** 2 - d2 ** 2) / (2 * seg_len ** 2)
+        t = (d1**2 + seg_len**2 - d2**2) / (2 * seg_len**2) if seg_len > 0 else 0.0
         t = max(0.0, min(1.0, t))
-
         proj_lat = p1[0] + t * (p2[0] - p1[0])
         proj_lon = p1[1] + t * (p2[1] - p1[1])
         min_dist = min(min_dist, haversine_distance(lat, lon, proj_lat, proj_lon))
-
     return min_dist if min_dist != float("inf") else 0.0
 
 
