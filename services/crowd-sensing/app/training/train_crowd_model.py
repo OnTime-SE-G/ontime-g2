@@ -13,12 +13,42 @@ logger = logging.getLogger(__name__)
 
 def fetch_data(db_url: str):
     engine = create_engine(db_url)
-    query = """
+    
+    # Check counts of real vs synthetic data
+    count_query = """
     SELECT 
-        route_id, direction_id, stop_id, stop_sequence,
-        occupancy_score, timestamp
+        SUM(CASE WHEN passenger_id = 'synthetic' THEN 1 ELSE 0 END) as synthetic_count,
+        SUM(CASE WHEN passenger_id != 'synthetic' OR passenger_id IS NULL THEN 1 ELSE 0 END) as real_count
     FROM crowd_reports
     """
+    try:
+        counts = pd.read_sql(count_query, engine).iloc[0]
+        synthetic_count = int(counts['synthetic_count'] or 0)
+        real_count = int(counts['real_count'] or 0)
+        logger.info(f"Database contains {real_count} real reports and {synthetic_count} synthetic reports.")
+    except Exception as e:
+        logger.warning(f"Could not fetch data counts: {e}. Defaulting to all records.")
+        real_count = 0
+        synthetic_count = 0
+
+    # Smart filtering: If we have at least 100 real user reports, train EXCLUSIVELY on real data!
+    if real_count >= 100:
+        logger.info("Transitioning to 100% Real User Data! Excluding synthetic reports from training.")
+        query = """
+        SELECT 
+            route_id, direction_id, stop_id, stop_sequence,
+            occupancy_score, timestamp, passenger_id
+        FROM crowd_reports
+        WHERE passenger_id != 'synthetic' OR passenger_id IS NULL
+        """
+    else:
+        logger.info("Training on hybrid dataset (synthetic + real) to ensure sufficient cold-start coverage.")
+        query = """
+        SELECT 
+            route_id, direction_id, stop_id, stop_sequence,
+            occupancy_score, timestamp, passenger_id
+        FROM crowd_reports
+        """
     df = pd.read_sql(query, engine)
     
     # Feature Engineering
