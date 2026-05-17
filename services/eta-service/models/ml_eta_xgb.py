@@ -31,9 +31,37 @@ _DEFAULT_ARTIFACT_PATH = os.path.join(
 _CLAMP_RATIO = 0.80   # if |xgb - physics| / physics > 80%, fall back to physics
 
 
+_FEATURES = [
+    "distance_m",
+    "speed_ms",
+    "hour_of_day",
+    "day_of_week",
+    "is_weekend",
+    "stops_remaining",
+]
+
+
 @lru_cache(maxsize=1)
 def _load_model():
     """Load the joblib artifact once, cached for the process lifetime."""
+    # 1. Attempt to load registered model from MLflow tracking server
+    try:
+        import mlflow.xgboost
+
+        tracking_uri = os.environ.get("ETA_MLFLOW_TRACKING_URI") or os.environ.get("MLFLOW_TRACKING_URI") or "http://localhost:5000"
+        mlflow.set_tracking_uri(tracking_uri)
+        model_uri = "models:/XGBoostEtaModel/latest"
+        logger.info("Attempting to load model from MLflow: %s (tracking URI: %s)", model_uri, tracking_uri)
+        model = mlflow.xgboost.load_model(model_uri)
+        logger.info("Successfully loaded XGBoost ETA model from MLflow!")
+        return model, _FEATURES
+    except Exception as mlflow_err:
+        logger.warning(
+            "Could not load model from MLflow (models:/XGBoostEtaModel/latest). Falling back to local file. Error details: %s",
+            mlflow_err
+        )
+
+    # 2. Fallback to local file
     artifact_path = os.getenv("ETA_XGB_ARTIFACT_PATH", _DEFAULT_ARTIFACT_PATH)
     if not os.path.exists(artifact_path):
         raise FileNotFoundError(

@@ -77,11 +77,51 @@ def train(n_samples: int = 5000) -> float:
         random_state=42,
         n_jobs=-1,
     )
-    model.fit(X_train, y_train, eval_set=[(X_test, y_test)], verbose=50)
+    # MLflow integration
+    try:
+        import mlflow
+        import mlflow.xgboost
 
-    y_pred = model.predict(X_test)
-    rmse = math.sqrt(mean_squared_error(y_test, y_pred))
-    mae = mean_absolute_error(y_test, y_pred)
+        tracking_uri = os.environ.get("ETA_MLFLOW_TRACKING_URI") or os.environ.get("MLFLOW_TRACKING_URI") or "http://localhost:5000"
+        mlflow.set_tracking_uri(tracking_uri)
+        mlflow.set_experiment("eta_prediction_xgboost")
+
+        with mlflow.start_run():
+            # Log params
+            mlflow.log_params({
+                "n_estimators": 300,
+                "max_depth": 6,
+                "learning_rate": 0.05,
+                "subsample": 0.8,
+                "colsample_bytree": 0.8,
+                "random_state": 42,
+                "n_samples": len(samples)
+            })
+
+            # Fit model
+            model.fit(X_train, y_train, eval_set=[(X_test, y_test)], verbose=50)
+
+            y_pred = model.predict(X_test)
+            rmse = math.sqrt(mean_squared_error(y_test, y_pred))
+            mae = mean_absolute_error(y_test, y_pred)
+
+            # Log metrics
+            mlflow.log_metric("test_rmse", rmse)
+            mlflow.log_metric("test_mae", mae)
+
+            # Log and register model
+            mlflow.xgboost.log_model(
+                xgb_model=model,
+                artifact_path="xgboost_model",
+                registered_model_name="XGBoostEtaModel"
+            )
+            print(f"Successfully logged model and metrics to MLflow at {tracking_uri}!")
+    except Exception as e:
+        print(f"WARNING: MLflow logging failed: {e}. Fitting model locally.")
+        model.fit(X_train, y_train, eval_set=[(X_test, y_test)], verbose=50)
+        y_pred = model.predict(X_test)
+        rmse = math.sqrt(mean_squared_error(y_test, y_pred))
+        mae = mean_absolute_error(y_test, y_pred)
 
     print(f"\nTest RMSE: {rmse:.2f}s  |  MAE: {mae:.2f}s")
 
