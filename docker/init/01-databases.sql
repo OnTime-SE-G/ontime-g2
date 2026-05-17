@@ -3,6 +3,7 @@ CREATE DATABASE eta_db;
 CREATE DATABASE anomaly_db;
 CREATE DATABASE ontime_test_db;
 CREATE DATABASE mlflow_db;
+CREATE DATABASE crowd_sensing_db;
 
 \connect ontime_db;
 CREATE EXTENSION postgis;
