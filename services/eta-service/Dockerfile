@@ -23,6 +23,10 @@ COPY schemas /app/schemas
 # Copy the service code into /app
 COPY services/eta-service /app
 
+# Shared ML package (MLflow loader, contracts) — required by models/ml_eta_xgb.py
+COPY ml /opt/ontime/ml
+ENV PYTHONPATH=/app:/opt/ontime
+
 # Expose port
 EXPOSE 8005
 
