@@ -5,6 +5,10 @@ fastapi
 uvicorn
 pytest
 pytest-asyncio
+mlflow==2.19.0
+psycopg2-binary>=2.9.0
+scikit-learn>=1.0.0
+joblib>=1.0.0
+pandas>=1.3.0
 sqlalchemy>=2.0
-psycopg2-binary
 redis>=5.0

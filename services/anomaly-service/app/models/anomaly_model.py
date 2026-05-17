@@ -67,20 +67,39 @@ class AnomalyModel:
         # Isolation Forest model for behavioral anomaly detection (optional).
         self.isolation_model = None
         self.isolation_model_path = settings.isolation_forest_artifact_path
-        try:
-            # load an optional model artifact if present
-            import joblib
 
-            candidate = self.isolation_model_path
-            if not os.path.isabs(candidate):
-                candidate = os.path.abspath(candidate)
-            if os.path.exists(candidate):
-                self.isolation_model = joblib.load(candidate)
-                self.isolation_model_path = candidate
-                logger.info("Loaded isolation forest model from %s", candidate)
-        except Exception:
-            # model not available in this environment; continue with rule-based checks
-            logger.debug("No isolation forest model loaded (optional)")
+        try:
+            import mlflow
+            import mlflow.sklearn
+
+            tracking_uri = os.environ.get("ANOMALY_MLFLOW_TRACKING_URI") or os.environ.get("MLFLOW_TRACKING_URI") or "http://localhost:5000"
+            mlflow.set_tracking_uri(tracking_uri)
+
+            # Retrieve the latest version of the registered IsolationForest model
+            model_uri = "models:/IsolationForestAnomalyModel/latest"
+            logger.info("Attempting to load model from MLflow: %s (tracking URI: %s)", model_uri, tracking_uri)
+            self.isolation_model = mlflow.sklearn.load_model(model_uri)
+            self.isolation_model_path = model_uri
+            logger.info("Successfully loaded isolation forest model from MLflow!")
+        except Exception as mlflow_err:
+            logger.warning(
+                "Could not load model from MLflow (%s). Falling back to local file. Error details: %s",
+                "models:/IsolationForestAnomalyModel/latest",
+                mlflow_err
+            )
+            # 2. Fallback: Load optional model artifact from local path
+            try:
+                import joblib
+
+                candidate = self.isolation_model_path
+                if not os.path.isabs(candidate):
+                    candidate = os.path.abspath(candidate)
+                if os.path.exists(candidate):
+                    self.isolation_model = joblib.load(candidate)
+                    self.isolation_model_path = candidate
+                    logger.info("Loaded isolation forest model from local file %s", candidate)
+            except Exception as local_err:
+                logger.debug("No local isolation forest model loaded (optional). Error details: %s", local_err)
 
     def detect(self, telemetry: Dict[str, Any], route_geometry: List[Tuple[float, float]]) -> List[Dict[str, Any]]:
         alerts = []
