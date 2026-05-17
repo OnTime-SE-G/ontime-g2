@@ -34,12 +34,18 @@ async def redis_listener(app: FastAPI):
             
             async with redis.pubsub() as pubsub:
                 logger.info(
-                    "SUBSCRIBING TO: %s, %s, %s",
+                    "SUBSCRIBING TO: %s, %s, %s, %s",
                     settings.fleet_channel,
                     settings.eta_channel,
                     settings.anomaly_channel,
+                    settings.crowd_channel,
                 )
-                await pubsub.subscribe(settings.fleet_channel, settings.eta_channel, settings.anomaly_channel)
+                await pubsub.subscribe(
+                    settings.fleet_channel,
+                    settings.eta_channel,
+                    settings.anomaly_channel,
+                    settings.crowd_channel
+                )
                 logger.info("SUBSCRIBE COMMAND SENT")
                 
                 while True:
