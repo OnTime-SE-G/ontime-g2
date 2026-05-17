@@ -143,18 +143,19 @@ class TestEtaPipelineEnd2End:
     def test_xgboost_selection_when_model_available(self, monkeypatch):
         """Consumer should use XGBoost when artifact is available."""
         from consumer import EtaFeatureConsumer
+        from models.inference_router import InferenceOutcome
 
         redis_mock = FakeRedis()
         consumer = EtaFeatureConsumer(redis_mock, default_model="xgboost")
         payload = make_eta_features_message()
 
-        # Mock XGBoost predictor to return a fixed value
         fake_result = type("EtaResult", (), {"eta_seconds": 77.0, "speed_ms": 8.33, "clamped": False})()
         monkeypatch.setattr(
             "consumer.EtaFeatureConsumer._predict_eta",
-            lambda self, *args, **kwargs: (fake_result, "xgboost"),
+            lambda self, *args, **kwargs: InferenceOutcome(
+                result=fake_result, model_used="xgboost", segment_mode="urban"
+            ),
         )
-
         result = consumer.process_payload(payload)
 
         assert result["model_used"] == "xgboost"
@@ -171,20 +172,19 @@ class TestEtaPipelineEnd2End:
     def test_physics_fallback_on_missing_xgboost(self, monkeypatch):
         """Consumer should fall back to physics if XGBoost fails."""
         from consumer import EtaFeatureConsumer
+        from models.inference_router import InferenceOutcome
 
         redis_mock = FakeRedis()
         consumer = EtaFeatureConsumer(redis_mock, default_model="xgboost")
         payload = make_eta_features_message()
 
-        # Simulate XGBoost import/load failure
+        fake_result = type("EtaResult", (), {"eta_seconds": 60.0, "speed_ms": 8.33, "clamped": False})()
         monkeypatch.setattr(
             "consumer.EtaFeatureConsumer._predict_eta",
-            lambda self, *args, **kwargs: (
-                type("EtaResult", (), {"eta_seconds": 60.0, "speed_ms": 8.33, "clamped": False})(),
-                "physics",
+            lambda self, *args, **kwargs: InferenceOutcome(
+                result=fake_result, model_used="physics", segment_mode="urban"
             ),
         )
-
         result = consumer.process_payload(payload)
 
         assert result["model_used"] == "physics"

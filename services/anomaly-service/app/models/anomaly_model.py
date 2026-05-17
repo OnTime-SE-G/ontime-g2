@@ -67,19 +67,26 @@ class AnomalyModel:
         # Isolation Forest model for behavioral anomaly detection (optional).
         self.isolation_model = None
         self.isolation_model_path = settings.isolation_forest_artifact_path
+        self.isolation_model_version = None
         try:
-            # load an optional model artifact if present
-            import joblib
+            from pathlib import Path
 
-            candidate = self.isolation_model_path
-            if not os.path.isabs(candidate):
-                candidate = os.path.abspath(candidate)
-            if os.path.exists(candidate):
-                self.isolation_model = joblib.load(candidate)
-                self.isolation_model_path = candidate
-                logger.info("Loaded isolation forest model from %s", candidate)
+            from .model_loader import load_isolation_model
+
+            fallback = Path(self.isolation_model_path)
+            if not fallback.is_absolute():
+                fallback = Path(__file__).resolve().parent / "training" / "isolation_forest.joblib"
+            self.isolation_model, self.isolation_model_version = load_isolation_model(
+                "ontime-anomaly-if-behavioral",
+                fallback_path=fallback,
+            )
+            if self.isolation_model is not None:
+                self.isolation_model_path = str(fallback)
+                logger.info(
+                    "Loaded behavioral isolation forest (%s)",
+                    self.isolation_model_version,
+                )
         except Exception:
-            # model not available in this environment; continue with rule-based checks
             logger.debug("No isolation forest model loaded (optional)")
 
     def detect(self, telemetry: Dict[str, Any], route_geometry: List[Tuple[float, float]]) -> List[Dict[str, Any]]:
