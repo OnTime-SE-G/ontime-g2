@@ -1,1 +1,0 @@
-"""Crowd Service Application Package."""
