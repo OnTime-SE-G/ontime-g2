@@ -311,7 +311,7 @@ services:
     container_name: ontime_flink_jobmanager
     command: jobmanager
     ports:
-      - "8081:8081"
+      - "8082:8081"
     environment:
       FLINK_PROPERTIES: |
         jobmanager.rpc.address: flink-jobmanager
@@ -430,7 +430,12 @@ services:
     container_name: ontime_eta_service
     ports:
       - "8005:8005"
+    volumes:
+      - mlflow_artifacts:/mlflow/artifacts
+      - ../services/eta-service:/app
     environment:
+      ETA_MLFLOW_TRACKING_URI: ${ETA_MLFLOW_TRACKING_URI:-http://mlflow:5000}
+      MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI:-http://mlflow:5000}
       ETA_DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/eta_db
       ETA_KAFKA_BROKER_URL: ${ETA_KAFKA_BROKER_URL:-broker:29092}
       ETA_KAFKA_TOPIC: ${ETA_KAFKA_TOPIC:-transport-eta-features}
@@ -463,6 +468,8 @@ services:
     container_name: ontime_anomaly_service
     ports:
       - "8006:8006"
+    volumes:
+      - mlflow_artifacts:/mlflow/artifacts
     environment:
       ANOMALY_SERVICE_PORT: ${ANOMALY_SERVICE_PORT:-8006}
       ANOMALY_DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/anomaly_db
@@ -489,6 +496,7 @@ services:
       ANOMALY_SLIDING_WINDOW_SIZE: ${ANOMALY_SLIDING_WINDOW_SIZE:-20}
       ANOMALY_SLIDING_WINDOW_MIN_SIZE: ${ANOMALY_SLIDING_WINDOW_MIN_SIZE:-10}
       ANOMALY_ISOLATION_FOREST_ARTIFACT_PATH: ${ANOMALY_ISOLATION_FOREST_ARTIFACT_PATH:-/opt/anomaly-service/app/models/training/isolation_forest.joblib}
+      ANOMALY_MLFLOW_TRACKING_URI: ${ANOMALY_MLFLOW_TRACKING_URI:-http://mlflow:5000}
     networks:
       - ontime_network
     depends_on:
@@ -500,6 +508,30 @@ services:
         condition: service_healthy
       route-service:
         condition: service_started
+
+  mlflow:
+    build:
+      context: .
+      dockerfile: mlflow/Dockerfile
+    container_name: ontime_mlflow
+    ports:
+      - "5000:5000"
+    environment:
+      - MLFLOW_BACKEND_STORE_URI=postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/mlflow_db
+      - MLFLOW_DEFAULT_ARTIFACT_ROOT=/mlflow/artifacts
+    volumes:
+      - mlflow_artifacts:/mlflow/artifacts
+    command: >
+      mlflow server
+      --backend-store-uri postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/mlflow_db
+      --default-artifact-root /mlflow/artifacts
+      --host 0.0.0.0
+      --port 5000
+    networks:
+      - ontime_network
+    depends_on:
+      postgres:
+        condition: service_healthy
 
   node-red:
     image: nodered/node-red:latest
@@ -530,3 +562,4 @@ volumes:
   mosquitto_data:
   mosquitto_log:
   node_red_data:
+  mlflow_artifacts:
