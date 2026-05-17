@@ -58,31 +58,52 @@ class HybridPredictor:
             logger.error(f"Inference error: {e}")
             return label_to_score("SEMI_FULL")
 
-    def _get_live_reports(self, route_id: int, stop_id: int, dt: datetime) -> list[int]:
+    def _get_live_reports(self, route_id: int, stop_id: int, dt: datetime) -> list[tuple[int, float]]:
         window_start = dt - timedelta(minutes=20)
         with SessionLocal() as db:
-            stmt = select(CrowdReport.occupancy_score).where(
+            from app.database.models import PassengerProfile
+            stmt = select(CrowdReport.occupancy_score, CrowdReport.passenger_id).where(
                 CrowdReport.route_id == route_id,
                 CrowdReport.stop_id == stop_id,
                 CrowdReport.timestamp >= window_start,
                 CrowdReport.timestamp <= dt
             )
-            results = db.execute(stmt).scalars().all()
-            return list(results)
+            rows = db.execute(stmt).all()
+            
+            results = []
+            for score, p_id in rows:
+                trust = 0.8  # default baseline trust
+                if p_id:
+                    profile = db.query(PassengerProfile).filter(PassengerProfile.passenger_id == p_id).first()
+                    if profile:
+                        trust = profile.trust_score
+                results.append((score, trust))
+            return results
 
     def predict(self, route_id: int, direction_id: int, stop_id: int, dt: datetime):
         hist_score = self._predict_historical(route_id, direction_id, stop_id, dt)
         hist_label = score_to_label(hist_score)
 
-        live_scores = self._get_live_reports(route_id, stop_id, dt)
-        report_count = len(live_scores)
+        live_reports = self._get_live_reports(route_id, stop_id, dt)
+        report_count = len(live_reports)
         
         # Hybrid logic
         if report_count >= 5:
-            avg_live_score = sum(live_scores) / report_count
+            # Mathematically weight live reports using passenger trust scores
+            weighted_sum = sum(score * trust for score, trust in live_reports)
+            total_trust = sum(trust for _, trust in live_reports)
+            
+            if total_trust > 0:
+                avg_live_score = weighted_sum / total_trust
+            else:
+                avg_live_score = sum(score for score, _ in live_reports) / report_count
+                
             final_score = (0.7 * avg_live_score) + (0.3 * hist_score)
             live_adj = True
-            confidence = min(0.95, 0.70 + (report_count * 0.05))
+            
+            # Scale prediction confidence by the average trust score of contributing reporters
+            avg_trust = total_trust / report_count
+            confidence = min(0.95, 0.70 + (report_count * 0.05 * avg_trust))
         else:
             final_score = hist_score
             live_adj = False
