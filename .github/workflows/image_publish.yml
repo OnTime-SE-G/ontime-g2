@@ -39,7 +39,7 @@ jobs:
             context: services/websocket-service
             dockerfile: services/websocket-service/Dockerfile
           - service: anomaly-service
-            context: services/anomaly-service
+            context: .
             dockerfile: services/anomaly-service/Dockerfile
           - service: eta-service
             context: .

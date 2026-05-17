@@ -6,6 +6,7 @@ COPY services/anomaly-service/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 COPY ml /opt/ontime/ml
+# Includes app/models/training/isolation_forest.joblib (canonical behavioral artifact).
 COPY services/anomaly-service/app ./app
 
 ENV PYTHONPATH=/opt/anomaly-service:/opt/ontime

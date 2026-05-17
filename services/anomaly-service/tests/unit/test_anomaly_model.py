@@ -368,3 +368,45 @@ def test_behavioral_detection_keeps_sliding_window_bounded(monkeypatch):
 
     assert len(model.telemetry_windows["B2"]) == 3
     assert model.telemetry_windows["B2"][0]["timestamp"] == "2026-05-02T10:00:03Z"
+
+
+def test_behavioral_rules_fallback_when_isolation_forest_missing(monkeypatch):
+    monkeypatch.setattr(anomaly_model_module.settings, "sliding_window_size", 3)
+    monkeypatch.setattr(anomaly_model_module.settings, "sliding_window_min_size", 2)
+    monkeypatch.setattr(anomaly_model_module.settings, "behavioral_fallback_speed_variance", 8.0)
+    monkeypatch.setattr(anomaly_model_module.settings, "behavioral_fallback_heading_variance", 5.0)
+    monkeypatch.setattr(anomaly_model_module.settings, "behavioral_fallback_max_acceleration", 3.0)
+
+    model = AnomalyModel()
+    model.isolation_model = None
+
+    base = {
+        "busId": "B3",
+        "tripId": "T1",
+        "routeId": "R1",
+        "lat": 6.9,
+        "lon": 79.9,
+        "heading": 10.0,
+    }
+    speeds = [10.0, 45.0, 5.0, 50.0]
+    alerts = []
+    for index, speed in enumerate(speeds):
+        alerts = model.detect(
+            {**base, "speed": speed, "timestamp": f"2026-05-02T10:00:0{index}Z"},
+            [],
+        )
+
+    erratic = [a for a in alerts if a["anomalyType"] == "ERRATIC_DRIVING"]
+    assert erratic
+    assert erratic[-1]["detectionMethod"] == "rules_fallback"
+
+
+def test_canonical_isolation_forest_artifact_loads():
+    from pathlib import Path
+
+    artifact = Path(__file__).resolve().parents[2] / "app" / "models" / "training" / "isolation_forest.joblib"
+    assert artifact.exists(), "Commit isolation_forest.joblib with the service"
+
+    model = AnomalyModel()
+    assert model.isolation_model is not None
+    assert model.isolation_model_version is not None
