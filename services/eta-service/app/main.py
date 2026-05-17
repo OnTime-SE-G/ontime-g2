@@ -89,3 +89,20 @@ def root():
 @app.get("/health")
 def health():
     return {"status": "ok"}
+
+
+@app.get("/health/live")
+def liveness():
+    return {"status": "UP"}
+
+
+@app.get("/health/ready")
+def readiness():
+    # In a full implementation, this might check DB or Kafka connectivity
+    return {"status": "READY"}
+
+
+@app.get("/metrics")
+def metrics():
+    # Placeholder for Prometheus metrics integration
+    return {"status": "not_implemented_yet", "metrics": {}}
