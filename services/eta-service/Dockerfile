@@ -20,6 +20,9 @@ RUN pip install --no-cache-dir -r requirements.txt
 # Copy shared schemas into /app/schemas (if needed for standardization)
 COPY schemas /app/schemas
 
+# Copy shared ML contracts and loader
+COPY ml /app/ml
+
 # Copy the service code into /app
 COPY services/eta-service /app
 
