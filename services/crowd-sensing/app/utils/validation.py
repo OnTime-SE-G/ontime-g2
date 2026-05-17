@@ -11,6 +11,7 @@ def validate_route_stop(route_id: int, stop_id: int):
     """
     Query the central Route Service to ensure the route exists and the stop belongs to that route.
     """
+    logger.debug(f"Verifying route stop integrity for route {route_id}, stop {stop_id}")
     url = f"{settings.route_service_url}/api/v1/routes/{route_id}/stops"
     try:
         req = urllib.request.Request(url, method="GET")
