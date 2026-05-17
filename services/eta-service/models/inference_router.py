@@ -10,11 +10,12 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
+from models._repo_root import repo_root
 from models.eta import EtaResult, compute_eta, compute_eta_expressway
 
 logger = logging.getLogger(__name__)
 
-_REPO_ROOT = Path(__file__).resolve().parents[3]
+_REPO_ROOT = repo_root()
 if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 

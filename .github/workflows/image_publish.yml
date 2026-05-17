@@ -78,6 +78,7 @@ jobs:
   deploy:
     runs-on: ubuntu-latest
     needs: [build-and-push]
+    timeout-minutes: 15
     if: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
     env:
       KUBE_CONFIG_B64: ${{ secrets.KUBE_CONFIG_B64 }}
@@ -139,7 +140,7 @@ jobs:
           kubectl rollout status deployment/transit-platform-g2-anomaly-service \
             -n transit-platform --timeout=120s
           kubectl rollout status deployment/transit-platform-g2-eta-service \
-            -n transit-platform --timeout=120s
+            -n transit-platform --timeout=300s
 
       - name: Skip deploy (missing kubeconfig)
         if: ${{ env.KUBE_CONFIG_B64 == '' }}
