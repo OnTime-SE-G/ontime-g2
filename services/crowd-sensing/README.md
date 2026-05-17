@@ -45,7 +45,8 @@ When a user requests a prediction (`GET /api/v1/crowd/predict`), the service doe
 
 1. **Historical Forecast**: The service loads the latest `CrowdOccupancyModel` version from MLflow and asks the XGBoost model: *"Historically, what is the expected crowd at this route/stop/time?"*
 2. **Live Condition Fetch**: The service queries PostgreSQL for any live passenger reports submitted for that exact stop within the last **20 minutes**.
-3. **Trust-Weighted Aggregation**: If $\ge 5$ live reports exist, a simple average is not used. Instead, the scores are multiplied by the reporters' `trust_scores`. This ensures anomalous reports from low-trust passengers are mathematically minimized, while verified regulars heavily influence the result.
+3. **Trust-Weighted Aggregation**: If $\ge 5$ live reports exist, a simple average is not used. Instead, the scores are multiplied by the reporters' `trust_scores`. This ensures anomalous reports from low-trust passengers are mathematically minimized, while verified regulars heavily influence the result:
+   $$\text{Weighted Live Average} = \frac{\sum (\text{Occupancy Score}_i \cdot \text{Trust Score}_i)}{\sum \text{Trust Score}_i}$$
 4. **The Blend**: The service dynamically blends the **Trust-Weighted Live Average (70%)** with the **Historical AI Forecast (30%)**.
 5. **Dynamic Confidence**: The final API response flags `"live_adjustment": true` and dynamically scales the statistical `confidence` metric based on the average reputation of the contributing passengers.
 
