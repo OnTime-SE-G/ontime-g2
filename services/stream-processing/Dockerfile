@@ -19,8 +19,10 @@ RUN ln -sf /usr/bin/python3 /usr/bin/python
 # Set working directory
 WORKDIR /opt/flink/usrlib
 
-# Copy requirements and install
+# Copy requirements and install (retries/timeouts for flaky CI networks)
 COPY services/stream-processing/requirements.txt .
+ENV PIP_DEFAULT_TIMEOUT=120
+ENV PIP_RETRIES=5
 RUN pip3 install --no-cache-dir -r requirements.txt
 
 # Download Kafka Connector JAR
