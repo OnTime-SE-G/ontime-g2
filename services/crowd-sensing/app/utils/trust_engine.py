@@ -45,17 +45,21 @@ def adjust_trust_scores(db: Session, route_id: int, stop_id: int, new_report_sco
     other_scores = list(db.execute(stmt).scalars().all())
     
     if len(other_scores) >= 2:
-        # Calculate consensus average of other passengers
+        # Calculate running consensus average of other recent reporters
         consensus_avg = sum(other_scores) / len(other_scores)
         diff = abs(new_report_score - consensus_avg)
         
+        # 30.0 represents one full occupancy class transition width on a 100-point scale.
+        # If the passenger report lies within this window, they match consensus.
         if diff <= 30.0:
-            # consensus match: reward!
+            # Reward: Increments trust (+0.02). Requires 10 consecutive verified inputs
+            # to transition a passenger from base trust (0.8) to perfect reputation (1.0).
             profile.trust_score = min(1.0, profile.trust_score + 0.02)
             profile.verified_reports += 1
             logger.info(f"User {passenger_id} matched consensus. Trust score increased to {profile.trust_score:.2f}")
         else:
-            # consensus outlier: penalize!
+            # Penalty: Decays trust (-0.05). Decays a baseline user to absolute silence (0.0)
+            # in exactly 16 persistent unverified anomalies to shield consensus.
             profile.trust_score = max(0.0, profile.trust_score - 0.05)
             logger.warning(f"User {passenger_id} is an outlier. Trust score decreased to {profile.trust_score:.2f}")
     else:
