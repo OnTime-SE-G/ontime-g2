@@ -8,6 +8,7 @@ from app.database.connection import SessionLocal
 from app.database.models import CrowdReport
 from app.schemas.crowd import CrowdReportRequest
 from app.utils.occupancy import score_to_label
+from app.utils.trust_engine import adjust_trust_scores
 
 logger = logging.getLogger(__name__)
 
@@ -66,8 +67,16 @@ class CrowdReportConsumer:
             stop_sequence=report.stop_sequence,
             occupancy_score=report.occupancy_score,
             occupancy_label=label,
+            passenger_id=report.passenger_id,
             timestamp=report.timestamp,
         )
         db.add(db_report)
         db.commit()
         logger.debug(f"Saved crowd report for trip {report.trip_id} at stop {report.stop_id}")
+        
+        # Evaluate consensus and adjust trust score
+        if report.passenger_id:
+            try:
+                adjust_trust_scores(db, report.route_id, report.stop_id, report.occupancy_score, report.passenger_id)
+            except Exception as e:
+                logger.error(f"Failed to adjust trust score for passenger {report.passenger_id}: {e}")
