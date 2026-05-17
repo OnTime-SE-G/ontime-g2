@@ -1,0 +1,7 @@
+flowchart LR
+  Influx[(InfluxDB)] --> Export[export_training_data]
+  PG[(eta_db)] --> Export
+  Export --> Train[train_xgb / train_if / train_sarima]
+  Train --> MLflow[MLflow Registry]
+  Airflow[Airflow DAG] --> Export
+  Airflow --> Train

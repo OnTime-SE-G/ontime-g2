@@ -84,7 +84,7 @@ def test_get_eta_stop_not_found(patch_redis):
     assert resp.status_code == 404
 
 
-def test_get_eta_rejects_xgboost_until_enabled(patch_redis):
+def test_get_eta_supports_xgboost_model(patch_redis, monkeypatch):
     client = TestClient(main_module.app)
     snapshot = {
         "busId": "BUS-001",
@@ -98,19 +98,17 @@ def test_get_eta_rejects_xgboost_until_enabled(patch_redis):
     }
     patch_redis.setex("eta:trip:TRIP-2026-001:snapshot", 300, json.dumps(snapshot))
 
-    fake_result = SimpleNamespace(eta_seconds=88.0, speed_ms=1.95, clamped=False)
-    from routers import eta as eta_router
-    monkeypatch = pytest.MonkeyPatch()
-    monkeypatch.setattr(
-        eta_router,
-        "_predict_eta_from_snapshot",
-        lambda snapshot, stop, model: (fake_result.eta_seconds, "xgboost", False),
-    )
-    try:
-        resp = client.get("/api/v1/eta/TRIP-2026-001/42?model=xgboost")
-    finally:
-        monkeypatch.undo()
+    from models.inference_router import InferenceOutcome
 
+    fake_result = SimpleNamespace(eta_seconds=88.0, speed_ms=1.95, clamped=False)
+    monkeypatch.setattr(
+        "routers.eta.route_predict",
+        lambda *args, **kwargs: InferenceOutcome(
+            result=fake_result, model_used="xgboost", segment_mode="urban"
+        ),
+    )
+
+    resp = client.get("/api/v1/eta/TRIP-2026-001/42?model=xgboost")
     assert resp.status_code == 200
     assert resp.json()["model_used"] == "xgboost"
 
@@ -136,7 +134,7 @@ def test_get_eta_uses_distance_from_stop_when_present(patch_redis):
     assert resp.json()["distance_m"] == pytest.approx(345.0)
 
 
-def test_get_eta_parses_bytes_snapshot(patch_redis):
+def test_get_eta_parses_bytes_snapshot(patch_redis, monkeypatch):
     client = TestClient(main_module.app)
     snapshot = {
         "busId": "BUS-002",
@@ -147,6 +145,17 @@ def test_get_eta_parses_bytes_snapshot(patch_redis):
         "timestamp": "2026-05-05T01:00:00Z",
     }
     patch_redis.store["eta:trip:TRIP-BYTES:snapshot"] = json.dumps(snapshot).encode("utf-8")
+
+    from models.inference_router import InferenceOutcome
+
+    monkeypatch.setattr(
+        "routers.eta.route_predict",
+        lambda *args, **kwargs: InferenceOutcome(
+            result=SimpleNamespace(eta_seconds=33.0, speed_ms=1.4, clamped=True),
+            model_used="physics",
+            segment_mode="urban",
+        ),
+    )
 
     resp = client.get("/api/v1/eta/TRIP-BYTES/7")
 
@@ -175,10 +184,14 @@ def test_get_eta_uses_xgboost_model_when_requested(patch_redis, monkeypatch):
     }
     patch_redis.setex("eta:trip:TRIP-XGB:snapshot", 300, json.dumps(snapshot))
 
+    from models.inference_router import InferenceOutcome
+
     fake_eta = SimpleNamespace(eta_seconds=77.0, speed_ms=2.0, clamped=False)
     monkeypatch.setattr(
-        "routers.eta._predict_eta_from_snapshot",
-        lambda snapshot, stop, model: (fake_eta.eta_seconds, "xgboost", fake_eta.clamped),
+        "routers.eta.route_predict",
+        lambda *args, **kwargs: InferenceOutcome(
+            result=fake_eta, model_used="xgboost", segment_mode="urban"
+        ),
     )
 
     resp = client.get("/api/v1/eta/TRIP-XGB/42?model=xgboost")

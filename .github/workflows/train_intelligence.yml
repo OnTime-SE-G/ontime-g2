@@ -1,0 +1,55 @@
+name: Train Intelligence Models
+
+on:
+  workflow_dispatch:
+
+jobs:
+  train:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: eta_db
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: |
+          pip install -r ml/requirements.txt
+          pip install -r services/eta-service/requirements.txt
+          pip install -r services/anomaly-service/requirements.txt
+
+      - name: Train ETA XGBoost
+        env:
+          MLFLOW_TRACKING_URI: ""
+        run: |
+          python services/eta-service/models/training/train_xgb.py --also-urban
+
+      - name: Train anomaly models
+        run: |
+          python services/anomaly-service/app/models/training/generate_behavioral_training_data.py
+          python -m app.models.training.train_isolation_forest \
+            --mode behavioral \
+            --input services/anomaly-service/app/models/training/behavioral_train.csv
+        working-directory: services/anomaly-service
+        env:
+          PYTHONPATH: ${{ github.workspace }}:${{ github.workspace }}/services/anomaly-service
+
+      - name: Run unit tests
+        run: |
+          cd services/eta-service && pytest tests/unit -q
+          cd ../anomaly-service && pytest -q

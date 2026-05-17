@@ -31,6 +31,7 @@ except ImportError:  # pragma: no cover - local unit tests without PyFlink
 from app.config import settings
 from app.utils.geo import calculate_route_progress, distance_to_route, get_dist_along_route
 from app.utils.route_client import fetch_active_trips_sync, fetch_geometries_sync, fetch_stops_sync
+from app.utils.segment import resolve_segment_mode
 
 logger = logging.getLogger(__name__)
 
@@ -255,6 +256,7 @@ class EnrichmentFunction(KeyedProcessFunction):
                 "stopsRemaining": stops_remaining,
                 "stopsAhead": stops_ahead,
                 "next_stops": next_stops,
+                "segmentMode": resolve_segment_mode(lat, lon),
             }
 
             yield json.dumps(enriched)

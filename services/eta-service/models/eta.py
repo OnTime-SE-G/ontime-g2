@@ -16,6 +16,23 @@ class EtaResult:
     clamped: bool               # True if speed was below minimum and clamped
 
 
+def compute_eta_expressway(
+    remaining_distance_m: float,
+    speed_ms: float,
+    *,
+    weather_coefficient: float = 1.0,
+) -> EtaResult:
+    """Expressway cruise ETA with optional weather slowdown."""
+    base = compute_eta(remaining_distance_m, speed_ms)
+    adjusted = base.eta_seconds * max(weather_coefficient, 0.5)
+    return EtaResult(
+        eta_seconds=adjusted,
+        distance_m=base.distance_m,
+        speed_ms=base.speed_ms,
+        clamped=base.clamped,
+    )
+
+
 def compute_eta(remaining_distance_m: float, speed_ms: float) -> EtaResult:
     """Return an EtaResult for a bus given remaining distance and current speed.
 

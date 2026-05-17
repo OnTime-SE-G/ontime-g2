@@ -1,0 +1,7 @@
+flowchart LR
+  Kafka[Kafka features] --> Router[InferenceRouter]
+  MLflow[MLflow Production] --> Loader[ml.loader]
+  Loader --> Router
+  Joblib[joblib fallback] --> Loader
+  Router --> Redis[(Redis eta live)]
+  Router --> API[FastAPI /api/v1/eta]

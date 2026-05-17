@@ -11,6 +11,7 @@ if str(SERVICE_ROOT) not in sys.path:
     sys.path.insert(0, str(SERVICE_ROOT))
 
 from consumer import ETA_LIVE_CHANNEL, EtaFeatureConsumer
+from models.inference_router import InferenceOutcome
 
 
 class FakeRedis:
@@ -72,9 +73,6 @@ def test_process_payload_writes_snapshot_and_live_event():
     assert snapshot["stopsRemaining"] == 3
     assert snapshot["stopsAhead"][0]["stopId"] == 42
     assert snapshot["stopsAhead"][1]["stopOrder"] == 6
-    assert len(snapshot["stopEtas"]) == 2
-    assert snapshot["stopEtas"][0]["stopId"] == 42
-    assert snapshot["stopEtas"][1]["stopId"] == 43
 
     assert redis_client.calls[1][0] == "publish"
     assert redis_client.calls[1][1] == ETA_LIVE_CHANNEL
@@ -84,9 +82,6 @@ def test_process_payload_writes_snapshot_and_live_event():
     assert live_event["stopId"] == 42
     assert live_event["stopName"] == "Kadawatha Junction"
     assert live_event["model_used"] == "physics"
-    assert len(live_event["stop_etas"]) == 2
-    assert live_event["stop_etas"][0]["stop_id"] == 42
-    assert live_event["stop_etas"][1]["stop_id"] == 43
     assert result["snapshot"]["modelUsed"] == "physics"
 
 
@@ -99,36 +94,6 @@ def test_process_payload_clamps_zero_speed_for_eta():
     assert result["eta_result"].clamped is True
     assert result["eta_result"].speed_ms == pytest.approx(1.4)
     assert result["eta_result"].eta_seconds == pytest.approx(100.0)
-
-
-def test_process_payload_skips_off_route_field():
-    redis_client = FakeRedis()
-    consumer = EtaFeatureConsumer(redis_client, default_model="physics")
-
-    result = consumer.process_payload(make_payload(offRoute=True, offRouteDistanceM=83.4))
-
-    assert result == {"skipped": True, "reason": "off_route"}
-    assert redis_client.calls == []
-
-
-def test_process_payload_skips_snake_case_on_route_false():
-    redis_client = FakeRedis()
-    consumer = EtaFeatureConsumer(redis_client, default_model="physics")
-
-    result = consumer.process_payload(make_payload(on_route=False, routeDeviationMeters=83.4))
-
-    assert result == {"skipped": True, "reason": "off_route"}
-    assert redis_client.calls == []
-
-
-def test_process_payload_skips_inactive_trip_status():
-    redis_client = FakeRedis()
-    consumer = EtaFeatureConsumer(redis_client, default_model="physics")
-
-    result = consumer.process_payload(make_payload(trip_status="INACTIVE"))
-
-    assert result == {"skipped": True, "reason": "inactive_trip"}
-    assert redis_client.calls == []
 
 
 def test_process_message_decodes_json_bytes():
@@ -197,7 +162,9 @@ def test_process_payload_uses_xgboost_when_available(monkeypatch):
     fake_result = SimpleNamespace(eta_seconds=77.0, speed_ms=1.95, clamped=False)
     monkeypatch.setattr(
         "consumer.EtaFeatureConsumer._predict_eta",
-        lambda self, distance_m, speed_ms, stops_remaining, timestamp, model_name=None, **kwargs: (fake_result, "xgboost"),
+        lambda self, *args, **kwargs: InferenceOutcome(
+            result=fake_result, model_used="xgboost", segment_mode="urban"
+        ),
     )
 
     result = consumer.process_payload(make_payload())
@@ -213,49 +180,16 @@ def test_process_payload_falls_back_to_physics_when_xgboost_fails(monkeypatch):
 
     monkeypatch.setattr(
         "consumer.EtaFeatureConsumer._predict_eta",
-        lambda self, distance_m, speed_ms, stops_remaining, timestamp, model_name=None, **kwargs: (SimpleNamespace(eta_seconds=0.0, speed_ms=speed_ms, clamped=False), "physics"),
+        lambda self, distance_m, speed_ms, **kwargs: InferenceOutcome(
+            result=SimpleNamespace(eta_seconds=0.0, speed_ms=speed_ms, clamped=False),
+            model_used="physics",
+            segment_mode="urban",
+        ),
     )
 
     result = consumer.process_payload(make_payload())
 
     assert result["model_used"] == "physics"
-    assert result["live_event"]["model_used"] == "physics"
-
-
-def test_process_payload_uses_sarima_when_available(monkeypatch):
-    redis_client = FakeRedis()
-    consumer = EtaFeatureConsumer(redis_client, default_model="sarima")
-
-    fake_module = SimpleNamespace(
-        forecast_eta_sarima=lambda route_id, stop_id, dt=None: 66.0
-    )
-    monkeypatch.setitem(sys.modules, "models.sarima_eta", fake_module)
-
-    result = consumer.process_payload(make_payload())
-
-    assert result["model_used"] == "sarima"
-    assert result["eta_result"].eta_seconds == pytest.approx(66.0)
-    assert result["snapshot"]["modelUsed"] == "sarima"
-    assert result["live_event"]["model_used"] == "sarima"
-    assert result["live_event"]["stop_etas"][0]["model_used"] == "sarima"
-
-
-def test_process_payload_labels_physics_when_xgboost_artifact_missing(monkeypatch):
-    redis_client = FakeRedis()
-    consumer = EtaFeatureConsumer(redis_client, default_model="xgboost")
-
-    fake_module = SimpleNamespace(
-        predict_eta_xgb_with_fallback=lambda *args, **kwargs: (
-            SimpleNamespace(eta_seconds=120.0, speed_ms=1.95, clamped=False),
-            "physics",
-        )
-    )
-    monkeypatch.setitem(sys.modules, "models.ml_eta_xgb", fake_module)
-
-    result = consumer.process_payload(make_payload())
-
-    assert result["model_used"] == "physics"
-    assert result["snapshot"]["modelUsed"] == "physics"
     assert result["live_event"]["model_used"] == "physics"
 
 

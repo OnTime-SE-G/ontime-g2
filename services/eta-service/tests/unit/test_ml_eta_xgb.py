@@ -34,7 +34,7 @@ from models.eta import EtaResult, _MIN_SPEED_MS
 
 FEATURES = [
     "distance_m", "speed_ms", "hour_of_day",
-    "day_of_week", "is_weekend", "stops_remaining",
+    "day_of_week", "is_weekend", "stops_remaining", "physics_eta",
 ]
 TARGET = "eta_seconds"
 
@@ -43,6 +43,8 @@ TARGET = "eta_seconds"
 def trained_model():
     """Train a small model on 3000 samples — enough to learn traffic patterns."""
     samples = generate(n_samples=3000, seed=0)
+    for sample in samples:
+        sample["physics_eta"] = sample["distance_m"] / max(sample["speed_ms"], 1.4)
     X = np.array([[s[f] for f in FEATURES] for s in samples], dtype=np.float32)
     y = np.array([s[TARGET] for s in samples], dtype=np.float32)
     model = XGBRegressor(n_estimators=150, max_depth=6, learning_rate=0.05, random_state=0)
@@ -50,12 +52,17 @@ def trained_model():
     return model, FEATURES
 
 
+def _load_tuple(trained_model):
+    model, features = trained_model
+    return model, features, None
+
+
 @pytest.fixture(autouse=True)
 def patch_load_model(trained_model):
     """Replace the cached _load_model with our tiny in-memory model."""
     import models.ml_eta_xgb as m
     m._load_model.cache_clear()
-    with patch.object(m, "_load_model", return_value=trained_model):
+    with patch.object(m, "_load_model", return_value=_load_tuple(trained_model)):
         yield
     m._load_model.cache_clear()
 
@@ -165,7 +172,7 @@ class TestSanityClamp:
                 return np.array([10000.0])   # 10000s vs physics ~100s → >80% deviation
 
         m._load_model.cache_clear()
-        fake = (_FakeModel(), FEATURES)
+        fake = (_FakeModel(), FEATURES, None)
         with patch.object(m, "_load_model", return_value=fake):
             from models.ml_eta_xgb import predict_eta_xgb
             result = predict_eta_xgb(dist, speed, stops_remaining=2)

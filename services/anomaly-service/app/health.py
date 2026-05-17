@@ -5,6 +5,23 @@ from fastapi import FastAPI, status
 from fastapi.responses import JSONResponse, PlainTextResponse
 import uvicorn
 
+from app.models.anomaly_model import AnomalyModel
+
+_model_probe: AnomalyModel | None = None
+
+
+def _isolation_forest_status() -> dict:
+    global _model_probe
+    if _model_probe is None:
+        _model_probe = AnomalyModel()
+    return {
+        "loaded": _model_probe.isolation_model is not None,
+        "version": _model_probe.isolation_model_version,
+        "artifactPath": _model_probe.isolation_model_path,
+        "primaryDetector": "isolation_forest" if _model_probe.isolation_model else "rules_fallback",
+    }
+
+
 def create_app():
     app = FastAPI(
         title="OnTime Anomaly Service",
@@ -14,11 +31,14 @@ def create_app():
 
     @app.get("/health")
     def health():
+        if_status = _isolation_forest_status()
         return {
             "status": "healthy",
             "service": "anomaly-service",
             "timestamp": datetime.now(timezone.utc).isoformat(),
-            "dependencies": {}
+            "dependencies": {},
+            "isolationForest": if_status,
+            "behavioralDetection": if_status["primaryDetector"],
         }
 
     @app.get("/health/live")
