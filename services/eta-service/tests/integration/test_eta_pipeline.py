@@ -94,7 +94,7 @@ class TestConsumerRedisSnapshot:
 
         redis_mock = FakeRedis()
         consumer = EtaFeatureConsumer(redis_mock, default_model="physics")
-        app.consumers.eta_consumer.process_payload(ETA_FEATURES_MESSAGE)
+        consumer.process_payload(ETA_FEATURES_MESSAGE)
 
         written_keys = [call[0] for call in redis_mock.setex_calls]
         assert any(TRIP_ID in k for k in written_keys), (
@@ -107,7 +107,7 @@ class TestConsumerRedisSnapshot:
 
         redis_mock = FakeRedis()
         consumer = EtaFeatureConsumer(redis_mock, default_model="physics")
-        app.consumers.eta_consumer.process_payload(ETA_FEATURES_MESSAGE)
+        consumer.process_payload(ETA_FEATURES_MESSAGE)
 
         # setex(key, ttl, value)
         for key, ttl, value in redis_mock.setex_calls:
@@ -122,7 +122,7 @@ class TestConsumerRedisSnapshot:
 
         redis_mock = FakeRedis()
         consumer = EtaFeatureConsumer(redis_mock, default_model="physics")
-        app.consumers.eta_consumer.process_payload(ETA_FEATURES_MESSAGE)
+        consumer.process_payload(ETA_FEATURES_MESSAGE)
 
         raw_value = None
         for key, ttl, value in redis_mock.setex_calls:
@@ -147,7 +147,7 @@ class TestConsumerRedisSnapshot:
 
         redis_mock = FakeRedis()
         consumer = EtaFeatureConsumer(redis_mock, default_model="physics")
-        app.consumers.eta_consumer.process_payload(ETA_FEATURES_MESSAGE)
+        consumer.process_payload(ETA_FEATURES_MESSAGE)
 
         snap = None
         for key, ttl, value in redis_mock.setex_calls:
@@ -175,7 +175,7 @@ class TestConsumerEtaLivePublish:
 
         redis_mock = FakeRedis()
         consumer = EtaFeatureConsumer(redis_mock, default_model="physics")
-        app.consumers.eta_consumer.process_payload(ETA_FEATURES_MESSAGE)
+        consumer.process_payload(ETA_FEATURES_MESSAGE)
 
         published_channels = [call[0] for call in redis_mock.publish_calls]
         assert "eta:live" in published_channels, (
@@ -188,7 +188,7 @@ class TestConsumerEtaLivePublish:
 
         redis_mock = FakeRedis()
         consumer = EtaFeatureConsumer(redis_mock, default_model="physics")
-        app.consumers.eta_consumer.process_payload(ETA_FEATURES_MESSAGE)
+        consumer.process_payload(ETA_FEATURES_MESSAGE)
 
         raw = None
         for channel, message in redis_mock.publish_calls:
@@ -211,7 +211,7 @@ class TestConsumerEtaLivePublish:
 
         redis_mock = FakeRedis()
         consumer = EtaFeatureConsumer(redis_mock, default_model="physics")
-        app.consumers.eta_consumer.process_payload(ETA_FEATURES_MESSAGE)
+        consumer.process_payload(ETA_FEATURES_MESSAGE)
 
         for channel, message in redis_mock.publish_calls:
             if channel == "eta:live":
@@ -225,7 +225,7 @@ class TestConsumerEtaLivePublish:
 
         redis_mock = FakeRedis()
         consumer = EtaFeatureConsumer(redis_mock, default_model="physics")
-        app.consumers.eta_consumer.process_payload(ETA_FEATURES_MESSAGE)
+        consumer.process_payload(ETA_FEATURES_MESSAGE)
 
         for channel, message in redis_mock.publish_calls:
             if channel == "eta:live":
@@ -240,7 +240,7 @@ class TestConsumerEtaLivePublish:
 
         redis_mock = FakeRedis()
         consumer = EtaFeatureConsumer(redis_mock, default_model="physics")
-        app.consumers.eta_consumer.process_payload(ETA_FEATURES_MESSAGE)
+        consumer.process_payload(ETA_FEATURES_MESSAGE)
 
         for channel, message in redis_mock.publish_calls:
             if channel == "eta:live":
@@ -263,7 +263,7 @@ class TestConsumerModelFallback:
 
         redis_mock = FakeRedis()
         consumer = EtaFeatureConsumer(redis_mock, default_model="xgboost")
-        app.consumers.eta_consumer.process_payload(ETA_FEATURES_MESSAGE)
+        consumer.process_payload(ETA_FEATURES_MESSAGE)
 
         # Should have published to eta:live even with xgboost default
         assert redis_mock.publish_calls, "publish was not called during fallback"
@@ -274,7 +274,7 @@ class TestConsumerModelFallback:
 
         redis_mock = FakeRedis()
         consumer = EtaFeatureConsumer(redis_mock, default_model="physics")
-        app.consumers.eta_consumer.process_payload(ETA_FEATURES_MESSAGE)
+        consumer.process_payload(ETA_FEATURES_MESSAGE)
 
         for channel, message in redis_mock.publish_calls:
             if channel == "eta:live":
@@ -302,7 +302,7 @@ class TestEtaHttpEndpoint:
 
         redis_mock = FakeRedis()
         consumer = EtaFeatureConsumer(redis_mock, default_model="physics")
-        app.consumers.eta_consumer.process_payload(ETA_FEATURES_MESSAGE)
+        consumer.process_payload(ETA_FEATURES_MESSAGE)
 
         snapshot_json = None
         for key, ttl, value in redis_mock.setex_calls:
@@ -341,11 +341,11 @@ class TestEndToEnd:
         """
         from app.consumers.eta_consumer import EtaFeatureConsumer
         from fastapi.testclient import TestClient
-        from main import app  # noqa: PLC0415
+        from app.main import app  # noqa: PLC0415
 
         redis_write = FakeRedis()
         consumer = EtaFeatureConsumer(redis_write, default_model="physics")
-        app.consumers.eta_consumer.process_payload(ETA_FEATURES_MESSAGE)
+        consumer.process_payload(ETA_FEATURES_MESSAGE)
 
         # Extract the snapshot that was written to Redis
         written_snapshot = None
@@ -373,11 +373,11 @@ class TestEndToEnd:
         """When XGBoost artifact is missing the pipeline must still return 200."""
         from app.consumers.eta_consumer import EtaFeatureConsumer
         from fastapi.testclient import TestClient
-        from main import app  # noqa: PLC0415
+        from app.main import app  # noqa: PLC0415
 
         redis_write = FakeRedis()
         consumer = EtaFeatureConsumer(redis_write, default_model="xgboost")
-        app.consumers.eta_consumer.process_payload(ETA_FEATURES_MESSAGE)
+        consumer.process_payload(ETA_FEATURES_MESSAGE)
 
         written_snapshot = None
         for key, ttl, value in redis_write.setex_calls:
@@ -403,11 +403,11 @@ class TestEndToEnd:
         """
         from app.consumers.eta_consumer import EtaFeatureConsumer
         from fastapi.testclient import TestClient
-        from main import app  # noqa: PLC0415
+        from app.main import app  # noqa: PLC0415
 
         redis_write = FakeRedis()
         consumer = EtaFeatureConsumer(redis_write, default_model="physics")
-        app.consumers.eta_consumer.process_payload(ETA_FEATURES_MESSAGE)
+        consumer.process_payload(ETA_FEATURES_MESSAGE)
 
         # Get eta_seconds from eta:live
         live_eta = None

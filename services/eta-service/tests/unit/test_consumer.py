@@ -59,7 +59,7 @@ def test_process_payload_writes_snapshot_and_live_event():
     redis_client = FakeRedis()
     consumer = EtaFeatureConsumer(redis_client, default_model="physics")
 
-    result = app.consumers.eta_consumer.process_payload(make_payload())
+    result = consumer.process_payload(make_payload())
 
     assert result["snapshot_key"] == "eta:trip:TRIP-2026-001:snapshot"
     assert result["eta_result"].eta_seconds == pytest.approx(234.5 / 1.95)
@@ -89,7 +89,7 @@ def test_process_payload_clamps_zero_speed_for_eta():
     redis_client = FakeRedis()
     consumer = EtaFeatureConsumer(redis_client, default_model="physics")
 
-    result = app.consumers.eta_consumer.process_payload(make_payload(speed=0.0, distanceToNextStop=140.0))
+    result = consumer.process_payload(make_payload(speed=0.0, distanceToNextStop=140.0))
 
     assert result["eta_result"].clamped is True
     assert result["eta_result"].speed_ms == pytest.approx(1.4)
@@ -101,7 +101,7 @@ def test_process_message_decodes_json_bytes():
     consumer = EtaFeatureConsumer(redis_client, default_model="physics")
     message = type("KafkaMessage", (), {"value": json.dumps(make_payload()).encode("utf-8")})()
 
-    result = app.consumers.eta_consumer.process_message(message)
+    result = consumer.process_message(message)
 
     assert result["live_event"]["tripId"] == "TRIP-2026-001"
     assert redis_client.calls[0][0] == "setex"
@@ -112,14 +112,14 @@ def test_missing_required_fields_raise_clear_error():
     consumer = EtaFeatureConsumer(redis_client, default_model="physics")
 
     with pytest.raises(ValueError, match="Missing ETA feature fields"):
-        app.consumers.eta_consumer.process_payload({"tripId": "TRIP-2026-001"})
+        consumer.process_payload({"tripId": "TRIP-2026-001"})
 
 
 def test_decode_message_accepts_mapping_directly():
     consumer = EtaFeatureConsumer(FakeRedis(), default_model="physics")
     payload = make_payload()
 
-    decoded = app.consumers.eta_consumer.decode_message(payload)
+    decoded = consumer.decode_message(payload)
 
     assert decoded["tripId"] == payload["tripId"]
 
@@ -127,7 +127,7 @@ def test_decode_message_accepts_mapping_directly():
 def test_snapshot_key_uses_trip_id():
     consumer = EtaFeatureConsumer(FakeRedis(), default_model="physics")
 
-    assert app.consumers.eta_consumer.snapshot_key("TRIP-123") == "eta:trip:TRIP-123:snapshot"
+    assert consumer.snapshot_key("TRIP-123") == "eta:trip:TRIP-123:snapshot"
 
 
 def test_create_kafka_consumer_uses_injected_factory():
@@ -140,7 +140,7 @@ def test_create_kafka_consumer_uses_injected_factory():
 
     consumer = EtaFeatureConsumer(fake_client, default_model="physics", consumer_factory=factory)
 
-    assert app.consumers.eta_consumer.create_kafka_consumer() == "fake-consumer"
+    assert consumer.create_kafka_consumer() == "fake-consumer"
     assert calls[0]["bootstrap_servers"] == "broker:29092"
     assert calls[0]["group_id"] == "eta-service"
     assert calls[0]["topic_name"] == "transport-eta-features"
@@ -150,7 +150,7 @@ def test_process_payload_supports_custom_snapshot_ttl():
     redis_client = FakeRedis()
     consumer = EtaFeatureConsumer(redis_client, default_model="physics", snapshot_ttl_seconds=42)
 
-    app.consumers.eta_consumer.process_payload(make_payload())
+    consumer.process_payload(make_payload())
 
     assert redis_client.calls[0][2] == 42
 
@@ -167,7 +167,7 @@ def test_process_payload_uses_xgboost_when_available(monkeypatch):
         ),
     )
 
-    result = app.consumers.eta_consumer.process_payload(make_payload())
+    result = consumer.process_payload(make_payload())
 
     assert result["model_used"] == "xgboost"
     assert result["eta_result"].eta_seconds == pytest.approx(77.0)
@@ -187,7 +187,7 @@ def test_process_payload_falls_back_to_physics_when_xgboost_fails(monkeypatch):
         ),
     )
 
-    result = app.consumers.eta_consumer.process_payload(make_payload())
+    result = consumer.process_payload(make_payload())
 
     assert result["model_used"] == "physics"
     assert result["live_event"]["model_used"] == "physics"
@@ -209,7 +209,7 @@ def test_consume_forever_processes_kafka_messages_and_closes_consumer():
         consumer_factory=lambda **kwargs: FakeKafkaConsumer(),
     )
 
-    app.consumers.eta_consumer.consume_forever(stop_event=threading.Event())
+    consumer.consume_forever(stop_event=threading.Event())
 
     assert redis_client.calls[0][0] == "setex"
     assert processed_messages == ["closed"]

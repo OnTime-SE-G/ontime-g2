@@ -3,7 +3,7 @@
 Verifies the complete flow from ETA_IMPLEMENTATION_PLAN.md (N-8):
 
     transport-eta-features Kafka message
-        → app.consumers.eta_consumer.process_payload()
+        → consumer.process_payload()
         → Redis snapshot written (eta:trip:{tripId}:snapshot) with TTL 300s
         → eta:live Pub/Sub message published with ETA update event
         → GET /eta/{tripId}/{stopId} HTTP endpoint returns valid ETA
@@ -21,6 +21,7 @@ import json
 import sys
 from pathlib import Path
 from typing import Any
+from app.main import app
 
 import pytest
 
@@ -76,7 +77,7 @@ class TestEtaPipelineEnd2End:
         consumer = EtaFeatureConsumer(redis_mock, default_model="physics")
         payload = make_eta_features_message()
 
-        result = app.consumers.eta_consumer.process_payload(payload)
+        result = consumer.process_payload(payload)
 
         # Verify snapshot was written
         assert len(redis_mock.setex_calls) == 1, f"Expected 1 setex call, got {len(redis_mock.setex_calls)}"
@@ -112,7 +113,7 @@ class TestEtaPipelineEnd2End:
         consumer = EtaFeatureConsumer(redis_mock, default_model="physics")
         payload = make_eta_features_message()
 
-        app.consumers.eta_consumer.process_payload(payload)
+        consumer.process_payload(payload)
 
         _, _, value_json = redis_mock.setex_calls[0]
         snapshot = json.loads(value_json)
@@ -132,7 +133,7 @@ class TestEtaPipelineEnd2End:
         consumer = EtaFeatureConsumer(redis_mock, default_model="physics")
         payload = make_eta_features_message(distanceToNextStop=800.0, speed=10.0)
 
-        app.consumers.eta_consumer.process_payload(payload)
+        consumer.process_payload(payload)
 
         _, _, value_json = redis_mock.setex_calls[0]
         snapshot = json.loads(value_json)
@@ -156,7 +157,7 @@ class TestEtaPipelineEnd2End:
                 result=fake_result, model_used="xgboost", segment_mode="urban"
             ),
         )
-        result = app.consumers.eta_consumer.process_payload(payload)
+        result = consumer.process_payload(payload)
 
         assert result["model_used"] == "xgboost"
 
@@ -185,7 +186,7 @@ class TestEtaPipelineEnd2End:
                 result=fake_result, model_used="physics", segment_mode="urban"
             ),
         )
-        result = app.consumers.eta_consumer.process_payload(payload)
+        result = consumer.process_payload(payload)
 
         assert result["model_used"] == "physics"
         _, _, snap_json = redis_mock.setex_calls[0]
@@ -202,8 +203,8 @@ class TestEtaPipelineEnd2End:
         msg1 = make_eta_features_message(distanceToNextStop=500.0)
         msg2 = make_eta_features_message(distanceToNextStop=300.0)
 
-        app.consumers.eta_consumer.process_payload(msg1)
-        app.consumers.eta_consumer.process_payload(msg2)
+        consumer.process_payload(msg1)
+        consumer.process_payload(msg2)
 
         # Both messages use the same trip/key, so there should be 2 setex calls
         assert len(redis_mock.setex_calls) == 2
@@ -221,7 +222,7 @@ class TestEtaPipelineEnd2End:
         consumer = EtaFeatureConsumer(redis_mock, default_model="physics")
         payload = make_eta_features_message()
 
-        app.consumers.eta_consumer.process_payload(payload)
+        consumer.process_payload(payload)
 
         # Simulate the HTTP endpoint reading from the snapshot
         _, _, snap_json = redis_mock.setex_calls[0]
