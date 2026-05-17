@@ -7,10 +7,10 @@ from typing import Optional
 
 from fastapi import FastAPI
 
-from config import settings
-from consumer import EtaFeatureConsumer
-from db.session import init_db
-from routers.eta import router as eta_router
+from app.config import settings
+from app.consumers.eta_consumer import EtaFeatureConsumer
+from app.database.connection import init_db
+from app.api.endpoints import router as eta_router
 
 logger = logging.getLogger("eta-service")
 
@@ -48,7 +48,7 @@ async def lifespan(app: FastAPI):
     consumer = EtaFeatureConsumer(
         redis_client,
         default_model=settings.default_model,
-        snapshot_ttl_seconds=settings.snapshot_ttl_seconds,
+        snapshot_ttl_seconds=settings.eta_snapshot_ttl_seconds,
     )
     consumer_thread: Optional[threading.Thread] = None
 

@@ -90,7 +90,7 @@ class TestConsumerRedisSnapshot:
 
     def test_snapshot_key_written(self):
         """Snapshot key must include the tripId."""
-        from consumer import EtaFeatureConsumer
+        from app.consumers.eta_consumer import EtaFeatureConsumer
 
         redis_mock = FakeRedis()
         consumer = EtaFeatureConsumer(redis_mock, default_model="physics")
@@ -103,7 +103,7 @@ class TestConsumerRedisSnapshot:
 
     def test_snapshot_ttl_is_300(self):
         """Snapshot must expire in 300 s so stale trips auto-clear."""
-        from consumer import EtaFeatureConsumer
+        from app.consumers.eta_consumer import EtaFeatureConsumer
 
         redis_mock = FakeRedis()
         consumer = EtaFeatureConsumer(redis_mock, default_model="physics")
@@ -118,7 +118,7 @@ class TestConsumerRedisSnapshot:
 
     def test_snapshot_contains_required_fields(self):
         """Snapshot JSON must carry all fields other services depend on."""
-        from consumer import EtaFeatureConsumer
+        from app.consumers.eta_consumer import EtaFeatureConsumer
 
         redis_mock = FakeRedis()
         consumer = EtaFeatureConsumer(redis_mock, default_model="physics")
@@ -143,7 +143,7 @@ class TestConsumerRedisSnapshot:
 
     def test_snapshot_values_match_message(self):
         """Snapshot values must match the incoming ETA features message."""
-        from consumer import EtaFeatureConsumer
+        from app.consumers.eta_consumer import EtaFeatureConsumer
 
         redis_mock = FakeRedis()
         consumer = EtaFeatureConsumer(redis_mock, default_model="physics")
@@ -171,7 +171,7 @@ class TestConsumerEtaLivePublish:
     """N-1: consumer must publish an ETA update to eta:live after every message."""
 
     def test_publishes_to_eta_live(self):
-        from consumer import EtaFeatureConsumer
+        from app.consumers.eta_consumer import EtaFeatureConsumer
 
         redis_mock = FakeRedis()
         consumer = EtaFeatureConsumer(redis_mock, default_model="physics")
@@ -184,7 +184,7 @@ class TestConsumerEtaLivePublish:
 
     def test_eta_live_message_schema(self):
         """Published message must follow the agreed eta:live contract."""
-        from consumer import EtaFeatureConsumer
+        from app.consumers.eta_consumer import EtaFeatureConsumer
 
         redis_mock = FakeRedis()
         consumer = EtaFeatureConsumer(redis_mock, default_model="physics")
@@ -207,7 +207,7 @@ class TestConsumerEtaLivePublish:
         assert not missing, f"eta:live message missing fields: {missing}"
 
     def test_eta_live_event_type(self):
-        from consumer import EtaFeatureConsumer
+        from app.consumers.eta_consumer import EtaFeatureConsumer
 
         redis_mock = FakeRedis()
         consumer = EtaFeatureConsumer(redis_mock, default_model="physics")
@@ -221,7 +221,7 @@ class TestConsumerEtaLivePublish:
         pytest.fail("eta:live was never published")
 
     def test_eta_live_eta_seconds_positive(self):
-        from consumer import EtaFeatureConsumer
+        from app.consumers.eta_consumer import EtaFeatureConsumer
 
         redis_mock = FakeRedis()
         consumer = EtaFeatureConsumer(redis_mock, default_model="physics")
@@ -236,7 +236,7 @@ class TestConsumerEtaLivePublish:
                 return
 
     def test_eta_live_trip_and_stop_ids(self):
-        from consumer import EtaFeatureConsumer
+        from app.consumers.eta_consumer import EtaFeatureConsumer
 
         redis_mock = FakeRedis()
         consumer = EtaFeatureConsumer(redis_mock, default_model="physics")
@@ -259,7 +259,7 @@ class TestConsumerModelFallback:
 
     def test_physics_fallback_still_publishes(self):
         """Even when XGBoost artifact is missing, the consumer must publish."""
-        from consumer import EtaFeatureConsumer
+        from app.consumers.eta_consumer import EtaFeatureConsumer
 
         redis_mock = FakeRedis()
         consumer = EtaFeatureConsumer(redis_mock, default_model="xgboost")
@@ -270,7 +270,7 @@ class TestConsumerModelFallback:
 
     def test_physics_fallback_model_used_field(self):
         """model_used must reflect the actual model used (physics or xgboost)."""
-        from consumer import EtaFeatureConsumer
+        from app.consumers.eta_consumer import EtaFeatureConsumer
 
         redis_mock = FakeRedis()
         consumer = EtaFeatureConsumer(redis_mock, default_model="physics")
@@ -298,7 +298,7 @@ class TestEtaHttpEndpoint:
 
     def test_snapshot_structure_matches_http_expectations(self):
         """Snapshot structure must be readable by HTTP endpoint."""
-        from consumer import EtaFeatureConsumer
+        from app.consumers.eta_consumer import EtaFeatureConsumer
 
         redis_mock = FakeRedis()
         consumer = EtaFeatureConsumer(redis_mock, default_model="physics")
@@ -339,7 +339,7 @@ class TestEndToEnd:
         3. Feed that snapshot to the HTTP endpoint.
         4. Assert response is 200 with valid eta_seconds.
         """
-        from consumer import EtaFeatureConsumer
+        from app.consumers.eta_consumer import EtaFeatureConsumer
         from fastapi.testclient import TestClient
         from main import app  # noqa: PLC0415
 
@@ -371,7 +371,7 @@ class TestEndToEnd:
 
     def test_full_pipeline_xgboost_fallback_to_physics(self):
         """When XGBoost artifact is missing the pipeline must still return 200."""
-        from consumer import EtaFeatureConsumer
+        from app.consumers.eta_consumer import EtaFeatureConsumer
         from fastapi.testclient import TestClient
         from main import app  # noqa: PLC0415
 
@@ -401,7 +401,7 @@ class TestEndToEnd:
         eta_seconds in the HTTP response and in the eta:live publish must agree
         within 1 second (both derived from the same snapshot).
         """
-        from consumer import EtaFeatureConsumer
+        from app.consumers.eta_consumer import EtaFeatureConsumer
         from fastapi.testclient import TestClient
         from main import app  # noqa: PLC0415
 

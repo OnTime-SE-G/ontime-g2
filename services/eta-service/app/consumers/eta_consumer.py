@@ -14,10 +14,10 @@ import threading
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 
-from config import settings
-from db.repository import insert_eta_record
-from models.eta import compute_eta
-from models.inference_router import InferenceOutcome, predict as route_predict
+from app.config import settings
+from app.database.repository import insert_eta_record
+from app.prediction.eta import compute_eta
+from app.prediction.inference_router import InferenceOutcome, predict as route_predict
 
 
 ETA_SNAPSHOT_KEY_PREFIX = "eta:trip"

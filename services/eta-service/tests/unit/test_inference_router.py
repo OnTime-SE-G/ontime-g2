@@ -8,7 +8,7 @@ SERVICE_ROOT = Path(__file__).resolve().parents[2]
 if str(SERVICE_ROOT) not in sys.path:
     sys.path.insert(0, str(SERVICE_ROOT))
 
-from models.inference_router import predict
+from app.prediction.inference_router import predict
 
 
 def test_physics_model():

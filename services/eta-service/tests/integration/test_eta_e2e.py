@@ -70,7 +70,7 @@ class TestEtaPipelineEnd2End:
 
     def test_consumer_writes_snapshot_and_publishes_eta_live(self):
         """Core N-8 behavior: consumer updates Redis and publishes live ETA."""
-        from consumer import EtaFeatureConsumer
+        from app.consumers.eta_consumer import EtaFeatureConsumer
 
         redis_mock = FakeRedis()
         consumer = EtaFeatureConsumer(redis_mock, default_model="physics")
@@ -106,7 +106,7 @@ class TestEtaPipelineEnd2End:
 
     def test_snapshot_contains_stops_ahead(self):
         """Snapshot must include stopsAhead for the HTTP endpoint to use."""
-        from consumer import EtaFeatureConsumer
+        from app.consumers.eta_consumer import EtaFeatureConsumer
 
         redis_mock = FakeRedis()
         consumer = EtaFeatureConsumer(redis_mock, default_model="physics")
@@ -126,7 +126,7 @@ class TestEtaPipelineEnd2End:
 
     def test_physics_eta_computation(self):
         """ETA must be distance / speed (physics formula)."""
-        from consumer import EtaFeatureConsumer
+        from app.consumers.eta_consumer import EtaFeatureConsumer
 
         redis_mock = FakeRedis()
         consumer = EtaFeatureConsumer(redis_mock, default_model="physics")
@@ -142,8 +142,8 @@ class TestEtaPipelineEnd2End:
 
     def test_xgboost_selection_when_model_available(self, monkeypatch):
         """Consumer should use XGBoost when artifact is available."""
-        from consumer import EtaFeatureConsumer
-        from models.inference_router import InferenceOutcome
+        from app.consumers.eta_consumer import EtaFeatureConsumer
+        from app.prediction.inference_router import InferenceOutcome
 
         redis_mock = FakeRedis()
         consumer = EtaFeatureConsumer(redis_mock, default_model="xgboost")
@@ -171,8 +171,8 @@ class TestEtaPipelineEnd2End:
 
     def test_physics_fallback_on_missing_xgboost(self, monkeypatch):
         """Consumer should fall back to physics if XGBoost fails."""
-        from consumer import EtaFeatureConsumer
-        from models.inference_router import InferenceOutcome
+        from app.consumers.eta_consumer import EtaFeatureConsumer
+        from app.prediction.inference_router import InferenceOutcome
 
         redis_mock = FakeRedis()
         consumer = EtaFeatureConsumer(redis_mock, default_model="xgboost")
@@ -194,7 +194,7 @@ class TestEtaPipelineEnd2End:
 
     def test_multiple_messages_overwrite_snapshot(self):
         """Consecutive messages for the same trip should overwrite the snapshot."""
-        from consumer import EtaFeatureConsumer
+        from app.consumers.eta_consumer import EtaFeatureConsumer
 
         redis_mock = FakeRedis()
         consumer = EtaFeatureConsumer(redis_mock, default_model="physics")
@@ -215,7 +215,7 @@ class TestEtaPipelineEnd2End:
 
     def test_http_endpoint_reads_from_snapshot(self):
         """HTTP endpoint must be able to read the snapshot written by the consumer."""
-        from consumer import EtaFeatureConsumer
+        from app.consumers.eta_consumer import EtaFeatureConsumer
 
         redis_mock = FakeRedis()
         consumer = EtaFeatureConsumer(redis_mock, default_model="physics")

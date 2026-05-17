@@ -10,8 +10,8 @@ SERVICE_ROOT = Path(__file__).resolve().parents[2]
 if str(SERVICE_ROOT) not in sys.path:
     sys.path.insert(0, str(SERVICE_ROOT))
 
-import main as main_module
-from routers import eta as eta_router
+import app.main as main_module
+from app.api import endpoints as eta_router
 
 
 class FakeRedis:
@@ -98,7 +98,7 @@ def test_get_eta_supports_xgboost_model(patch_redis, monkeypatch):
     }
     patch_redis.setex("eta:trip:TRIP-2026-001:snapshot", 300, json.dumps(snapshot))
 
-    from models.inference_router import InferenceOutcome
+    from app.prediction.inference_router import InferenceOutcome
 
     fake_result = SimpleNamespace(eta_seconds=88.0, speed_ms=1.95, clamped=False)
     monkeypatch.setattr(
@@ -146,7 +146,7 @@ def test_get_eta_parses_bytes_snapshot(patch_redis, monkeypatch):
     }
     patch_redis.store["eta:trip:TRIP-BYTES:snapshot"] = json.dumps(snapshot).encode("utf-8")
 
-    from models.inference_router import InferenceOutcome
+    from app.prediction.inference_router import InferenceOutcome
 
     monkeypatch.setattr(
         "routers.eta.route_predict",
@@ -184,7 +184,7 @@ def test_get_eta_uses_xgboost_model_when_requested(patch_redis, monkeypatch):
     }
     patch_redis.setex("eta:trip:TRIP-XGB:snapshot", 300, json.dumps(snapshot))
 
-    from models.inference_router import InferenceOutcome
+    from app.prediction.inference_router import InferenceOutcome
 
     fake_eta = SimpleNamespace(eta_seconds=77.0, speed_ms=2.0, clamped=False)
     monkeypatch.setattr(

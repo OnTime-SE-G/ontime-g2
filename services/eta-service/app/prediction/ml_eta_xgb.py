@@ -16,8 +16,8 @@ from typing import Optional
 
 import numpy as np
 
-from models._repo_root import repo_root
-from models.eta import compute_eta, EtaResult, _MIN_SPEED_MS
+from app.prediction._repo_root import repo_root
+from app.prediction.eta import compute_eta, EtaResult, _MIN_SPEED_MS
 from ml.contracts import ETA_XGB_FEATURES
 from ml.loader import ModelLoadResult, load_predictor
 

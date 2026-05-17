@@ -24,7 +24,7 @@ from sqlalchemy import create_engine, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.config import settings
-from models.eta_record import EtaRecord
+from app.schemas.eta import EtaRecord
 
 logger = logging.getLogger(__name__)
 

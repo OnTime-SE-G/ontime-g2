@@ -24,8 +24,8 @@ _ETA_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", "..", 
 if _ETA_ROOT not in sys.path:
     sys.path.insert(0, _ETA_ROOT)
 
-from models.training.generate_data import generate, _traffic_multiplier
-from models.eta import EtaResult, _MIN_SPEED_MS
+from app.training.generate_data import generate, _traffic_multiplier
+from app.prediction.eta import EtaResult, _MIN_SPEED_MS
 
 
 # ---------------------------------------------------------------------------
@@ -68,7 +68,7 @@ def patch_load_model(trained_model):
 
 
 def _predict(distance_m, speed_ms, stops_remaining=3, hour=10, dow=2):
-    from models.ml_eta_xgb import predict_eta_xgb
+    from app.prediction.ml_eta_xgb import predict_eta_xgb
     dt = datetime.datetime(2026, 5, 5, hour, 0, 0)
     dt = dt.replace(weekday=None)  # can't set weekday on datetime directly
     # Create a Monday at the given hour
@@ -82,13 +82,13 @@ def _predict(distance_m, speed_ms, stops_remaining=3, hour=10, dow=2):
 
 class TestZeroDistance:
     def test_zero_distance_returns_zero_eta(self):
-        from models.ml_eta_xgb import predict_eta_xgb
+        from app.prediction.ml_eta_xgb import predict_eta_xgb
         result = predict_eta_xgb(0.0, 5.0, stops_remaining=2)
         print(f"\n>>> zero distance ETA: {result.eta_seconds}s")
         assert result.eta_seconds == pytest.approx(0.0, abs=1.0)
 
     def test_negative_distance_treated_as_zero(self):
-        from models.ml_eta_xgb import predict_eta_xgb
+        from app.prediction.ml_eta_xgb import predict_eta_xgb
         result = predict_eta_xgb(-100.0, 5.0, stops_remaining=2)
         print(f"\n>>> negative distance ETA: {result.eta_seconds}s")
         assert result.eta_seconds == pytest.approx(0.0, abs=1.0)
@@ -97,7 +97,7 @@ class TestZeroDistance:
 class TestRushHourVsOffPeak:
     def test_rush_hour_eta_greater_than_off_peak(self):
         """Rush hour (8am weekday) should predict higher ETA than off-peak (2pm weekday)."""
-        from models.ml_eta_xgb import predict_eta_xgb
+        from app.prediction.ml_eta_xgb import predict_eta_xgb
         dist = 3000.0
         speed = 8.0
         rush = predict_eta_xgb(dist, speed, stops_remaining=5,
@@ -109,7 +109,7 @@ class TestRushHourVsOffPeak:
 
     def test_evening_rush_eta_greater_than_off_peak(self):
         """Evening rush (6pm weekday) > midday (noon)."""
-        from models.ml_eta_xgb import predict_eta_xgb
+        from app.prediction.ml_eta_xgb import predict_eta_xgb
         dist = 2000.0
         speed = 6.0
         evening_rush = predict_eta_xgb(dist, speed, stops_remaining=4,
@@ -122,7 +122,7 @@ class TestRushHourVsOffPeak:
 
 class TestMinSpeedClamping:
     def test_below_min_speed_sets_clamped_true(self):
-        from models.ml_eta_xgb import predict_eta_xgb
+        from app.prediction.ml_eta_xgb import predict_eta_xgb
         result = predict_eta_xgb(500.0, 0.3, stops_remaining=2)
         print(f"\n>>> speed 0.3 clamped: {result.clamped}, speed_ms: {result.speed_ms}")
         assert result.clamped is True
@@ -130,7 +130,7 @@ class TestMinSpeedClamping:
 
     def test_speed_ms_field_reflects_effective_speed(self):
         """speed_ms in result should equal the effective (post-clamp) speed."""
-        from models.ml_eta_xgb import predict_eta_xgb
+        from app.prediction.ml_eta_xgb import predict_eta_xgb
         # Speed well above minimum — result.speed_ms must equal input
         result = predict_eta_xgb(500.0, 8.0, stops_remaining=2)
         assert result.speed_ms == pytest.approx(8.0)
@@ -142,7 +142,7 @@ class TestPhysicsFallback:
         import models.ml_eta_xgb as m
         m._load_model.cache_clear()
         with patch.object(m, "_load_model", side_effect=FileNotFoundError("no artifact")):
-            from models.ml_eta_xgb import predict_eta_xgb
+            from app.prediction.ml_eta_xgb import predict_eta_xgb
             result = predict_eta_xgb(1000.0, 5.0, stops_remaining=3)
         print(f"\n>>> physics fallback ETA: {result.eta_seconds:.1f}s")
         # Physics: 1000/5 = 200s
@@ -153,7 +153,7 @@ class TestPhysicsFallback:
         import models.ml_eta_xgb as m
         m._load_model.cache_clear()
         with patch.object(m, "_load_model", side_effect=RuntimeError("boom")):
-            from models.ml_eta_xgb import predict_eta_xgb
+            from app.prediction.ml_eta_xgb import predict_eta_xgb
             result = predict_eta_xgb(600.0, 6.0, stops_remaining=2)
         assert result.eta_seconds > 0
 
@@ -174,7 +174,7 @@ class TestSanityClamp:
         m._load_model.cache_clear()
         fake = (_FakeModel(), FEATURES, None)
         with patch.object(m, "_load_model", return_value=fake):
-            from models.ml_eta_xgb import predict_eta_xgb
+            from app.prediction.ml_eta_xgb import predict_eta_xgb
             result = predict_eta_xgb(dist, speed, stops_remaining=2)
 
         print(f"\n>>> clamped result: {result.eta_seconds:.1f}s  clamped={result.clamped}")
@@ -184,12 +184,12 @@ class TestSanityClamp:
 
 class TestReturnType:
     def test_returns_eta_result_instance(self):
-        from models.ml_eta_xgb import predict_eta_xgb
+        from app.prediction.ml_eta_xgb import predict_eta_xgb
         result = predict_eta_xgb(1000.0, 8.0, stops_remaining=3)
         assert isinstance(result, EtaResult)
 
     def test_eta_nonnegative(self):
-        from models.ml_eta_xgb import predict_eta_xgb
+        from app.prediction.ml_eta_xgb import predict_eta_xgb
         for dist in [0.0, 50.0, 5000.0]:
             result = predict_eta_xgb(dist, 5.0, stops_remaining=2)
             assert result.eta_seconds >= 0.0
