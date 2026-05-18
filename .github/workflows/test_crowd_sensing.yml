@@ -33,3 +33,6 @@ jobs:
 
       - name: Run tests
         run: python -m pytest tests -v
+
+      - name: Run BDD tests
+        run: behave
