@@ -1,7 +1,8 @@
 import json
 import logging
 from datetime import datetime
-from fastapi import APIRouter, HTTPException, Query
+from typing import Optional
+from fastapi import APIRouter, HTTPException, Query, Header
 from kafka import KafkaProducer
 from app.config import settings
 from app.schemas.crowd import CrowdReportRequest, CrowdPredictionResponse
@@ -31,10 +32,17 @@ def get_kafka_producer():
         return None
 
 @router.post("/report", status_code=202)
-def submit_crowd_report(report: CrowdReportRequest):
+def submit_crowd_report(
+    report: CrowdReportRequest,
+    x_passenger_id: Optional[str] = Header(None, alias="X-Passenger-Id")
+):
     """Accept passenger crowd reports and push to Kafka for asynchronous processing."""
     if report.occupancy_score < 0 or report.occupancy_score > 100:
         raise HTTPException(status_code=400, detail="occupancy_score must be between 0 and 100")
+    
+    # Attach the verified passenger_id from the API Gateway header
+    if x_passenger_id:
+        report.passenger_id = x_passenger_id
     
     producer = get_kafka_producer()
     if producer:

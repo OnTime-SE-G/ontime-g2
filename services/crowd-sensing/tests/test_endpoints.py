@@ -52,6 +52,34 @@ def test_submit_crowd_report_with_passenger_id(mock_get_producer):
     sent_dict = args[1]
     assert sent_dict["passenger_id"] == "user_123"
 
+@patch("app.api.endpoints.get_kafka_producer")
+def test_submit_crowd_report_with_passenger_id_header(mock_get_producer):
+    mock_producer = MagicMock()
+    mock_get_producer.return_value = mock_producer
+    
+    payload = {
+        "trip_id": "TRIP_123",
+        "route_id": 1,
+        "direction_id": 0,
+        "stop_id": 5,
+        "stop_sequence": 1,
+        "occupancy_score": 50,
+        "timestamp": "2026-05-17T20:00:00"
+    }
+    headers = {
+        "X-Passenger-Id": "header_user_123"
+    }
+    
+    response = client.post("/api/v1/crowd/report", json=payload, headers=headers)
+    
+    assert response.status_code == 202
+    assert response.json() == {"status": "accepted"}
+    mock_producer.send.assert_called_once()
+    # Verify passenger_id was extracted from the header and included in the dictionary sent to producer
+    args, kwargs = mock_producer.send.call_args
+    sent_dict = args[1]
+    assert sent_dict["passenger_id"] == "header_user_123"
+
 def test_submit_crowd_report_invalid_score():
     payload = {
         "trip_id": "TRIP_123",
