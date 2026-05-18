@@ -110,6 +110,7 @@ jobs:
         run: |
           repo=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
           sha="${{ github.sha }}"
+          kubectl apply -f deploy/crowd-sensing.yaml -n transit-platform
           kubectl set image deployment/transit-platform-g2-api-gateway \
             api-gateway="ghcr.io/${repo}/api-gateway:sha-${sha:0:7}" \
             -n transit-platform
