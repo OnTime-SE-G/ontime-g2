@@ -201,27 +201,28 @@ def test_detect_persistent_off_route_after_streak(model):
     assert persistent[0]["streakCount"] == 3
 
 def test_detect_stationary_bus(model):
+    from datetime import datetime, timedelta, timezone
     bus_id = "B1"
     route_geom = [(6.9, 79.9), (6.91, 79.91)]
+    start_time = datetime(2026, 5, 2, 10, 0, 0, tzinfo=timezone.utc)
 
-    # 1. First message: stationary
-    telemetry1 = {
-        "busId": bus_id, "tripId": "T1", "routeId": "R1",
-        "lat": 6.9, "lon": 79.9, "speed": 1.0,
-        "timestamp": "2026-05-02T10:00:00Z"
-    }
-    alerts = model.detect(telemetry1, route_geom)
-    assert not any(a["anomalyType"] == "STATIONARY" for a in alerts)
-
-    # 2. Second message: 6 minutes later, still stationary
-    telemetry2 = {
-        "busId": bus_id, "tripId": "T1", "routeId": "R1",
-        "lat": 6.9, "lon": 79.9, "speed": 1.0,
-        "timestamp": "2026-05-02T10:06:00Z"
-    }
-    alerts = model.detect(telemetry2, route_geom)
-    print(f"\n>>> DETECTED {len(alerts)} ALERTS: {alerts}")
-    assert any(a["anomalyType"] == "STATIONARY" for a in alerts)
+    for i in range(12):
+        ts = (start_time + timedelta(seconds=i*30)).isoformat().replace("+00:00", "Z")
+        telemetry = {
+            "busId": bus_id, "tripId": "T1", "routeId": "R1",
+            "lat": 6.9 + (i * 0.00001), # Small jitter
+            "lon": 79.9 + (i * 0.00001),
+            "speed": 1.0,
+            "timestamp": ts
+        }
+        alerts = model.detect(telemetry, route_geom)
+        if i < 10:
+            assert not any(a["anomalyType"] == "STATIONARY" for a in alerts)
+        elif i == 10:
+            assert any(a["anomalyType"] == "STATIONARY" for a in alerts)
+        else:
+            # Already alerted, so shouldn't alert again
+            assert not any(a["anomalyType"] == "STATIONARY" for a in alerts)
 
 def test_detect_communication_loss(model):
     bus_id = "B1"
