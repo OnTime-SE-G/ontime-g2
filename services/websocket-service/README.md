@@ -6,8 +6,8 @@ Pub/Sub channels and broadcasts messages to connected clients.
 ## Responsibilities
 
 - Accept WebSocket clients at `/v1/live`.
-- Subscribe to Redis Pub/Sub `fleet:live` and `eta:live`.
-- Broadcast live bus and ETA messages to all connected clients.
+- Subscribe to Redis Pub/Sub `fleet:live`, `eta:live`, and `anomaly:*` channels.
+- Broadcast live bus, ETA, and targeted Anomaly alerts to connected clients.
 - Optionally filter initial state by `routeId` and `busId` query params.
 - Expose health, readiness, and Prometheus-style metrics.
 
@@ -29,7 +29,10 @@ channels. G4 should support WebSocket upgrade/proxying for this route.
 | Channel | Producer | Payload |
 |---|---|---|
 | `fleet:live` | Flink | enriched live bus GPS |
-| `eta:live` | planned ETA Service | ETA update events |
+| `eta:live` | ETA Service | ETA update events |
+| `anomaly:passenger` | Anomaly Service | Public anomaly alerts |
+| `anomaly:driver` | Anomaly Service | Driver-targeted alerts |
+| `anomaly:admin` | Anomaly Service | Secure internal alerts |
 
 ## HTTP / Prometheus
 
@@ -48,6 +51,7 @@ channels. G4 should support WebSocket upgrade/proxying for this route.
 | `REDIS_URL` | `redis://redis:6379` | Redis connection |
 | `FLEET_CHANNEL` | `fleet:live` | live bus Redis channel |
 | `ETA_CHANNEL` | `eta:live` | live ETA Redis channel |
+| `ANOMALY_CHANNEL_PATTERN` | `anomaly:*` | Anomaly Redis channel pattern |
 
 ## Kafka / MQTT
 

@@ -8,9 +8,9 @@ monitoring flows.
 
 - Consume enriched GPS from `transport-telemetry-cleaned`.
 - Consume rejected GPS envelopes from `transport-telemetry-dlq`.
-- Load route geometries from Route Service for off-route checks.
-- Detect rule-based anomalies.
-- Publish alerts to Kafka `transport-anomaly-alerts`.
+- Maintain a sliding window of GPS pings to extract summary behavior vectors.
+- Detect spatial anomalies using Isolation Forests (Erratic Driving) and DBSCAN spatial clustering (Stationary/Breakdowns).
+- Publish alerts using **Audience Targeting** (Admin, Driver, Passenger) to ensure secure delivery.
 - Expose health and Prometheus-style metrics on port `8006`.
 
 ## Kafka Topics
@@ -26,8 +26,9 @@ monitoring flows.
 | Rule | Meaning |
 |---|---|
 | `UNREALISTIC_SPEED` | speed is above safe threshold |
-| `OFF_ROUTE` | bus is too far from assigned route geometry |
-| `STATIONARY` | bus remains nearly stopped for too long |
+| `ERRATIC_DRIVING` | IsolationForest output `-1` on the window summary vector (Admin) |
+| `OFF_ROUTE` | bus is too far from assigned route geometry (Admin, Driver) |
+| `STATIONARY` | bus stopped for 5 minutes outside a DBSCAN spatial cluster (Driver) |
 | `COMMUNICATION_LOSS` | active bus stops sending telemetry |
 | `TRIP_NOT_STARTED_DEVICE_ACTIVE` | repeated `INACTIVE_TRIP` DLQ events for same bus |
 

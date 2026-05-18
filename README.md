@@ -1,274 +1,100 @@
-# OnTime G2 - Data, Intelligence, and Live Transport Backend
+# OnTime G2: Event-Driven Telemetry Pipeline
 
-OnTime is a real-time public transport platform. This repository contains the
-Group 2 backend services: ingestion, route/fleet data services, stream
-processing, anomaly detection, live WebSocket push, and planned ETA/Auth
-integration contracts.
+Welcome to the **OnTime G2** repository. OnTime G2 is an enterprise-scale, event-driven telemetry and public transport tracking system. It processes millions of GPS data points, detects spatial anomalies, and calculates real-time ETAs using an advanced ML/Physics cascade.
 
-## Group Boundaries
+## 🚀 System Architecture
 
-| Group | Owns | Interface With G2 |
-|---|---|---|
-| G1 | bus device firmware and GPS publisher | MQTT GPS + heartbeat topics |
-| G2 | data services, stream processing, ETA/anomaly logic | this repo |
-| G3 | passenger, driver, and admin UI | REST + WebSocket through G4/Kong |
-| G4 | Kubernetes, Kong, auth, monitoring, deployment | Docker images, probes, metrics, env/secrets |
+OnTime G2 shifts away from traditional CRUD-based synchronous updates to a highly scalable, distributed **"Source of Truth"** pipeline powered by Apache Flink and Kafka. The system is divided into three distinct layers:
 
-Important: Kafka, Redis, PostgreSQL, InfluxDB, and most service-to-service HTTP
-calls are internal G2 data-plane contracts. G4 needs them for deployment and
-provisioning, but G3 should not call them directly.
+1. **Ingestion Layer (Stateless)**
+2. **The Physics & Reality Engine (Stateful Stream Processing)**
+3. **The Behavioral Layer (ML & Rules-based Analytics)**
 
-## Current Architecture
+### Microservices Topology
 
 ```mermaid
-flowchart LR
-  G1["G1 Bus Device"] -->|"MQTT transport/bus/{busId}/location"| MQTT["MQTT Broker"]
-  G1 -->|"MQTT transport/bus/{busId}/heartbeat"| MQTT
+graph TD
+    classDef g1 fill:#f9d0c4,stroke:#333,stroke-width:2px;
+    classDef mqtt fill:#f8cecc,stroke:#b85450,stroke-width:2px;
+    classDef ingest fill:#dae8fc,stroke:#6c8ebf,stroke-width:2px;
+    classDef kafka fill:#d5e8d4,stroke:#82b366,stroke-width:2px;
+    classDef flink fill:#ffe6cc,stroke:#d79b00,stroke-width:2px;
+    classDef redis fill:#e1d5e7,stroke:#9673a6,stroke-width:2px;
+    classDef service fill:#fff2cc,stroke:#d6b656,stroke-width:2px;
+    classDef ws fill:#e1d5e7,stroke:#9673a6,stroke-width:2px;
+    classDef db fill:#b1ddf0,stroke:#10739e,stroke-width:2px;
 
-  G3["G3 UI"] -->|"REST + WebSocket"| KONG["G4 Kong + Auth"]
-  KONG -->|"REST /api/v1/*"| APIGW["G2 API Gateway"]
-  KONG -->|"WS /v1/live"| WS["WebSocket Service"]
-  G4MON["G4 Prometheus / K8s"] -->|"/health, /ready, /metrics"| OPS["G2 service probes"]
-
-  APIGW --> ROUTE["Route Service"]
-  APIGW --> FLEET["Fleet Management Service"]
-  APIGW --> REDIS["Redis"]
-  APIGW -.-> ETA["ETA Service planned"]
-  APIGW -.-> AUTH["Auth Wrapper Contract planned"]
-
-  ROUTE --> PG["PostgreSQL / PostGIS"]
-  FLEET --> PG
-  FLEET -->|"Kafka trip.lifecycle"| KAFKA["Kafka / AutoMQ-compatible Broker"]
-
-  MQTT --> ING["Ingestion Service"]
-  KAFKA -->|"trip.lifecycle"| ING
-  ING -->|"transport-telemetry-raw"| KAFKA
-  ING -->|"transport-telemetry-dlq"| KAFKA
-
-  KAFKA -->|"raw GPS + lifecycle"| FLINK["PyFlink Stream Processing"]
-  ROUTE -->|"/internal/routes/geometry"| FLINK
-  FLINK -->|"transport-telemetry-cleaned"| KAFKA
-  FLINK -->|"bus:{busId}:position"| REDIS
-  FLINK -->|"fleet:live"| REDIS
-  FLINK -->|"gps_readings"| INFLUX["InfluxDB"]
-
-  KAFKA -->|"transport-telemetry-cleaned + dlq"| ANOM["Anomaly Service"]
-  ROUTE -->|"/internal/routes/geometry"| ANOM
-  ANOM -->|"transport-anomaly-alerts"| KAFKA
-
-  KAFKA -.-> ETA
-  ETA -.-> REDIS
-  ETA -.-> INFLUX
-
-  REDIS -->|"fleet:live + eta:live"| WS
+    G1["G1 IoT Device"]:::g1 -->|MQTT Stream| Broker["G4 MQTT Broker<br>(Rate Limits)"]:::mqtt
+    
+    Broker -->|Subscribe| Ingest["Ingestion Service<br>(MQTT to Kafka Bridge)"]:::ingest
+    Ingest -->|Invalid Schema| DLQ[("Kafka Topic<br>telemetry-dlq")]:::kafka
+    Ingest -->|Valid JSON| Raw[("Kafka Topic<br>transport-telemetry-raw")]:::kafka
+    
+    FleetService["Fleet Management Service"]:::service -->|Trip Events| Lifecycle[("Kafka Topic<br>trip.lifecycle")]:::kafka
+    RouteService["Route Service"]:::service -.->|Startup Cache| Flink
+    FleetService -.->|Startup Cache| Flink
+    
+    Raw --> Flink["Apache Flink<br>(Stream Processing)"]:::flink
+    Lifecycle --> Flink
+    
+    Flink -->|Physics Violated| Invalid[("Kafka Topic<br>telemetry-invalid")]:::kafka
+    Flink -->|History Sink| InfluxDB[("InfluxDB<br>(ML Training)")]:::db
+    Flink -->|Live Map| RedisLive[("Redis PubSub<br>(fleet:live)")]:::redis
+    Flink -->|Enriched JSON| Cleaned[("Kafka Topic<br>transport-telemetry-cleaned")]:::kafka
+    
+    Cleaned --> ETA["ETA Service<br>(SARIMA Inference)"]:::service
+    Cleaned --> Anomaly["Anomaly Service<br>(Rolling Window + Isolation Forest)"]:::service
+    
+    InfluxDB -.->|Offline Models| ETA
+    InfluxDB -.->|Offline Models| Anomaly
+    
+    DLQ --> Elastic[("Elasticsearch<br>(Log Aggregation)")]:::db
+    Invalid --> Elastic
+    
+    ETA -->|Predictions| RedisETA[("Redis PubSub<br>(eta:live)")]:::redis
+    ETA -->|Persistent| ETADb[("PostgreSQL<br>(eta_db)")]:::db
+    
+    Anomaly -->|Live Alerts| RedisAnomaly[("Redis PubSub<br>(anomaly:live)")]:::redis
+    Anomaly -->|Persistent| AnomalyDb[("PostgreSQL<br>(anomaly_db)")]:::db
+    
+    %% Kong API Gateway Bypass
+    RedisLive -->|Subscribes| Kong["G4 Kong API Gateway"]:::ws
+    RedisETA -->|Subscribes| Kong
+    RedisAnomaly -->|Subscribes| Kong
+    
+    Kong -->|WebSockets/REST APIs| Dashboard["G3 Frontend"]:::g1
 ```
 
-## Deployable Services
+## 🏗️ Core Microservices
 
-| Service | Folder | Port | Public? | Notes |
-|---|---|---:|---|---|
-| API Gateway | `services/api-gateway` | `8000` | yes, through Kong | G3 REST facade |
-| WebSocket Service | `services/websocket-service` | `8004` | yes, through Kong | `WS /v1/live` |
-| Route Service | `services/route-service` | `8002` | no direct public access | route/stop/PostGIS owner |
-| Fleet Management Service | `services/fleet-management-service` | `8003` | no direct public access | buses, drivers, schedules, trips |
-| Ingestion Service | `services/ingestion` | `8001` | no direct public access | MQTT to Kafka boundary |
-| Stream Processing | `services/stream-processing` | Flink UI `8081` | no | PyFlink job |
-| Anomaly Service | `services/anomaly-service` | `8006` | no direct public access | Kafka alert worker |
-| ETA Service | `services/eta-service` | planned `8007` | through API Gateway later | planned |
-| Auth Wrapper | `services/auth-service` | planned `8005` | through Kong/Auth | temporary contract only |
+The repository is structured into distinct microservices, each with a very specific bounded context:
 
-## Public API Surface For G3
+- **[Ingestion Service](services/ingestion/)**: The high-throughput edge bridge that securely validates incoming MQTT payloads and drops them into Kafka.
+- **[Stream Processing (Flink)](services/stream-processing/)**: The physics engine. It joins live GPS pings with static route geometries to calculate exactly where a bus is on its route. It **classifies** bad behavior (like going off-route) rather than dropping it.
+- **[ETA Service](services/eta-service/)**: Consumes cleaned streams, applies time-series smoothing, and uses an intelligent `XGBoost -> SARIMA -> Physics` cascade to predict arrival times.
+- **[Anomaly Service](services/anomaly-service/)**: Uses Isolation Forests and DBSCAN spatial clustering to detect erratic driving, unauthorized stationary behavior, and route deviations.
+- **[Websocket Service](services/websocket-service/)**: Provides high-frequency, low-latency live map updates and secure alert delivery to frontend dashboards.
+- **[Fleet & Route Services](services/fleet-management-service/)**: Standard CRUD microservices managing static transportation data.
 
-G3 should call these through G4 Kong. Kong applies auth/RBAC before forwarding to
-G2.
+## 📚 Documentation & Plans
 
-### Passenger / Public Current Scope
+Detailed architectural decisions, increment plans, and change requests are documented in the `docs/` directory:
 
-| Method | Path | Purpose |
-|---|---|---|
-| `GET` | `/api/v1/status` | API Gateway status |
-| `GET` | `/api/v1/routes` | list routes |
-| `GET` | `/api/v1/routes/search` | search routes |
-| `GET` | `/api/v1/routes/{route_id}` | route detail |
-| `GET` | `/api/v1/routes/{route_id}/transit-data` | route aggregate |
-| `GET` | `/api/v1/routes/all-transit-data` | all transit aggregate |
-| `GET` | `/api/v1/routes/{route_id}/stops` | stops on route |
-| `GET` | `/api/v1/routes/{route_id}/buses` | buses on route |
-| `GET` | `/api/v1/routes/{route_id}/progress` | progress for a GPS point |
-| `GET` | `/api/v1/stops` | all stops |
-| `GET` | `/api/v1/stops/nearby` | nearby stops |
-| `GET` | `/api/v1/stops/{stop_id}/routes` | routes serving stop |
-| `GET` | `/api/v1/buses/live` | latest live bus snapshots |
-| `GET` | `/api/v1/buses/route/{route_id}` | buses on route |
-| `GET` | `/api/v1/buses/{bus_id}` | bus detail |
-| `GET` | `/api/v1/trips/{trip_id}/state` | trip state |
-| `WS` | `/v1/live` | live bus and ETA push |
+- [**Change Requests**](docs/change_requests/): Contains CR1 (Event-Driven Architecture) and CR2 (Model Fortification).
+- [**Component Designs**](docs/components/): Detailed designs for ETA cascades, Anomaly pipelines, and G1 remote configuration.
+- [**Increments**](docs/increments/): Delivery roadmaps and increment breakdowns.
+- [**Kong Integration**](docs/kong/): API Gateway and Keycloak authentication setups.
+- [**Project Strategy**](docs/project/): Overall vision and strategic direction.
 
-### Driver - Requires `DRIVER`
+## ⚙️ Quick Start (Docker Compose)
 
-| Method | Path | Purpose |
-|---|---|---|
-| `GET` | `/api/v1/driver/trips/today` | driver planned trips |
-| `POST` | `/api/v1/driver/trips/{trip_id}/start` | start trip |
-| `POST` | `/api/v1/driver/trips/{trip_id}/end` | end trip |
-| `POST` | `/api/v1/driver/trips/{trip_id}/report-delay` | report delay |
-| `POST` | `/api/v1/driver/trips/{trip_id}/report-incident` | report incident |
-
-### Admin - Requires `ADMIN`
-
-| Method | Path | Purpose |
-|---|---|---|
-| `POST` | `/api/v1/admin/routes/add-route` | import route |
-| `PUT` | `/api/v1/admin/routes/{route_id}` | replace route |
-| `DELETE` | `/api/v1/admin/routes/{route_id}` | delete route |
-| `POST` | `/api/v1/admin/fleet/buses` | create bus |
-| `PUT` | `/api/v1/admin/fleet/buses/{bus_id}` | update bus |
-| `DELETE` | `/api/v1/admin/fleet/buses/{bus_id}` | delete bus |
-| `GET` | `/api/v1/admin/fleet/buses` | list buses |
-| `GET` | `/api/v1/admin/fleet/buses/{bus_id}` | bus detail |
-| `POST` | `/api/v1/admin/fleet/buses/{bus_id}/assign-route/{route_id}` | assign bus route through gateway |
-| `POST` | `/api/v1/admin/fleet/buses/{bus_id}/unassign` | unassign bus route through gateway |
-| `POST` | `/api/v1/admin/fleet/drivers` | create driver profile; Auth linking planned |
-| `GET` | `/api/v1/admin/fleet/drivers` | list drivers |
-| `POST` | `/api/v1/admin/fleet/schedules` | create schedule |
-| `GET` | `/api/v1/admin/fleet/schedules` | list schedules |
-| `POST` | `/api/v1/admin/fleet/planned-trips/generate` | generate daily trips |
-| `GET` | `/api/v1/admin/fleet/planned-trips/today` | today's planned trips |
-| `GET` | `/api/v1/admin/fleet/planned-trips/{trip_id}` | trip detail |
-| `PATCH` | `/api/v1/admin/fleet/planned-trips/{trip_id}/assign` | assign bus/driver |
-| `POST` | `/api/v1/admin/fleet/planned-trips/{trip_id}/delay` | admin delay update |
-| `POST` | `/api/v1/admin/fleet/planned-trips/{trip_id}/incident` | admin incident update |
-
-### Planned Auth And ETA
-
-| Contract | Planned Path | Notes |
-|---|---|---|
-| Login | `POST /auth/login` | G4 Keycloak/Auth owner |
-| Admin creates auth user | `POST /auth/admin/users` | `ADMIN` only |
-| Disable auth user | `PATCH /auth/admin/users/{authUserId}/disable` | `ADMIN` only |
-| Driver first password reset | `PATCH /auth/users/{authUserId}/change-password` | Auth-owned |
-| On-demand ETA | `GET /api/v1/eta/{tripId}/{stopId}` | planned, trip-scoped |
-
-## G1 MQTT Contract
-
-| Purpose | Topic | Retain |
-|---|---|---|
-| live GPS | `transport/bus/{busId}/location` | `false` |
-| heartbeat/device status | `transport/bus/{busId}/heartbeat` | allowed if timestamped |
-
-GPS payload from G1 must not include `tripId`; ingestion enriches it from
-Fleet's `trip.lifecycle` stream.
-
-```json
-{
-  "busId": "1",
-  "lat": 6.9271,
-  "lon": 79.8612,
-  "speed": 35.0,
-  "heading": 120.0,
-  "timestamp": "2026-05-02T10:15:30Z"
-}
-```
-
-Heartbeat is metrics/device-status only and is not sent to raw telemetry Kafka.
-
-## Kafka Topics
-
-| Topic | Producer | Consumer | Purpose |
-|---|---|---|---|
-| `trip.lifecycle` | Fleet Management | Ingestion, Flink | trip start/end state |
-| `transport-telemetry-raw` | Ingestion | Flink | accepted active-trip GPS |
-| `transport-telemetry-dlq` | Ingestion | Anomaly, operators | rejected GPS envelope |
-| `transport-telemetry-cleaned` | Flink | Anomaly, planned ETA | enriched GPS |
-| `transport-anomaly-alerts` | Anomaly Service | planned API/admin readers | alert events |
-| `transport-eta-features` | planned Flink | planned ETA Service | optional ETA feature stream |
-
-## Redis Channels And Keys
-
-| Name | Type | Producer | Consumer |
-|---|---|---|---|
-| `fleet:live` | Pub/Sub channel | Flink | WebSocket Service |
-| `eta:live` | Pub/Sub channel | planned ETA Service | WebSocket Service |
-| `bus:{busId}:position` | key | Flink | API Gateway, WebSocket initial state |
-| `eta:trip:{tripId}:snapshot` | planned key | ETA Service | ETA Service |
-
-## Operations For G4
-
-G4 should use Kubernetes probes and Prometheus scraping internally. These routes
-should not be exposed as passenger/admin APIs unless explicitly needed.
-
-| Service | Health / Probes | Metrics |
-|---|---|---|
-| API Gateway | `/health` | `/metrics` |
-| WebSocket Service | `/health`, `/health/live`, `/health/ready` | `/metrics` |
-| Fleet Management | `/health`, `/health/live`, `/health/ready` | `/metrics` |
-| Ingestion | `/health`, `/health/live`, `/health/ready` | `/metrics` |
-| Anomaly Service | `/health`, `/health/live`, `/health/ready` | `/metrics` |
-| Route Service | `/health` | not implemented yet |
-| Stream Processing | Flink JobManager health/jobs | Flink runtime metrics |
-| ETA/Auth | planned | planned |
-
-## Core Environment Variables
-
-Detailed env tables live in each service README.
-
-| Service | Important Vars |
-|---|---|
-| API Gateway | `ROUTE_SERVICE_URL`, `FLEET_SERVICE_URL`, `REDIS_URL`, planned `AUTH_SERVICE_URL` |
-| Route Service | `DATABASE_URL` |
-| Fleet Management | `DATABASE_URL`, `KAFKA_BROKER_URL`, `KAFKA_TRIP_LIFECYCLE_TOPIC`, `ROUTE_SERVICE_URL` |
-| Ingestion | `MQTT_BROKER_HOST`, `MQTT_BROKER_PORT`, `MQTT_USERNAME`, `MQTT_PASSWORD`, `MQTT_TLS_ENABLED`, `KAFKA_BROKER_URL`, `INGESTION_KAFKA_RAW_TOPIC`, `INGESTION_KAFKA_DLQ_TOPIC`, `INGESTION_KAFKA_TRIP_LIFECYCLE_TOPIC` |
-| Stream Processing | `KAFKA_BROKER_URL`, `KAFKA_RAW_TOPIC`, `KAFKA_CLEANED_TOPIC`, `KAFKA_LIFECYCLE_TOPIC`, `REDIS_HOST`, `REDIS_PORT`, `INFLUXDB_URL`, `ROUTE_SERVICE_URL` |
-| WebSocket Service | `REDIS_URL`, `FLEET_CHANNEL`, `ETA_CHANNEL` |
-| Anomaly Service | `KAFKA_BROKER_URL`, `KAFKA_CLEANED_TOPIC`, `KAFKA_DLQ_TOPIC`, `KAFKA_ANOMALY_TOPIC`, `ROUTE_SERVICE_URL` |
-| ETA Service | planned `KAFKA_ETA_FEATURE_TOPIC`, `REDIS_URL`, `ETA_LIVE_CHANNEL`, `INFLUXDB_*` |
-| Auth Wrapper | planned `AUTH_BOOTSTRAP_ADMIN_*`, `AUTH_TOKEN_SECRET` |
-
-## Local Docker Compose
+The entire OnTime G2 platform can be spun up locally for development using Docker Compose.
 
 ```bash
-docker compose -f docker/docker-compose.yml up -d --build
+# 1. Start the core infrastructure (Kafka, Redis, Postgres, MQTT)
+cd docker
+docker-compose -f docker-compose.infra.yml up -d
+
+# 2. Start the microservices
+docker-compose -f docker-compose.yml up --build -d
 ```
-
-Common local checks:
-
-```bash
-curl http://localhost:8000/health
-curl http://localhost:8001/health/ready
-curl http://localhost:8003/health/ready
-curl http://localhost:8004/health/ready
-curl http://localhost:8006/health/ready
-```
-
-Kafka topic initialization is handled by `kafka-init` in compose.
-
-## Test Commands
-
-```bash
-python -m pytest tests/unit -q
-python -m pytest services/ingestion/tests/unit -q
-python -m pytest services/api-gateway/tests/unit -q
-python -m pytest services/fleet-management-service/tests/unit -q
-python -m pytest services/stream-processing/tests/unit -q
-python -m pytest services/anomaly-service/tests/unit -q
-```
-
-Live pipeline smoke test, when Docker is available:
-
-```bash
-python -m pytest tests/integration/test_live_pipeline_smoke.py -m integration -v -s
-```
-
-## Documentation Index
-
-| Document | Purpose |
-|---|---|
-| `services/api-gateway/README.md` | REST facade endpoints and env vars |
-| `services/ingestion/README.md` | MQTT/Kafka ingestion contract |
-| `services/stream-processing/README.md` | Flink sources/sinks and Redis/Influx outputs |
-| `services/fleet-management-service/README.md` | fleet/trip lifecycle APIs and Kafka event |
-| `services/route-service/README.md` | route/stop/internal geometry APIs |
-| `services/websocket-service/README.md` | WebSocket and Redis Pub/Sub contract |
-| `services/anomaly-service/README.md` | anomaly topics, rules, probes |
-| `services/eta-service/README.md` | planned ETA contracts |
-| `services/auth-service/README.md` | G2/G4 auth boundary |
