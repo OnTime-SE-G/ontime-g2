@@ -6,8 +6,8 @@ from typing import Any
 
 from fastapi import APIRouter, HTTPException, Query
 
-from config import settings
-from models.inference_router import predict as route_predict
+from app.config import settings
+from app.prediction.inference_router import predict as route_predict
 
 router = APIRouter(prefix="/api/v1")
 

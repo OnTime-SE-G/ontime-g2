@@ -31,7 +31,7 @@ from xgboost import XGBRegressor
 from ml.contracts import ETA_XGB_FEATURES
 from ml.registry import register_xgboost_model
 from ml.tracking import log_metrics, log_model_artifact, log_params, start_run
-from models.training.generate_data import generate
+from app.training.generate_data import generate
 
 FEATURES = ETA_XGB_FEATURES
 TARGET = "eta_seconds"

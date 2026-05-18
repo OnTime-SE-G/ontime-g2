@@ -10,8 +10,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Optional
 
-from models._repo_root import repo_root
-from models.eta import EtaResult, compute_eta, compute_eta_expressway
+from app.prediction._repo_root import repo_root
+from app.prediction.eta import EtaResult, compute_eta, compute_eta_expressway
 
 logger = logging.getLogger(__name__)
 
@@ -84,22 +84,45 @@ def predict(
         )
 
     if selected in {"xgboost", "default"}:
-        outcome = _predict_xgboost(
+        try:
+            outcome = _predict_xgboost(
+                distance_m,
+                speed_ms,
+                stops_remaining=stops_remaining,
+                dt=dt,
+                segment_mode=segment,
+            )
+            # If XGBoost didn't clamp (fallback to physics), return it
+            if not outcome.fallback:
+                return outcome
+        except Exception as exc:
+            logger.warning("XGBoost inference failed, cascading to SARIMA: %s", exc)
+
+        # Cascade to SARIMA
+        sarima_outcome = _predict_sarima(
             distance_m,
             speed_ms,
             stops_remaining=stops_remaining,
             dt=dt,
+            route_id=route_id,
+            stop_id=stop_id,
             segment_mode=segment,
         )
-        return outcome
+        if sarima_outcome is not None:
+            return sarima_outcome
 
-    result = compute_eta(distance_m, speed_ms)
-    return InferenceOutcome(
-        result=result,
-        model_used="physics",
-        segment_mode=segment,
-        fallback=True,
-    )
+        # Ultimate cascade to Physics
+        if segment == "expressway":
+            result = compute_eta_expressway(distance_m, speed_ms, weather_coefficient=_WEATHER_COEFFICIENT)
+        else:
+            result = compute_eta(distance_m, speed_ms)
+            
+        return InferenceOutcome(
+            result=result,
+            model_used="physics",
+            segment_mode=segment,
+            fallback=True,
+        )
 
 
 def _predict_xgboost(
@@ -110,7 +133,7 @@ def _predict_xgboost(
     dt: Optional[datetime.datetime],
     segment_mode: str,
 ) -> InferenceOutcome:
-    from models.ml_eta_xgb import predict_eta_xgb
+    from app.prediction.ml_eta_xgb import predict_eta_xgb
 
     registered_name = _segment_model_name(segment_mode)
     result = predict_eta_xgb(
@@ -121,7 +144,7 @@ def _predict_xgboost(
         registered_name=registered_name,
     )
     used = "xgboost" if not result.clamped else "physics"
-    from models.ml_eta_xgb import get_last_model_metadata
+    from app.prediction.ml_eta_xgb import get_last_model_metadata
 
     meta = get_last_model_metadata()
     return InferenceOutcome(
@@ -147,7 +170,7 @@ def _predict_sarima(
     if not route_id or stop_id is None:
         return None
     try:
-        from models.sarima_eta import forecast_eta_sarima
+        from app.prediction.sarima_eta import forecast_eta_sarima
 
         seconds = forecast_eta_sarima(route_id, int(stop_id))
         if seconds is None:

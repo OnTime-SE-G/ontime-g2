@@ -3,7 +3,7 @@ Unit tests for the physics ETA model (services/eta-service/models/eta.py).
 Covers K-5 / N-5: formula distance / max(speed, 1.4 m/s).
 """
 import pytest
-from models.eta import compute_eta, EtaResult, _MIN_SPEED_MS, _DEFAULT_SPEED_MS
+from app.prediction.eta import compute_eta, EtaResult, _MIN_SPEED_MS, _DEFAULT_SPEED_MS
 
 
 class TestComputeEtaNormalCases:

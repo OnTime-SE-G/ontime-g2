@@ -5,8 +5,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Mapping
 
-from db.models import EtaRecord
-from db.session import get_session
+from app.database.models import EtaRecord
+from app.database.connection import get_session
 
 logger = logging.getLogger(__name__)
 
