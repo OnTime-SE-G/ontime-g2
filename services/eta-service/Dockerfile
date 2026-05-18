@@ -31,4 +31,4 @@ ENV PYTHONPATH=/app:/opt/ontime
 EXPOSE 8005
 
 # Start FastAPI with runtime-configurable port
-CMD ["sh", "-c", "uvicorn main:app --host 0.0.0.0 --port ${ETA_SERVICE_PORT:-8005}"]
+CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${ETA_SERVICE_PORT:-8005}"]

@@ -1,4 +1,4 @@
-"""Unit tests for models.sarima_eta — SARIMA ETA forecaster.
+"""Unit tests for app.prediction.sarima_eta — SARIMA ETA forecaster.
 
 Tests cover:
 1. Missing artifact → forecast_eta_sarima() returns None (no artifact file)
@@ -46,14 +46,14 @@ class TestForecastEtaSarima:
 
     def _clear_lru_cache(self):
         """Clear _load_artifact lru_cache between tests to avoid cross-test leakage."""
-        from models import sarima_eta
+        from app.prediction import sarima_eta
         sarima_eta._load_artifact.cache_clear()
 
     def test_missing_artifact_returns_none(self, tmp_path):
         """When no .joblib file exists, forecast_eta_sarima returns None."""
         self._clear_lru_cache()
 
-        from models import sarima_eta
+        from app.prediction import sarima_eta
 
         # Point artifact dir at an empty temp directory
         original = sarima_eta._ARTIFACT_DIR
@@ -72,7 +72,7 @@ class TestForecastEtaSarima:
         expected_eta = 185.3
         fake_model = _make_fake_fitted_model(expected_eta)
 
-        from models import sarima_eta
+        from app.prediction import sarima_eta
 
         with patch.object(sarima_eta, "_load_artifact", return_value=fake_model):
             result = sarima_eta.forecast_eta_sarima("route_B", 5)
@@ -87,7 +87,7 @@ class TestForecastEtaSarima:
 
         fake_model = _make_fake_fitted_model(-42.7)
 
-        from models import sarima_eta
+        from app.prediction import sarima_eta
 
         with patch.object(sarima_eta, "_load_artifact", return_value=fake_model):
             result = sarima_eta.forecast_eta_sarima("route_C", 3)
@@ -99,7 +99,7 @@ class TestForecastEtaSarima:
         load the artifact from disk once (lru_cache hit on the second call)."""
         self._clear_lru_cache()
 
-        from models import sarima_eta
+        from app.prediction import sarima_eta
 
         fake_model = _make_fake_fitted_model(99.0)
 
@@ -131,7 +131,7 @@ class TestForecastEtaSarima:
         fake_model = _make_fake_fitted_model(60.0)
         fixed_dt = datetime.datetime(2026, 5, 15, 8, 0, 0, tzinfo=datetime.timezone.utc)
 
-        from models import sarima_eta
+        from app.prediction import sarima_eta
 
         with patch.object(sarima_eta, "_load_artifact", return_value=fake_model):
             sarima_eta.forecast_eta_sarima("route_E", 12, dt=fixed_dt)

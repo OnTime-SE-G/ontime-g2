@@ -75,6 +75,37 @@ def train_model(
 
     output_path.parent.mkdir(parents=True, exist_ok=True)
     joblib.dump(model, output_path)
+
+    # MLflow instrumentation
+    try:
+        import os
+        import mlflow
+        import mlflow.sklearn
+
+        tracking_uri = os.environ.get("MLFLOW_TRACKING_URI", "http://localhost:5000")
+        mlflow.set_tracking_uri(tracking_uri)
+        mlflow.set_experiment("anomaly_detection_behavior")
+
+        with mlflow.start_run():
+            mlflow.log_param("n_estimators", 200)
+            mlflow.log_param("contamination", contamination)
+            mlflow.log_param("random_state", 42)
+            mlflow.log_metric("num_training_samples", len(frame))
+            
+            # Log feature columns
+            for i, col in enumerate(FEATURE_COLUMNS):
+                mlflow.log_param(f"feature_{i}", col)
+
+            # Log the model and register it
+            mlflow.sklearn.log_model(
+                sk_model=model,
+                artifact_path="isolation_forest_model",
+                registered_model_name="IsolationForestAnomalyModel"
+            )
+            print(f"Successfully logged model and metrics to MLflow at {tracking_uri}!")
+    except Exception as e:
+        print(f"Warning: Failed to log run to MLflow: {e}. Model was still saved locally.")
+
     return output_path
 
 

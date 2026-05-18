@@ -1,6 +1,9 @@
 from services.ingestion.app.config import IngestionSettings
 
-def test_config_loads_with_defaults():
+def test_config_loads_with_defaults(monkeypatch):
+    # Force the class to ignore the env_file for this test
+    monkeypatch.setitem(IngestionSettings.model_config, "env_file", ())
+
     settings = IngestionSettings()
     assert settings.mqtt_broker_port == 1883
     assert settings.mqtt_tls_enabled is False

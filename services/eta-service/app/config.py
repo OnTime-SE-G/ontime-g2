@@ -136,6 +136,31 @@ class EtaSettings(BaseSettings):
         ),
     )
 
+    # ------------------------------------------------------------------ #
+    # MLflow and Fallbacks                                                 #
+    # ------------------------------------------------------------------ #
+    mlflow_tracking_uri: str = Field(default="http://mlflow:5000", validation_alias=AliasChoices("ETA_MLFLOW_TRACKING_URI"))
+    mlflow_model_eta: str = Field(default="ontime-eta-xgb", validation_alias=AliasChoices("ETA_MLFLOW_MODEL_ETA"))
+    mlflow_model_eta_urban: str = Field(default="ontime-eta-xgb-urban", validation_alias=AliasChoices("ETA_MLFLOW_MODEL_ETA_URBAN"))
+    mlflow_model_eta_expressway: str = Field(default="ontime-eta-xgb-expressway", validation_alias=AliasChoices("ETA_MLFLOW_MODEL_ETA_EXPRESSWAY"))
+    mlflow_model_sarima: str = Field(default="ontime-eta-sarima", validation_alias=AliasChoices("ETA_MLFLOW_MODEL_SARIMA"))
+    model_stage: str = Field(default="Production", validation_alias=AliasChoices("ETA_MODEL_STAGE"))
+    model_artifact_fallback_path: str = Field(default="", validation_alias=AliasChoices("ETA_MODEL_ARTIFACT_FALLBACK_PATH"))
+
+    # ------------------------------------------------------------------ #
+    # Smoothing / Fortification                                            #
+    # ------------------------------------------------------------------ #
+    eta_smoothing_window_size: int = Field(
+        default=10,
+        validation_alias=AliasChoices("ETA_SMOOTHING_WINDOW_SIZE"),
+        description="Size of the moving average window for ETA smoothing"
+    )
+    eta_smoothing_ttl_seconds: int = Field(
+        default=120,
+        validation_alias=AliasChoices("ETA_SMOOTHING_TTL_SECONDS"),
+        description="TTL for events in the moving average window"
+    )
+
     model_config = SettingsConfigDict(
         env_file=_ENV_FILES,
         env_file_encoding="utf-8",
