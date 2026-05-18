@@ -1,46 +1,43 @@
-# Anomaly Service
+# Anomaly Service (CR2)
 
-Anomaly Service is a rule-based Kafka worker. It consumes cleaned telemetry and
-DLQ events, detects operational issues, and emits alert events for admin and
-monitoring flows.
+Anomaly Service is the core behavioral analysis worker. It consumes enriched GPS telemetry from `transport-telemetry-cleaned` and applies a combination of Machine Learning (Isolation Forests), Spatial Clustering (DBSCAN), and rigid rules to detect operational issues.
 
 ## Responsibilities
 
-- Consume enriched GPS from `transport-telemetry-cleaned`.
-- Consume rejected GPS envelopes from `transport-telemetry-dlq`.
-- Load route geometries from Route Service for off-route checks.
-- Detect rule-based anomalies.
-- Publish alerts to Kafka `transport-anomaly-alerts`.
-- Expose health and Prometheus-style metrics on port `8006`.
+- **Stream Consumption**: Ingests enriched GPS from Flink and rejected envelopes from the Dead Letter Queue.
+- **Behavioral ML**: Runs a pre-trained `IsolationForest` model across a sliding window of historical pings to detect erratic driving behaviors.
+- **Spatial Clustering**: Uses `DBSCAN` to accurately identify genuinely stationary buses while ignoring GPS multipath noise.
+- **Audience-Targeted Alerting**: Emits alerts to Kafka (`transport-anomaly-alerts`) for history, and securely routes real-time alerts to distinct Redis channels (`anomaly:passenger`, `anomaly:driver`, `anomaly:admin`) based on configuration rules.
 
-## Kafka Topics
+## Current Anomaly Detectors
 
-| Topic | Direction | Purpose |
+| Anomaly Type | Detection Method | Description |
 |---|---|---|
-| `transport-telemetry-cleaned` | consume | enriched GPS from Flink |
-| `transport-telemetry-dlq` | consume | rejected GPS from ingestion |
-| `transport-anomaly-alerts` | produce | alerts for admin/API/monitoring |
+| `UNREALISTIC_SPEED` | Rule-based | Speed exceeds physical limitations. |
+| `OFF_ROUTE` | Rule-based | Bus is too far from its assigned geometry line. |
+| `PERSISTENT_OFF_ROUTE` | Rule-based (Stateful) | 3-ping streak logic confirming persistent off-route deviation. |
+| `STATIONARY` | ML (DBSCAN) | Bus remains clustered in a tight 50m radius for >5 minutes. |
+| `ERRATIC_DRIVING` | ML (IsolationForest) | Detects anomalous multi-variate sliding windows (heading, speed). |
+| `COMMUNICATION_LOSS` | Timer-based | Active bus stops sending telemetry for >3 minutes. |
+| `TRIP_NOT_STARTED_DEVICE_ACTIVE` | DLQ Analysis | Repeated `INACTIVE_TRIP` DLQ events for an powered-on bus. |
 
-## Current Rules
+## Targeted Live Channels (WebSockets)
 
-| Rule | Meaning |
-|---|---|
-| `UNREALISTIC_SPEED` | speed is above safe threshold |
-| `OFF_ROUTE` | bus is too far from assigned route geometry |
-| `STATIONARY` | bus remains nearly stopped for too long |
-| `COMMUNICATION_LOSS` | active bus stops sending telemetry |
-| `TRIP_NOT_STARTED_DEVICE_ACTIVE` | repeated `INACTIVE_TRIP` DLQ events for same bus |
+Alerts are pushed live to Redis so the WebSocket Service can stream them to the UI. The audience routing is fully configurable.
 
-The inactive-trip rule is useful when a device is powered on and sending GPS,
-but the driver has not started the trip in Fleet.
+| Target Audience | Default Redis Channel | Config Variable | Default Anomalies |
+|---|---|---|---|
+| Passenger | `anomaly:passenger` | `ANOMALY_REDIS_PASSENGER_CHANNEL` | `STATIONARY` |
+| Driver | `anomaly:driver` | `ANOMALY_REDIS_DRIVER_CHANNEL` | `OFF_ROUTE`, `STATIONARY`, `UNREALISTIC_SPEED` |
+| Admin | `anomaly:admin` | `ANOMALY_REDIS_ADMIN_CHANNEL` | All Anomalies (Fallback) |
 
 ## HTTP / Prometheus
 
 | Method | Path | Purpose |
 |---|---|---|
-| `GET` | `/health` | service health summary |
-| `GET` | `/health/live` | liveness |
-| `GET` | `/health/ready` | readiness |
+| `GET` | `/health` | Service health, ML model loading status |
+| `GET` | `/health/live` | Liveness probe |
+| `GET` | `/health/ready` | Readiness probe |
 | `GET` | `/metrics` | Prometheus-style metrics |
 
 ## Environment Variables
@@ -48,23 +45,10 @@ but the driver has not started the trip in Fleet.
 | Variable | Default | Meaning |
 |---|---|---|
 | `KAFKA_BROKER_URL` | `broker:29092` | Kafka bootstrap server |
-| `KAFKA_CLEANED_TOPIC` | `transport-telemetry-cleaned` | cleaned telemetry source |
-| `KAFKA_DLQ_TOPIC` | `transport-telemetry-dlq` | ingestion DLQ source |
-| `KAFKA_ANOMALY_TOPIC` | `transport-anomaly-alerts` | alert output topic |
-| `KAFKA_DLQ_GROUP_ID` | `anomaly-service-dlq-group` | DLQ consumer group |
-| `ROUTE_SERVICE_URL` | `http://route-service:8002` | route geometry API |
-| `COMMUNICATION_LOSS_CHECK_INTERVAL_SECONDS` | `60` | communication-loss scan interval |
-| `COMMUNICATION_LOSS_THRESHOLD_SECONDS` | `180` | no-telemetry threshold |
-| `INACTIVE_TRIP_DLQ_THRESHOLD_COUNT` | `3` | repeated inactive trip event count |
-| `INACTIVE_TRIP_DLQ_WINDOW_SECONDS` | `60` | inactive trip window |
-| `INACTIVE_TRIP_DLQ_COOLDOWN_SECONDS` | `300` | duplicate alert cooldown |
-
-## MQTT / Redis
-
-Anomaly Service does not subscribe to MQTT and does not use Redis directly.
-
-## Cross-Group Notes
-
-- This is rule-based, not ML/AI, in the current implementation.
-- Alert read APIs for UI/admin are still a separate gateway/product concern.
-- G4 should deploy the service privately and scrape `/metrics` internally.
+| `KAFKA_CLEANED_TOPIC` | `transport-telemetry-cleaned` | Cleaned telemetry source |
+| `KAFKA_DLQ_TOPIC` | `transport-telemetry-dlq` | Ingestion DLQ source |
+| `KAFKA_ANOMALY_TOPIC` | `transport-anomaly-alerts` | Alert output topic |
+| `ROUTE_SERVICE_URL` | `http://route-service:8002` | Route geometry API |
+| `REDIS_HOST` | `redis` | Redis server hostname |
+| `REDIS_PORT` | `6379` | Redis server port |
+| `ANOMALY_ADMIN_TYPES` | `...` | Comma-separated list of admin alerts |

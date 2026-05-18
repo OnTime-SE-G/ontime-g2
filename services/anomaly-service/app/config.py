@@ -80,7 +80,39 @@ class AnomalySettings(BaseSettings):
     redis_anomaly_live_channel: str = Field(
         default="anomaly:live",
         validation_alias=AliasChoices("ANOMALY_REDIS_LIVE_CHANNEL", "ANOMALY_LIVE_CHANNEL"),
-        description="Redis Pub/Sub channel for anomaly alerts",
+        description="Redis Pub/Sub channel for generic anomaly alerts (deprecated/fallback)",
+    )
+    redis_anomaly_passenger_channel: str = Field(
+        default="anomaly:passenger",
+        validation_alias=AliasChoices("ANOMALY_REDIS_PASSENGER_CHANNEL"),
+        description="Redis Pub/Sub channel for passenger-facing anomaly alerts",
+    )
+    redis_anomaly_driver_channel: str = Field(
+        default="anomaly:driver",
+        validation_alias=AliasChoices("ANOMALY_REDIS_DRIVER_CHANNEL"),
+        description="Redis Pub/Sub channel for driver-facing anomaly alerts",
+    )
+    redis_anomaly_admin_channel: str = Field(
+        default="anomaly:admin",
+        validation_alias=AliasChoices("ANOMALY_REDIS_ADMIN_CHANNEL"),
+        description="Redis Pub/Sub channel for admin-facing anomaly alerts",
+    )
+    
+    # Audience Targeting Routing Rules
+    anomaly_passenger_types: str = Field(
+        default="STATIONARY",
+        validation_alias=AliasChoices("ANOMALY_PASSENGER_TYPES"),
+        description="Comma-separated anomaly types broadcasted to passengers",
+    )
+    anomaly_driver_types: str = Field(
+        default="OFF_ROUTE,PERSISTENT_OFF_ROUTE,UNREALISTIC_SPEED,STATIONARY",
+        validation_alias=AliasChoices("ANOMALY_DRIVER_TYPES"),
+        description="Comma-separated anomaly types broadcasted to drivers",
+    )
+    anomaly_admin_types: str = Field(
+        default="ERRATIC_DRIVING,INACTIVE_GPS,TRIP_NOT_STARTED_DEVICE_ACTIVE,COMMUNICATION_LOSS,OFF_ROUTE,PERSISTENT_OFF_ROUTE,UNREALISTIC_SPEED,STATIONARY",
+        validation_alias=AliasChoices("ANOMALY_ADMIN_TYPES"),
+        description="Comma-separated anomaly types broadcasted to admins",
     )
     route_service_url: str = Field(
         default="http://route-service:8002",
