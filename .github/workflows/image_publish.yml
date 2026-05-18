@@ -113,7 +113,6 @@ jobs:
         run: |
           repo=$(echo "${{ github.repository }}" | tr '[:upper:]' '[:lower:]')
           sha="${{ github.sha }}"
-          kubectl apply -f deploy/crowd-sensing.yaml -n transit-platform
           kubectl set image deployment/transit-platform-g2-api-gateway \
             api-gateway="ghcr.io/${repo}/api-gateway:sha-${sha:0:7}" \
             -n transit-platform
@@ -138,9 +137,6 @@ jobs:
           kubectl set image deployment/transit-platform-g2-eta-service \
             eta-service="ghcr.io/${repo}/eta-service:sha-${sha:0:7}" \
             -n transit-platform
-          kubectl set image deployment/transit-platform-g2-crowd-sensing \
-            crowd-sensing="ghcr.io/${repo}/crowd-sensing:sha-${sha:0:7}" \
-            -n transit-platform
           kubectl rollout status deployment/transit-platform-g2-api-gateway \
             -n transit-platform --timeout=120s
           kubectl rollout status deployment/transit-platform-g2-ingestion \
@@ -151,8 +147,6 @@ jobs:
             -n transit-platform --timeout=120s
           kubectl rollout status deployment/transit-platform-g2-eta-service \
             -n transit-platform --timeout=300s
-          kubectl rollout status deployment/transit-platform-g2-crowd-sensing \
-            -n transit-platform --timeout=120s
 
       - name: Skip deploy (missing kubeconfig)
         if: ${{ env.KUBE_CONFIG_B64 == '' }}
