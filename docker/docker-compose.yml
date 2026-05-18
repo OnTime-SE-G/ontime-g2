@@ -195,6 +195,8 @@ services:
         kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic transport-telemetry-dlq --partitions 1 --replication-factor 1
         kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic transport-telemetry-cleaned --partitions 1 --replication-factor 1
         kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic transport-anomaly-alerts --partitions 1 --replication-factor 1
+        kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic transport-eta-features --partitions 1 --replication-factor 1
+        kafka-topics --bootstrap-server broker:29092 --create --if-not-exists --topic crowd-reports --partitions 1 --replication-factor 1
 
   mqtt-broker:
     image: eclipse-mosquitto:2
@@ -595,6 +597,35 @@ services:
       - 8.8.4.4
     networks:
       - ontime_network
+    restart: unless-stopped
+
+  crowd-sensing:
+    build:
+      context: ..
+      dockerfile: services/crowd-sensing/Dockerfile
+    container_name: ontime_crowd_sensing
+    ports:
+      - "8007:8007"
+    environment:
+      CROWD_SERVICE_PORT: 8007
+      CROWD_DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/crowd_sensing_db
+      CROWD_KAFKA_BROKER_URL: ${CROWD_KAFKA_BROKER_URL:-broker:29092}
+      CROWD_KAFKA_REPORTS_TOPIC: ${CROWD_KAFKA_REPORTS_TOPIC:-crowd-reports}
+      CROWD_KAFKA_CONSUMER_GROUP: ${CROWD_KAFKA_CONSUMER_GROUP:-crowd-sensing-group}
+      MLFLOW_TRACKING_URI: ${MLFLOW_TRACKING_URI:-http://mlflow:5000}
+    volumes:
+      - ../services/crowd-sensing:/app
+    networks:
+      - ontime_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      mlflow:
+        condition: service_started
     restart: unless-stopped
 
 networks:

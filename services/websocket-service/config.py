@@ -46,6 +46,11 @@ class WebSocketSettings(BaseSettings):
         validation_alias=AliasChoices("WEBSOCKET_ANOMALY_CHANNEL", "ANOMALY_CHANNEL"),
         description="Redis channel for live anomaly alerts",
     )
+    crowd_channel: str = Field(
+        default="crowd:live",
+        validation_alias=AliasChoices("WEBSOCKET_CROWD_CHANNEL", "CROWD_CHANNEL"),
+        description="Redis channel for live crowd predictions",
+    )
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILES,
