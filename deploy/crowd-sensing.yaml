@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: transit-platform-g2-crowd-sensing
+  namespace: transit-platform
+  labels:
+    app: transit-platform-g2-crowd-sensing
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: transit-platform-g2-crowd-sensing
+  template:
+    metadata:
+      labels:
+        app: transit-platform-g2-crowd-sensing
+    spec:
+      containers:
+        - name: crowd-sensing
+          image: ghcr.io/ontime-se-g/ontime-g2/crowd-sensing:latest
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8007
+          env:
+            - name: CROWD_SERVICE_PORT
+              value: "8007"
+            - name: CROWD_DATABASE_URL
+              value: "postgresql://postgres:postgres@postgres:5432/crowd_sensing_db"
+            - name: CROWD_KAFKA_BROKER_URL
+              value: "broker:29092"
+            - name: CROWD_KAFKA_REPORTS_TOPIC
+              value: "crowd-reports"
+            - name: CROWD_KAFKA_CONSUMER_GROUP
+              value: "crowd-sensing-group"
+            - name: CROWD_ROUTE_SERVICE_URL
+              value: "http://route-service:8002"
+            - name: MLFLOW_TRACKING_URI
+              value: "http://mlflow:5000"
+          resources:
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 8007
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8007
+            initialDelaySeconds: 15
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: transit-platform-g2-crowd-sensing
+  namespace: transit-platform
+  labels:
+    app: transit-platform-g2-crowd-sensing
+spec:
+  ports:
+    - port: 8007
+      targetPort: 8007
+      protocol: TCP
+  selector:
+    app: transit-platform-g2-crowd-sensing

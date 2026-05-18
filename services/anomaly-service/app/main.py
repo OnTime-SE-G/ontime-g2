@@ -88,16 +88,35 @@ class AnomalyService:
 
     async def publish_alerts(self, producer: AIOKafkaProducer, alerts: list[dict]):
         for alert in alerts:
-            logger.warning(f"Anomaly detected: {alert['anomalyType']} on {alert['busId']}")
+            anomaly_type = alert.get('anomalyType', 'UNKNOWN')
+            logger.warning(f"Anomaly detected: {anomaly_type} on {alert.get('busId')}")
+            # Audience targeting based on config rules
+            audiences = []
+            if anomaly_type in [t.strip() for t in settings.anomaly_admin_types.split(",") if t.strip()]:
+                audiences.append(settings.redis_anomaly_admin_channel)
+            if anomaly_type in [t.strip() for t in settings.anomaly_driver_types.split(",") if t.strip()]:
+                audiences.append(settings.redis_anomaly_driver_channel)
+            if anomaly_type in [t.strip() for t in settings.anomaly_passenger_types.split(",") if t.strip()]:
+                audiences.append(settings.redis_anomaly_passenger_channel)
+
+            # If no audiences matched (unknown anomaly), default to admin
+            if not audiences:
+                audiences.append(settings.redis_anomaly_admin_channel)
+            # Publish to main Kafka topic for history/processing
             await producer.send_and_wait(
                 settings.kafka_anomaly_topic,
                 json.dumps(alert).encode('utf-8')
             )
+
+            # Publish to targeted Redis channels for WebSockets
             if self.redis_client is not None:
-                try:
-                    self.redis_client.publish(settings.redis_anomaly_live_channel, json.dumps(alert))
-                except Exception as exc:
-                    logger.error("Redis anomaly publish failed (non-fatal): %s", exc)
+                # Remove duplicates in case a channel is added multiple times
+                for channel in set(audiences):
+                    try:
+                        self.redis_client.publish(channel, json.dumps(alert))
+                    except Exception as exc:
+                        logger.error(f"Redis publish failed for {channel} (non-fatal): {exc}")
+
             try:
                 from app.models.anomaly_db import insert_alert
 

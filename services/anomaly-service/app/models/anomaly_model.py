@@ -138,16 +138,58 @@ class AnomalyModel:
         else:
             self.off_route_states.pop(bus_id, None)
 
-        # 4. Stationary Bus (>5 min at <2 km/h)
+        # 4. Stationary Bus (DBSCAN Spatial Clustering)
         state = self.bus_states.get(bus_id, {})
-        if speed < 2.0:
-            if "stationary_start_time" not in state:
-                state["stationary_start_time"] = current_time
-            elif current_time - state["stationary_start_time"] > 300: # 5 minutes
-                alerts.append(self._create_alert(bus_id, "STATIONARY", "Bus stationary for over 5 minutes", telemetry))
+        coords_window = state.get("coords_window", [])
+        coords_window.append({"lat": lat, "lon": lon, "timestamp": current_time})
+
+        # Keep last 5 minutes of coordinates
+        cutoff_time = current_time - 300 # 5 minutes
+        coords_window = [p for p in coords_window if p["timestamp"] >= cutoff_time]
+        state["coords_window"] = coords_window
+
+        # Run DBSCAN if we have at least 5 minutes of data (or close to it) and sufficient points
+        if len(coords_window) >= 10 and (current_time - coords_window[0]["timestamp"]) >= 280:
+            try:
+                from sklearn.cluster import DBSCAN
+                import numpy as np
+
+                points = np.array([[p["lat"], p["lon"]] for p in coords_window])
+                # eps = 0.0005 degrees (~50 meters)
+                clustering = DBSCAN(eps=0.0005, min_samples=10).fit(points)
+
+                labels = clustering.labels_
+                # Check if majority of points form a single cluster
+                if len(labels) > 0:
+                    unique, counts = np.unique(labels[labels != -1], return_counts=True)
+                    if len(counts) > 0 and np.max(counts) >= len(coords_window) * 0.8:
+                        if not state.get("stationary_alerted", False):
+                            alerts.append(self._create_alert(
+                                bus_id,
+                                "STATIONARY",
+                                "Bus stationary (DBSCAN cluster detected) for over 5 minutes",
+                                telemetry
+                            ))
+                            state["stationary_alerted"] = True
+                    else:
+                        state["stationary_alerted"] = False
+                else:
+                    state["stationary_alerted"] = False
+            except ImportError:
+                logger.warning("scikit-learn or numpy not installed. Falling back to speed rule.")
+                if speed < 2.0:
+                    if "stationary_start_time" not in state:
+                        state["stationary_start_time"] = current_time
+                    elif current_time - state["stationary_start_time"] > 300:
+                        alerts.append(self._create_alert(bus_id, "STATIONARY", "Bus stationary for over 5 minutes", telemetry))
+                else:
+                    if "stationary_start_time" in state:
+                        del state["stationary_start_time"]
+            except Exception as e:
+                logger.error(f"DBSCAN clustering failed: {e}")
+                state["stationary_alerted"] = False
         else:
-            if "stationary_start_time" in state:
-                del state["stationary_start_time"]
+             state["stationary_alerted"] = False
 
         state["last_timestamp"] = current_time
         state["last_telemetry"] = dict(telemetry)
