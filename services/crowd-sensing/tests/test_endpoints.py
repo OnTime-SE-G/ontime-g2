@@ -5,9 +5,10 @@ from app.main import app
 
 client = TestClient(app)
 
-@patch("app.api.endpoints.producer")
-def test_submit_crowd_report_success(mock_producer):
-    mock_producer.send = MagicMock()
+@patch("app.api.endpoints.get_kafka_producer")
+def test_submit_crowd_report_success(mock_get_producer):
+    mock_producer = MagicMock()
+    mock_get_producer.return_value = mock_producer
     
     payload = {
         "trip_id": "TRIP_123",
@@ -25,9 +26,10 @@ def test_submit_crowd_report_success(mock_producer):
     assert response.json() == {"status": "accepted"}
     mock_producer.send.assert_called_once()
 
-@patch("app.api.endpoints.producer")
-def test_submit_crowd_report_with_passenger_id(mock_producer):
-    mock_producer.send = MagicMock()
+@patch("app.api.endpoints.get_kafka_producer")
+def test_submit_crowd_report_with_passenger_id(mock_get_producer):
+    mock_producer = MagicMock()
+    mock_get_producer.return_value = mock_producer
     
     payload = {
         "trip_id": "TRIP_123",
@@ -65,8 +67,9 @@ def test_submit_crowd_report_invalid_score():
     # Pydantic validation handles this ge/le constraint
     assert response.status_code == 422
 
-@patch("app.api.endpoints.producer", None)
-def test_submit_crowd_report_broker_unavailable():
+@patch("app.api.endpoints.get_kafka_producer")
+def test_submit_crowd_report_broker_unavailable(mock_get_producer):
+    mock_get_producer.return_value = None
     payload = {
         "trip_id": "TRIP_123",
         "route_id": 1,
