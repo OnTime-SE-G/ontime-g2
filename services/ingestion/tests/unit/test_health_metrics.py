@@ -203,7 +203,8 @@ class TestHealthEndpoints:
         assert payload["counters"]["messages_received"] == 1
         assert payload["counters"]["messages_validated"] == 1
 
-    def test_ready_endpoint_returns_503_when_trip_cache_not_ready(self, health_client):
+    def test_ready_endpoint_returns_503_when_trip_cache_not_ready(self, health_client, monkeypatch):
+        monkeypatch.setattr(health_module.settings, "stateless_mode", False)
         client, collector = health_client
         collector.kafka_broker_up = True
         collector.mqtt_broker_up = True
@@ -219,6 +220,25 @@ class TestHealthEndpoints:
         payload = response.json()
         assert payload["status"] == "degraded"
         assert payload["trip_cache"]["ready"] is False
+        assert payload["trip_cache"]["status"] == "rebuilding"
+
+    def test_ready_endpoint_ignores_trip_cache_when_stateless(self, health_client, monkeypatch):
+        monkeypatch.setattr(health_module.settings, "stateless_mode", True)
+        client, collector = health_client
+        collector.kafka_broker_up = True
+        collector.mqtt_broker_up = True
+        collector.update_trip_cache(
+            status="rebuilding",
+            active_trip_count=0,
+            last_lifecycle_timestamp=None,
+        )
+
+        response = client.get("/health/ready")
+
+        assert response.status_code == 200
+        payload = response.json()
+        assert payload["status"] == "healthy"
+        assert payload["trip_cache"]["ready"] is True
         assert payload["trip_cache"]["status"] == "rebuilding"
 
     def test_health_endpoint_returns_summary_payload(self, health_client):
@@ -237,7 +257,7 @@ class TestHealthEndpoints:
         assert payload["dependencies"]["kafka_broker"] == "up"
         assert payload["dependencies"]["mqtt_broker"] == "down"
         assert payload["dependencies"]["trip_cache"] == "unknown"
-        assert payload["trip_cache"]["ready"] is False
+        assert payload["trip_cache"]["ready"] is True
         assert payload["trip_cache"]["last_lifecycle_event_timestamp"] is None
         assert payload["counters"]["messages_received"] == 1
         assert payload["counters"]["messages_rejected"] == 1

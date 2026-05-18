@@ -14,7 +14,10 @@ import threading
 from dataclasses import dataclass
 from typing import Any, Callable, Mapping
 
+from config import settings
+from db.repository import insert_eta_record
 from models.eta import compute_eta
+from models.inference_router import InferenceOutcome, predict as route_predict
 
 
 ETA_SNAPSHOT_KEY_PREFIX = "eta:trip"
@@ -127,8 +130,12 @@ class EtaFeatureConsumer:
         eta_result: Any,
         *,
         model_used: str,
+        segment_mode: str | None = None,
+        model_version: str | None = None,
+        mlflow_run_id: str | None = None,
     ) -> dict[str, Any]:
         return {
+            "tripId": event.trip_id,
             "busId": event.bus_id,
             "routeId": event.route_id,
             "speed": event.speed_ms,
@@ -142,6 +149,9 @@ class EtaFeatureConsumer:
             "effectiveSpeedMs": eta_result.speed_ms,
             "speedClamped": eta_result.clamped,
             "modelUsed": model_used,
+            "segmentMode": segment_mode,
+            "modelVersion": model_version,
+            "mlflowRunId": mlflow_run_id,
         }
 
     def build_live_event(
@@ -150,6 +160,7 @@ class EtaFeatureConsumer:
         eta_result: Any,
         *,
         model_used: str,
+        model_version: str | None = None,
     ) -> dict[str, Any]:
         stop_name = next(
             (
@@ -168,6 +179,7 @@ class EtaFeatureConsumer:
             "stopName": stop_name,
             "eta_seconds": eta_result.eta_seconds,
             "model_used": model_used,
+            "model_version": model_version,
             "routeProgressPct": event.route_progress_pct,
             "distanceToNextStop": event.distance_to_next_stop,
             "timestamp": event.timestamp,
@@ -187,26 +199,20 @@ class EtaFeatureConsumer:
         stops_remaining: int,
         timestamp: str,
         model_name: str | None = None,
-    ) -> tuple[Any, str]:
-        selected_model = (model_name or self.default_model).lower().strip()
-        if selected_model == "xgboost":
-            try:
-                from models.ml_eta_xgb import predict_eta_xgb
-
-                result = predict_eta_xgb(
-                    distance_m,
-                    speed_ms,
-                    stops_remaining=stops_remaining,
-                    dt=self._parse_timestamp(timestamp),
-                )
-                return result, "xgboost"
-            except Exception as exc:
-                logging.getLogger(__name__).warning(
-                    "XGBoost ETA unavailable, falling back to physics: %s", exc
-                )
-
-        result = self.eta_computer(distance_m, speed_ms)
-        return result, "physics"
+        segment_mode: str = "urban",
+        route_id: str | None = None,
+        stop_id: int | None = None,
+    ) -> InferenceOutcome:
+        return route_predict(
+            distance_m,
+            speed_ms,
+            stops_remaining=stops_remaining,
+            dt=self._parse_timestamp(timestamp),
+            model_name=model_name or self.default_model,
+            segment_mode=segment_mode,
+            route_id=route_id,
+            stop_id=stop_id,
+        )
 
     def process_payload(
         self,
@@ -214,17 +220,46 @@ class EtaFeatureConsumer:
         *,
         model_name: str | None = None,
     ) -> dict[str, Any]:
+        if payload.get("offRoute") is True:
+            return {"skipped": True, "reason": "off_route"}
+
         event = EtaFeatureMessage.from_payload(payload)
-        eta_result, model_used = self._predict_eta(
+        segment_mode = str(payload.get("segmentMode", "urban"))
+        outcome = self._predict_eta(
             event.distance_to_next_stop,
             event.speed_ms,
             stops_remaining=event.stops_remaining,
             timestamp=event.timestamp,
             model_name=model_name,
+            segment_mode=segment_mode,
+            route_id=event.route_id,
+            stop_id=event.next_stop_id,
+        )
+        eta_result = outcome.result
+        model_used = outcome.model_used
+
+        snapshot_payload = self.build_snapshot(
+            event,
+            eta_result,
+            model_used=model_used,
+            segment_mode=outcome.segment_mode,
+            model_version=outcome.model_version,
+            mlflow_run_id=outcome.run_id,
+        )
+        live_event = self.build_live_event(
+            event,
+            eta_result,
+            model_used=model_used,
+            model_version=outcome.model_version,
         )
 
-        snapshot_payload = self.build_snapshot(event, eta_result, model_used=model_used)
-        live_event = self.build_live_event(event, eta_result, model_used=model_used)
+        insert_eta_record(
+            snapshot_payload,
+            stop_id=event.next_stop_id,
+            model_version=outcome.model_version,
+            segment_mode=outcome.segment_mode,
+            off_route=False,
+        )
 
         snapshot_json = json.dumps(snapshot_payload, separators=(",", ":"), sort_keys=True)
         live_event_json = json.dumps(live_event, separators=(",", ":"), sort_keys=True)
@@ -242,6 +277,7 @@ class EtaFeatureConsumer:
             "live_event": live_event,
             "eta_result": eta_result,
             "model_used": model_used,
+            "inference": outcome,
         }
 
     def process_message(self, message: Any) -> dict[str, Any]:

@@ -410,10 +410,55 @@ services:
       flink-taskmanager:
         condition: service_started
 
+  mlflow:
+    image: ghcr.io/mlflow/mlflow:v2.12.1
+    container_name: ontime_mlflow
+    ports:
+      - "${MLFLOW_PORT:-5000}:5000"
+    volumes:
+      - mlflow_artifacts:/mlflow
+    command: >
+      mlflow server
+      --host 0.0.0.0
+      --port 5000
+      --backend-store-uri sqlite:////mlflow/mlflow.db
+      --default-artifact-root /mlflow/artifacts
+    networks:
+      - ontime_network
+
+  eta-service:
+    build:
+      context: ..
+      dockerfile: services/eta-service/Dockerfile
+    container_name: ontime_eta_service
+    ports:
+      - "${ETA_SERVICE_PORT:-8005}:8005"
+    environment:
+      ETA_DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/eta_db
+      ETA_DEFAULT_MODEL: ${ETA_DEFAULT_MODEL:-xgboost}
+      ETA_KAFKA_BROKER_URL: ${ETA_KAFKA_BROKER_URL:-broker:29092}
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MLFLOW_MODEL_ETA: ontime-eta-xgb
+      MLFLOW_MODEL_ETA_URBAN: ontime-eta-xgb-urban
+      MLFLOW_MODEL_ETA_EXPRESSWAY: ontime-eta-xgb-expressway
+      MODEL_STAGE: ${MODEL_STAGE:-Production}
+    volumes:
+      - ../services/eta-service:/app
+      - ../ml:/opt/ontime/ml
+    networks:
+      - ontime_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      kafka-init:
+        condition: service_completed_successfully
+
   anomaly-service:
     build:
-      context: ../services/anomaly-service
-      dockerfile: Dockerfile
+      context: ..
+      dockerfile: services/anomaly-service/Dockerfile
     container_name: ontime_anomaly_service
     ports:
       - "8006:8006"
@@ -433,6 +478,13 @@ services:
       ANOMALY_INACTIVE_TRIP_DLQ_THRESHOLD_COUNT: ${ANOMALY_INACTIVE_TRIP_DLQ_THRESHOLD_COUNT:-3}
       ANOMALY_INACTIVE_TRIP_DLQ_WINDOW_SECONDS: ${ANOMALY_INACTIVE_TRIP_DLQ_WINDOW_SECONDS:-60}
       ANOMALY_INACTIVE_TRIP_DLQ_COOLDOWN_SECONDS: ${ANOMALY_INACTIVE_TRIP_DLQ_COOLDOWN_SECONDS:-300}
+      ANOMALY_DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/anomaly_db
+      ANOMALY_REDIS_HOST: redis
+      ANOMALY_REDIS_PORT: "6379"
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      MODEL_STAGE: ${MODEL_STAGE:-Production}
+    volumes:
+      - ../ml:/opt/ontime/ml
     networks:
       - ontime_network
     depends_on:
@@ -440,6 +492,89 @@ services:
         condition: service_completed_successfully
       route-service:
         condition: service_started
+      mlflow:
+        condition: service_started
+
+  # Optional MLOps stack — not required for live pipeline / ETA / anomaly.
+  # Start with: docker compose --profile mlops up -d mlflow airflow-webserver airflow-scheduler
+  # Lighter alternative: GitHub Actions workflow train_intelligence.yml (manual retrain, no Airflow RAM).
+  airflow-init:
+    profiles: ["mlops"]
+    image: apache/airflow:2.9.1
+    container_name: ontime_airflow_init
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/airflow_db
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      _AIRFLOW_DB_MIGRATE: "true"
+      _AIRFLOW_WWW_USER_CREATE: "true"
+      _AIRFLOW_WWW_USER_USERNAME: ${AIRFLOW_USERNAME:-admin}
+      _AIRFLOW_WWW_USER_PASSWORD: ${AIRFLOW_PASSWORD:-admin}
+    volumes:
+      - ../airflow/dags:/opt/airflow/dags
+      - ../ml:/opt/ontime/ml
+      - ..:/opt/ontime/repo
+    entrypoint: /bin/bash
+    command:
+      - -c
+      - airflow db migrate
+    networks:
+      - ontime_network
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  airflow-webserver:
+    profiles: ["mlops"]
+    image: apache/airflow:2.9.1
+    container_name: ontime_airflow_webserver
+    ports:
+      - "${AIRFLOW_PORT:-8080}:8080"
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/airflow_db
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      ETA_DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/eta_db
+      INFLUXDB_URL: http://influxdb:8086
+      INFLUXDB_TOKEN: ${INFLUXDB_ADMIN_TOKEN:-super_secret_admin_token_123}
+      INFLUXDB_ORG: ${INFLUXDB_INIT_ORG:-ontime}
+      INFLUXDB_BUCKET: ${INFLUXDB_INIT_BUCKET:-telemetry}
+    volumes:
+      - ../airflow/dags:/opt/airflow/dags
+      - ../ml:/opt/ontime/ml
+      - ..:/opt/ontime/repo
+    command: webserver
+    networks:
+      - ontime_network
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+  airflow-scheduler:
+    profiles: ["mlops"]
+    image: apache/airflow:2.9.1
+    container_name: ontime_airflow_scheduler
+    environment:
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/airflow_db
+      AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+      MLFLOW_TRACKING_URI: http://mlflow:5000
+      ETA_DATABASE_URL: postgresql://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-postgres}@postgres:5432/eta_db
+      INFLUXDB_URL: http://influxdb:8086
+      INFLUXDB_TOKEN: ${INFLUXDB_ADMIN_TOKEN:-super_secret_admin_token_123}
+      INFLUXDB_ORG: ${INFLUXDB_INIT_ORG:-ontime}
+      INFLUXDB_BUCKET: ${INFLUXDB_INIT_BUCKET:-telemetry}
+    volumes:
+      - ../airflow/dags:/opt/airflow/dags
+      - ../ml:/opt/ontime/ml
+      - ..:/opt/ontime/repo
+    command: scheduler
+    networks:
+      - ontime_network
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
 
   nodered:
     image: nodered/node-red:latest
@@ -468,6 +603,7 @@ networks:
 
 volumes:
   postgres_data:
+  mlflow_artifacts:
   influxdb_data:
   influxdb_config:
   mosquitto_data:

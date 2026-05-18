@@ -194,7 +194,7 @@ class IngestionSettings(BaseSettings):
     # validation and forward raw JSON to Kafka via `publish_raw_bytes()` instead
     # of performing trip-cache enrichment and stateful validation.
     stateless_mode: bool = Field(
-        default=False,
+        default=True,
         validation_alias=AliasChoices("INGESTION_STATELESS_MODE", "STATELESS_MODE"),
         description="When true, forward validated JSON to Kafka without enrichment",
     )

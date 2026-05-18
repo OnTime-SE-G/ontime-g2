@@ -1,4 +1,7 @@
 CREATE DATABASE fleet_db;
+CREATE DATABASE eta_db;
+CREATE DATABASE mlflow_db;
+CREATE DATABASE airflow_db;
 CREATE DATABASE ontime_test_db;
 
 \connect ontime_db;

@@ -11,6 +11,7 @@ if str(SERVICE_ROOT) not in sys.path:
     sys.path.insert(0, str(SERVICE_ROOT))
 
 from consumer import ETA_LIVE_CHANNEL, EtaFeatureConsumer
+from models.inference_router import InferenceOutcome
 
 
 class FakeRedis:
@@ -161,7 +162,9 @@ def test_process_payload_uses_xgboost_when_available(monkeypatch):
     fake_result = SimpleNamespace(eta_seconds=77.0, speed_ms=1.95, clamped=False)
     monkeypatch.setattr(
         "consumer.EtaFeatureConsumer._predict_eta",
-        lambda self, distance_m, speed_ms, stops_remaining, timestamp, model_name=None: (fake_result, "xgboost"),
+        lambda self, *args, **kwargs: InferenceOutcome(
+            result=fake_result, model_used="xgboost", segment_mode="urban"
+        ),
     )
 
     result = consumer.process_payload(make_payload())
@@ -177,7 +180,11 @@ def test_process_payload_falls_back_to_physics_when_xgboost_fails(monkeypatch):
 
     monkeypatch.setattr(
         "consumer.EtaFeatureConsumer._predict_eta",
-        lambda self, distance_m, speed_ms, stops_remaining, timestamp, model_name=None: (SimpleNamespace(eta_seconds=0.0, speed_ms=speed_ms, clamped=False), "physics"),
+        lambda self, distance_m, speed_ms, **kwargs: InferenceOutcome(
+            result=SimpleNamespace(eta_seconds=0.0, speed_ms=speed_ms, clamped=False),
+            model_used="physics",
+            segment_mode="urban",
+        ),
     )
 
     result = consumer.process_payload(make_payload())

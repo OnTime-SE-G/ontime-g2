@@ -8,6 +8,7 @@ Features:
     day_of_week      — 0 Monday … 6 Sunday
     is_weekend       — 1 if day_of_week >= 5 else 0
     stops_remaining  — 1–20
+    physics_eta      — distance_m / max(speed_ms, 1.4) before traffic multiplier
 
 Target:
     eta_seconds      — physics formula with traffic multiplier + Gaussian noise
@@ -52,8 +53,9 @@ def generate_sample(rng: random.Random) -> dict:
     stops_remaining = rng.randint(1, 20)
 
     effective_speed = max(speed_ms, _MIN_SPEED_MS)
+    physics_eta = distance_m / effective_speed
     multiplier = _traffic_multiplier(hour, dow)
-    base_eta = (distance_m / effective_speed) * multiplier
+    base_eta = physics_eta * multiplier
 
     # Gaussian noise
     noise = rng.gauss(0, base_eta * _NOISE_FRACTION)
@@ -66,6 +68,7 @@ def generate_sample(rng: random.Random) -> dict:
         "day_of_week": dow,
         "is_weekend": is_weekend,
         "stops_remaining": stops_remaining,
+        "physics_eta": round(physics_eta, 2),
         "eta_seconds": round(eta_seconds, 2),
     }
 

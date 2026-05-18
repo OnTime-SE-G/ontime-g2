@@ -97,3 +97,73 @@ def fetch_stops_sync(route_id: str) -> List[Dict]:
     except Exception as exc:
         logger.error("fetch_stops_sync: asyncio.run failed for route %s: %s", route_id, exc)
         return []
+
+
+def fetch_active_trips_sync() -> Dict[str, Dict[str, str]]:
+    """
+    Fetch currently active Fleet trips for Flink startup bootstrap.
+
+    Returns {busId: {tripId, routeId, trip_status}}. Lifecycle Kafka events
+    remain the live source of updates after startup.
+    """
+    import asyncio
+
+    async def _fetch():
+        async with httpx.AsyncClient() as client:
+            try:
+                schedules_response = await client.get(
+                    f"{settings.fleet_service_url}/api/v1/fleet/schedules",
+                    timeout=10.0,
+                )
+                if schedules_response.status_code != 200:
+                    logger.warning(
+                        "fetch_active_trips_sync: schedules returned %s",
+                        schedules_response.status_code,
+                    )
+                    return {}
+
+                schedules = schedules_response.json()
+                schedule_to_route = {
+                    str(schedule.get("id")): str(schedule.get("route_id"))
+                    for schedule in schedules
+                    if schedule.get("id") is not None and schedule.get("route_id") is not None
+                }
+
+                active_by_bus: Dict[str, Dict[str, str]] = {}
+                for status in ("EN_ROUTE", "INCIDENT_REPORTED"):
+                    trips_response = await client.get(
+                        f"{settings.fleet_service_url}/api/v1/fleet/planned-trips",
+                        params={"status": status},
+                        timeout=10.0,
+                    )
+                    if trips_response.status_code != 200:
+                        logger.warning(
+                            "fetch_active_trips_sync: trips status=%s returned %s",
+                            status,
+                            trips_response.status_code,
+                        )
+                        continue
+
+                    for trip in trips_response.json():
+                        bus_id = trip.get("bus_id")
+                        trip_id = trip.get("id")
+                        schedule_id = trip.get("schedule_id")
+                        route_id = schedule_to_route.get(str(schedule_id))
+                        if bus_id is None or trip_id is None or route_id is None:
+                            continue
+                        active_by_bus[str(bus_id)] = {
+                            "tripId": str(trip_id),
+                            "routeId": route_id,
+                            "trip_status": "ACTIVE",
+                        }
+
+                return active_by_bus
+            except Exception as exc:
+                logger.error("fetch_active_trips_sync: request failed: %s", exc)
+                return {}
+
+    try:
+        return asyncio.run(_fetch())
+    except Exception as exc:
+        logger.error("fetch_active_trips_sync: asyncio.run failed: %s", exc)
+        return {}

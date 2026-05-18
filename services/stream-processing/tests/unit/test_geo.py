@@ -1,5 +1,13 @@
+import sys
+from pathlib import Path
+
 import pytest
-from app.utils.geo import calculate_route_progress, get_dist_along_route, haversine_distance
+
+SERVICE_ROOT = Path(__file__).resolve().parents[2]
+if str(SERVICE_ROOT) not in sys.path:
+    sys.path.insert(0, str(SERVICE_ROOT))
+
+from app.utils.geo import calculate_route_progress, distance_to_route, get_dist_along_route, haversine_distance
 
 def test_calculate_route_progress_exact_match():
     # Vertical line from lat 6.0 to 7.0
@@ -72,3 +80,13 @@ def test_get_dist_along_route_empty_returns_zero():
 
 def test_get_dist_along_route_single_point_returns_zero():
     assert get_dist_along_route(6.5, 80.0, [(6.5, 80.0)]) == 0.0
+
+
+def test_distance_to_route_detects_lateral_offset():
+    route_geom = [(6.0, 80.0), (7.0, 80.0)]
+
+    near = distance_to_route(6.5, 80.0001, route_geom)
+    far = distance_to_route(6.5, 80.01, route_geom)
+
+    assert near < 50.0
+    assert far > 50.0

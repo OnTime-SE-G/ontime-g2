@@ -3,6 +3,10 @@ from pathlib import Path
 from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+SERVICE_ROOT = Path(__file__).resolve().parent
+DEFAULT_ISOLATION_FOREST_ARTIFACT_PATH = (
+    SERVICE_ROOT / "models" / "training" / "isolation_forest.joblib"
+)
 
 try:
     REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -55,6 +59,28 @@ class AnomalySettings(BaseSettings):
         default="anomaly-service-dlq-group",
         validation_alias=AliasChoices("ANOMALY_KAFKA_DLQ_GROUP_ID", "KAFKA_DLQ_GROUP_ID"),
         description="Kafka consumer group for DLQ alerts",
+    )
+    anomaly_database_url: str = Field(
+        default="postgresql://postgres:postgres@localhost:5432/anomaly_db",
+        validation_alias=AliasChoices("ANOMALY_DATABASE_URL"),
+        description="SQLAlchemy connection string for anomaly_db",
+    )
+    redis_host: str = Field(
+        default="redis",
+        validation_alias=AliasChoices("ANOMALY_REDIS_HOST", "REDIS_HOST"),
+        description="Redis host for anomaly live Pub/Sub",
+    )
+    redis_port: int = Field(
+        default=6379,
+        ge=1,
+        le=65535,
+        validation_alias=AliasChoices("ANOMALY_REDIS_PORT", "REDIS_PORT"),
+        description="Redis port for anomaly live Pub/Sub",
+    )
+    redis_anomaly_live_channel: str = Field(
+        default="anomaly:live",
+        validation_alias=AliasChoices("ANOMALY_REDIS_LIVE_CHANNEL", "ANOMALY_LIVE_CHANNEL"),
+        description="Redis Pub/Sub channel for anomaly alerts",
     )
     route_service_url: str = Field(
         default="http://route-service:8002",
@@ -117,6 +143,77 @@ class AnomalySettings(BaseSettings):
             "INACTIVE_TRIP_DLQ_COOLDOWN_SECONDS",
         ),
         description="Cooldown after emitting inactive-trip DLQ alert",
+    )
+    off_route_distance_threshold_m: float = Field(
+        default=50.0,
+        ge=0.0,
+        validation_alias=AliasChoices(
+            "ANOMALY_OFF_ROUTE_DISTANCE_THRESHOLD_M",
+            "OFF_ROUTE_DISTANCE_THRESHOLD_M",
+        ),
+        description="Distance from route polyline before a bus is considered off-route",
+    )
+    off_route_streak_window_seconds: int = Field(
+        default=5,
+        ge=1,
+        validation_alias=AliasChoices(
+            "ANOMALY_OFF_ROUTE_STREAK_WINDOW_SECONDS",
+            "OFF_ROUTE_STREAK_WINDOW_SECONDS",
+        ),
+        description="Time window for consecutive off-route readings",
+    )
+    persistent_off_route_threshold: int = Field(
+        default=3,
+        ge=1,
+        validation_alias=AliasChoices(
+            "ANOMALY_PERSISTENT_OFF_ROUTE_THRESHOLD",
+            "PERSISTENT_OFF_ROUTE_THRESHOLD",
+        ),
+        description="Readings in the streak window before PERSISTENT_OFF_ROUTE is emitted",
+    )
+    sliding_window_size: int = Field(
+        default=20,
+        ge=2,
+        validation_alias=AliasChoices(
+            "ANOMALY_SLIDING_WINDOW_SIZE",
+            "SLIDING_WINDOW_SIZE",
+        ),
+        description="Number of recent telemetry pings used for Isolation Forest features",
+    )
+    sliding_window_min_size: int = Field(
+        default=10,
+        ge=2,
+        validation_alias=AliasChoices(
+            "ANOMALY_SLIDING_WINDOW_MIN_SIZE",
+            "SLIDING_WINDOW_MIN_SIZE",
+        ),
+        description="Minimum telemetry pings required before Isolation Forest inference",
+    )
+    behavioral_fallback_speed_variance: float = Field(
+        default=8.0,
+        ge=0.0,
+        validation_alias=AliasChoices("ANOMALY_BEHAVIORAL_FALLBACK_SPEED_VARIANCE"),
+        description="Rule fallback: minimum speed variance for ERRATIC_DRIVING",
+    )
+    behavioral_fallback_heading_variance: float = Field(
+        default=5.0,
+        ge=0.0,
+        validation_alias=AliasChoices("ANOMALY_BEHAVIORAL_FALLBACK_HEADING_VARIANCE"),
+        description="Rule fallback: minimum heading variance for ERRATIC_DRIVING",
+    )
+    behavioral_fallback_max_acceleration: float = Field(
+        default=3.0,
+        ge=0.0,
+        validation_alias=AliasChoices("ANOMALY_BEHAVIORAL_FALLBACK_MAX_ACCELERATION"),
+        description="Rule fallback: max acceleration threshold (m/s^2) for ERRATIC_DRIVING",
+    )
+    isolation_forest_artifact_path: str = Field(
+        default=str(DEFAULT_ISOLATION_FOREST_ARTIFACT_PATH),
+        validation_alias=AliasChoices(
+            "ANOMALY_ISOLATION_FOREST_ARTIFACT_PATH",
+            "ISOLATION_FOREST_ARTIFACT_PATH",
+        ),
+        description="Path to the trained Isolation Forest .joblib artifact",
     )
 
     model_config = SettingsConfigDict(

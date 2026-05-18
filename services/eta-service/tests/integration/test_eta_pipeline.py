@@ -35,68 +35,7 @@ import pytest
 SERVICE_ROOT = Path(__file__).resolve().parents[2]
 if str(SERVICE_ROOT) not in sys.path:
     sys.path.insert(0, str(SERVICE_ROOT))
-    def test_full_pipeline_physics(self):
-        """
-        1. consumer.EtaFeatureConsumer.process_payload() processes message.
-        2. Snapshot is written to Redis with correct structure.
-        3. eta:live is published with consistent ETA.
-        """
-        from consumer import EtaFeatureConsumer
 
-        redis_write = FakeRedis()
-        consumer = EtaFeatureConsumer(redis_write, default_model="physics")
-        consumer.process_payload(ETA_FEATURES_MESSAGE)
-
-        assert len(redis_write.setex_calls) > 0
-        assert len(redis_write.publish_calls) > 0
-
-        # Extract and verify snapshot
-        snapshot_json = None
-        for key, ttl, value in redis_write.setex_calls:
-            if TRIP_ID in key:
-                snapshot_json = value
-                break
-        assert snapshot_json is not None
-        snapshot = json.loads(snapshot_json)
-        assert snapshot["etaSeconds"] >= 0
-
-    def test_full_pipeline_xgboost_fallback_to_physics(self):
-        """XGBoost default should produce valid snapshot and live event."""
-        from consumer import EtaFeatureConsumer
-
-        redis_write = FakeRedis()
-        consumer = EtaFeatureConsumer(redis_write, default_model="xgboost")
-        consumer.process_payload(ETA_FEATURES_MESSAGE)
-
-        assert len(redis_write.setex_calls) > 0
-        assert len(redis_write.publish_calls) > 0
-
-    def test_eta_live_and_snapshot_eta_agree(self):
-        """ETA in snapshot and eta:live must be identical (same computation)."""
-        from consumer import EtaFeatureConsumer
-
-        redis_write = FakeRedis()
-        consumer = EtaFeatureConsumer(redis_write, default_model="physics")
-        consumer.process_payload(ETA_FEATURES_MESSAGE)
-
-        # Get eta from snapshot
-        snapshot_eta = None
-        for key, ttl, value in redis_write.setex_calls:
-            if TRIP_ID in key:
-                snap = json.loads(value)
-                snapshot_eta = snap["etaSeconds"]
-                break
-
-        # Get eta from live event
-        live_eta = None
-        for channel, message in redis_write.publish_calls:
-            if channel == "eta:live":
-                live_eta = json.loads(message)["eta_seconds"]
-                break
-
-        assert snapshot_eta is not None
-        assert live_eta is not None
-        assert snapshot_eta == pytest.approx(live_eta, rel=0.01)
 # ---------------------------------------------------------------------------
 # Shared test data — mirrors the transport-eta-features Kafka message contract
 # ---------------------------------------------------------------------------

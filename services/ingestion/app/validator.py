@@ -97,6 +97,61 @@ def validate_gps_location_payload(raw_bytes: bytes) -> ValidationResult:
     return ValidationResult(success=True, location=location)
 
 
+def validate_gps_schema_only_payload(raw_bytes: bytes) -> ValidationResult:
+    """Validate only JSON shape and field types for CR1 stateless ingestion."""
+    parsed_json, error_result = _parse_payload(raw_bytes)
+    if error_result:
+        return error_result
+
+    if "timestamp" not in parsed_json:
+        return _missing_timestamp_result()
+
+    bus_id = parsed_json.get("busId") or parsed_json.get("bus_id")
+    if bus_id is None or str(bus_id).strip() == "":
+        return ValidationResult(
+            success=False,
+            error_reason="Schema validation failed: busId is required",
+            error_type="SCHEMA_VALIDATION",
+        )
+
+    for field in ("lat", "lon", "speed"):
+        try:
+            float(parsed_json[field])
+        except KeyError:
+            return ValidationResult(
+                success=False,
+                error_reason=f"Schema validation failed: {field} is required",
+                error_type="SCHEMA_VALIDATION",
+            )
+        except (TypeError, ValueError):
+            return ValidationResult(
+                success=False,
+                error_reason=f"Schema validation failed: {field} must be numeric",
+                error_type="SCHEMA_VALIDATION",
+            )
+
+    if "heading" in parsed_json:
+        try:
+            float(parsed_json["heading"])
+        except (TypeError, ValueError):
+            return ValidationResult(
+                success=False,
+                error_reason="Schema validation failed: heading must be numeric",
+                error_type="SCHEMA_VALIDATION",
+            )
+
+    try:
+        datetime.fromisoformat(str(parsed_json["timestamp"]).replace("Z", "+00:00"))
+    except ValueError:
+        return ValidationResult(
+            success=False,
+            error_reason="Schema validation failed: timestamp must be ISO 8601",
+            error_type="SCHEMA_VALIDATION",
+        )
+
+    return ValidationResult(success=True)
+
+
 def validate_gps_payload(raw_bytes: bytes) -> ValidationResult:
     """Validate an enriched GPS telemetry payload without side effects."""
     parsed_json, error_result = _parse_payload(raw_bytes)

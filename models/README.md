@@ -1,13 +1,13 @@
 # Models
 
-This folder stores machine learning artifacts and related metadata.
+Production model artifacts are registered in **MLflow** (`ontime-eta-xgb`, `ontime-anomaly-if-*`, etc.).
 
-## What goes here
+## Local development fallbacks
 
-- Trained model files
-- Feature definitions
-- Model metrics and validation reports
-- Model version notes
+- `services/eta-service/models/training/eta_model_xgb.joblib`
+- `services/anomaly-service/app/models/training/isolation_forest*.joblib`
+
+Shared training contracts and loaders live in [`ml/`](../ml/).
 
 Do not commit very large binary artifacts directly unless agreed by the team.
 
