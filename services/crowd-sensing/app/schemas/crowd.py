@@ -9,6 +9,7 @@ class CrowdReportRequest(BaseModel):
     stop_id: int
     stop_sequence: Optional[int] = None
     occupancy_score: int = Field(..., ge=0, le=100)
+    passenger_id: Optional[str] = Field(None, max_length=128)
     timestamp: datetime
 
 class CrowdPredictionResponse(BaseModel):

@@ -29,6 +29,34 @@ def test_submit_crowd_report_success(mock_producer, mock_validate):
     mock_producer.send.assert_called_once()
 
 @patch("app.api.endpoints.validate_route_stop")
+@patch("app.api.endpoints.producer")
+def test_submit_crowd_report_with_passenger_id(mock_producer, mock_validate):
+    mock_validate.return_value = None
+    mock_producer.send = MagicMock()
+    
+    payload = {
+        "trip_id": "TRIP_123",
+        "route_id": 1,
+        "direction_id": 0,
+        "stop_id": 5,
+        "stop_sequence": 1,
+        "occupancy_score": 50,
+        "passenger_id": "user_123",
+        "timestamp": "2026-05-17T20:00:00"
+    }
+    
+    response = client.post("/api/v1/crowd/report", json=payload)
+    
+    assert response.status_code == 202
+    assert response.json() == {"status": "accepted"}
+    mock_validate.assert_called_once_with(1, 5)
+    mock_producer.send.assert_called_once()
+    # Verify passenger_id was included in the dictionary sent to producer
+    args, kwargs = mock_producer.send.call_args
+    sent_dict = args[1]
+    assert sent_dict["passenger_id"] == "user_123"
+
+@patch("app.api.endpoints.validate_route_stop")
 def test_submit_crowd_report_invalid_score(mock_validate):
     payload = {
         "trip_id": "TRIP_123",
