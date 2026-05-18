@@ -26,9 +26,6 @@ def submit_crowd_report(report: CrowdReportRequest):
     if report.occupancy_score < 0 or report.occupancy_score > 100:
         raise HTTPException(status_code=400, detail="occupancy_score must be between 0 and 100")
     
-    # Validate against route-service to maintain route-stop geographical integrity
-    validate_route_stop(report.route_id, report.stop_id)
-    
     if producer:
         try:
             producer.send(settings.kafka_reports_topic, report.dict())

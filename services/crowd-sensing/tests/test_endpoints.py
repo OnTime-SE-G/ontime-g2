@@ -5,10 +5,8 @@ from app.main import app
 
 client = TestClient(app)
 
-@patch("app.api.endpoints.validate_route_stop")
 @patch("app.api.endpoints.producer")
-def test_submit_crowd_report_success(mock_producer, mock_validate):
-    mock_validate.return_value = None
+def test_submit_crowd_report_success(mock_producer):
     mock_producer.send = MagicMock()
     
     payload = {
@@ -25,13 +23,10 @@ def test_submit_crowd_report_success(mock_producer, mock_validate):
     
     assert response.status_code == 202
     assert response.json() == {"status": "accepted"}
-    mock_validate.assert_called_once_with(1, 5)
     mock_producer.send.assert_called_once()
 
-@patch("app.api.endpoints.validate_route_stop")
 @patch("app.api.endpoints.producer")
-def test_submit_crowd_report_with_passenger_id(mock_producer, mock_validate):
-    mock_validate.return_value = None
+def test_submit_crowd_report_with_passenger_id(mock_producer):
     mock_producer.send = MagicMock()
     
     payload = {
@@ -49,15 +44,13 @@ def test_submit_crowd_report_with_passenger_id(mock_producer, mock_validate):
     
     assert response.status_code == 202
     assert response.json() == {"status": "accepted"}
-    mock_validate.assert_called_once_with(1, 5)
     mock_producer.send.assert_called_once()
     # Verify passenger_id was included in the dictionary sent to producer
     args, kwargs = mock_producer.send.call_args
     sent_dict = args[1]
     assert sent_dict["passenger_id"] == "user_123"
 
-@patch("app.api.endpoints.validate_route_stop")
-def test_submit_crowd_report_invalid_score(mock_validate):
+def test_submit_crowd_report_invalid_score():
     payload = {
         "trip_id": "TRIP_123",
         "route_id": 1,
@@ -72,10 +65,8 @@ def test_submit_crowd_report_invalid_score(mock_validate):
     # Pydantic validation handles this ge/le constraint
     assert response.status_code == 422
 
-@patch("app.api.endpoints.validate_route_stop")
 @patch("app.api.endpoints.producer", None)
-def test_submit_crowd_report_broker_unavailable(mock_validate):
-    mock_validate.return_value = None
+def test_submit_crowd_report_broker_unavailable():
     payload = {
         "trip_id": "TRIP_123",
         "route_id": 1,

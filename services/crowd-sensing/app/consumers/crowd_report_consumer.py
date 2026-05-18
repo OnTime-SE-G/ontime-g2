@@ -9,6 +9,7 @@ from app.database.models import CrowdReport
 from app.schemas.crowd import CrowdReportRequest
 from app.utils.occupancy import score_to_label
 from app.utils.trust_engine import adjust_trust_scores
+from app.utils.validation import validate_route_stop
 
 logger = logging.getLogger(__name__)
 
@@ -54,6 +55,14 @@ class CrowdReportConsumer:
     def _process_message(self, db: Session, payload: dict):
         # Validate using Pydantic
         report = CrowdReportRequest(**payload)
+        
+        # Validate against route-service to maintain route-stop geographical integrity in background worker
+        try:
+            validate_route_stop(report.route_id, report.stop_id)
+        except Exception as e:
+            detail = getattr(e, "detail", str(e))
+            logger.warning(f"Skipping invalid report for route {report.route_id}, stop {report.stop_id}: {detail}")
+            return
         
         # Determine label
         label = score_to_label(report.occupancy_score)
