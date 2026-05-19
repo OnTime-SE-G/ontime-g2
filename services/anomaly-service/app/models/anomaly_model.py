@@ -142,22 +142,22 @@ class AnomalyModel:
         state = self.bus_states.get(bus_id, {})
         coords_window = state.get("coords_window", [])
         coords_window.append({"lat": lat, "lon": lon, "timestamp": current_time})
-        
+
         # Keep last 5 minutes of coordinates
         cutoff_time = current_time - 300 # 5 minutes
         coords_window = [p for p in coords_window if p["timestamp"] >= cutoff_time]
         state["coords_window"] = coords_window
-        
+
         # Run DBSCAN if we have at least 5 minutes of data (or close to it) and sufficient points
         if len(coords_window) >= 10 and (current_time - coords_window[0]["timestamp"]) >= 280:
             try:
                 from sklearn.cluster import DBSCAN
                 import numpy as np
-                
+
                 points = np.array([[p["lat"], p["lon"]] for p in coords_window])
                 # eps = 0.0005 degrees (~50 meters)
                 clustering = DBSCAN(eps=0.0005, min_samples=10).fit(points)
-                
+
                 labels = clustering.labels_
                 # Check if majority of points form a single cluster
                 if len(labels) > 0:
@@ -165,9 +165,9 @@ class AnomalyModel:
                     if len(counts) > 0 and np.max(counts) >= len(coords_window) * 0.8:
                         if not state.get("stationary_alerted", False):
                             alerts.append(self._create_alert(
-                                bus_id, 
-                                "STATIONARY", 
-                                "Bus stationary (DBSCAN cluster detected) for over 5 minutes", 
+                                bus_id,
+                                "STATIONARY",
+                                "Bus stationary (DBSCAN cluster detected) for over 5 minutes",
                                 telemetry
                             ))
                             state["stationary_alerted"] = True

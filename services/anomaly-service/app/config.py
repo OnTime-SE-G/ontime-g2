@@ -97,7 +97,7 @@ class AnomalySettings(BaseSettings):
         validation_alias=AliasChoices("ANOMALY_REDIS_ADMIN_CHANNEL"),
         description="Redis Pub/Sub channel for admin-facing anomaly alerts",
     )
-    
+
     # Audience Targeting Routing Rules
     anomaly_passenger_types: str = Field(
         default="STATIONARY",

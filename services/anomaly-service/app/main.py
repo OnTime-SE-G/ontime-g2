@@ -98,7 +98,7 @@ class AnomalyService:
                 audiences.append(settings.redis_anomaly_driver_channel)
             if anomaly_type in [t.strip() for t in settings.anomaly_passenger_types.split(",") if t.strip()]:
                 audiences.append(settings.redis_anomaly_passenger_channel)
-                
+
             # If no audiences matched (unknown anomaly), default to admin
             if not audiences:
                 audiences.append(settings.redis_anomaly_admin_channel)
@@ -107,7 +107,7 @@ class AnomalyService:
                 settings.kafka_anomaly_topic,
                 json.dumps(alert).encode('utf-8')
             )
-            
+
             # Publish to targeted Redis channels for WebSockets
             if self.redis_client is not None:
                 # Remove duplicates in case a channel is added multiple times
@@ -116,7 +116,7 @@ class AnomalyService:
                         self.redis_client.publish(channel, json.dumps(alert))
                     except Exception as exc:
                         logger.error(f"Redis publish failed for {channel} (non-fatal): {exc}")
-                        
+
             try:
                 from app.models.anomaly_db import insert_alert
 
